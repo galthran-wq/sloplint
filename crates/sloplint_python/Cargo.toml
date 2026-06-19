@@ -1,0 +1,11 @@
+[package]
+name = "sloplint_python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Thin wrappers over Ruff's Python parser: AST + token-stream access and AST normalization."
+
+[dependencies]
+ruff_python_parser.workspace = true
+ruff_python_ast.workspace = true
+ruff_text_size.workspace = true

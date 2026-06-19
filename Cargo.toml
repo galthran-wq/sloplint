@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/galthran-wq/sloplint"
+rust-version = "1.94"
+
+# Ruff's parser crates are not published to crates.io and carry no API-stability
+# guarantee, so we pin to an exact release tag and reuse their full-fidelity AST +
+# token stream. Bump the tag deliberately; do not float it.
+[workspace.dependencies]
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", tag = "0.15.18" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", tag = "0.15.18" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff", tag = "0.15.18" }
+
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+# Internal crates
+sloplint_python = { path = "crates/sloplint_python" }
+sloplint_diagnostics = { path = "crates/sloplint_diagnostics" }
+sloplint_linter = { path = "crates/sloplint_linter" }
+sloplint_clone = { path = "crates/sloplint_clone" }
+sloplint_metrics = { path = "crates/sloplint_metrics" }
+sloplint_report = { path = "crates/sloplint_report" }
+
+[profile.release]
+lto = "thin"

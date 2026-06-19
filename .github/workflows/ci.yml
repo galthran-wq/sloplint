@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build-test:
+    name: build, test, clippy, fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Toolchain version comes from rust-toolchain.toml (pinned for the Ruff deps).
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: build
+        run: cargo build --workspace
+      - name: test
+        run: cargo test --workspace

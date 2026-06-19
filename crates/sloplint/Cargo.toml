@@ -1,0 +1,15 @@
+[package]
+name = "sloplint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A nitpicking linter that counters AI slop in Python. Runs after Ruff."
+
+[[bin]]
+name = "sloplint"
+path = "src/main.rs"
+
+[dependencies]
+sloplint_python.workspace = true
+anyhow.workspace = true
+clap.workspace = true

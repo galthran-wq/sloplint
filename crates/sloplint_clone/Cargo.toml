@@ -1,0 +1,9 @@
+[package]
+name = "sloplint_clone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Clone-detection engine: normalized-AST token winnowing + MinHash/LSH for near-duplicate functions."
+
+[dependencies]
+sloplint_python.workspace = true

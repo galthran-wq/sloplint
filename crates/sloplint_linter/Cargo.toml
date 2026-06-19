@@ -1,0 +1,12 @@
+[package]
+name = "sloplint_linter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The linter crate: all sloplint rules and the core logic for running them (cf. ruff_linter)."
+
+[dependencies]
+sloplint_python.workspace = true
+sloplint_diagnostics.workspace = true
+ruff_python_ast.workspace = true
+ruff_text_size.workspace = true
