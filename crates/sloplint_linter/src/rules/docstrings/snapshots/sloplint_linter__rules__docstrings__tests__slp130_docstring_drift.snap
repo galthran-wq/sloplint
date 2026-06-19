@@ -1,0 +1,9 @@
+---
+source: crates/sloplint_linter/src/rules/docstrings/mod.rs
+expression: rendered
+---
+7:5 SLP130 [warning] function `load` documents `Raises: ValueError` but never raises it — update or drop the docstring section
+16:5 SLP130 [warning] function `configure` documents a `Returns:` section but never returns a value — update or drop the docstring section
+25:5 SLP130 [warning] function `fetch` documents a `Returns:` section but never returns a value — update or drop the docstring section
+36:5 SLP130 [warning] function `validate` documents `Raises: ValueError` but never raises it — update or drop the docstring section
+47:5 SLP130 [warning] function `connect` documents `Raises: ConnectionError` but never raises it — update or drop the docstring section

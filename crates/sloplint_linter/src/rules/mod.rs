@@ -4,5 +4,6 @@
 //! its category's `mod.rs`. Categories are filled in by later PRs.
 
 pub mod comments;
+pub mod docstrings;
 pub mod duplication;
 pub mod structure;

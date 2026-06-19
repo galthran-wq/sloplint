@@ -30,7 +30,9 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060`) are preview — enable with `--preview`.
+(`SLP001/002/040/060/130`) are preview — enable with `--preview`. `SLP130` flags
+docstring drift — a `Raises:` section listing exceptions the body never raises, or a
+`Returns:` section on a function that returns no value (Google/NumPy/Sphinx styles).
 
 ## GitHub Action
 

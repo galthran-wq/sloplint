@@ -71,6 +71,7 @@ impl Registry {
 fn shipped_rules() -> Vec<RegisteredRule> {
     let mut rules = crate::rules::comments::rules();
     rules.extend(crate::rules::structure::rules());
+    rules.extend(crate::rules::docstrings::rules());
     rules
 }
 
