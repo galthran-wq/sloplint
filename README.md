@@ -25,6 +25,8 @@ Patterns that no mainstream linter flags today:
 cargo run -p sloplint -- check path/to/code            # lint (exit 1 on findings)
 cargo run -p sloplint -- check src --format sarif       # SARIF / json / github / text
 cargo run -p sloplint -- metrics src                    # software-quality metrics table
+cargo run -p sloplint -- metrics src --format github     # PR-summary markdown (CC risk tiers)
+cargo run -p sloplint -- metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
 cargo run -p sloplint -- metrics src --badges badges/   # emit SVG + shields-endpoint badges
 cargo run -p sloplint -- parse file.py                  # dump AST + tokens (debug aid)
 ```
