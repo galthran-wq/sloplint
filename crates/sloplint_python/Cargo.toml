@@ -9,3 +9,11 @@ description = "Thin wrappers over Ruff's Python parser: AST + token-stream acces
 ruff_python_parser.workspace = true
 ruff_python_ast.workspace = true
 ruff_text_size.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "parse"
+harness = false
+
