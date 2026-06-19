@@ -39,8 +39,9 @@ pub fn render_diagnostics(source: &str, diagnostics: &[Diagnostic]) -> String {
 }
 
 /// 1-based `(line, column)` for a byte offset. Columns count UTF-8 characters, not bytes,
-/// so non-ASCII source still reports sensible positions.
-fn line_col(source: &str, byte_offset: usize) -> (usize, usize) {
+/// so non-ASCII source still reports sensible positions. Shared with the JSON/SARIF
+/// reporters so all outputs agree on positions.
+pub fn line_col(source: &str, byte_offset: usize) -> (usize, usize) {
     let offset = byte_offset.min(source.len());
     let mut line = 1;
     let mut col = 1;

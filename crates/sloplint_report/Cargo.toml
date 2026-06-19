@@ -3,7 +3,9 @@ name = "sloplint_report"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Output formatters: text, JSON, SARIF, and GitHub-markdown PR tables."
+description = "Output formatters: text, JSON, SARIF, and GitHub-markdown PR summaries."
 
 [dependencies]
 sloplint_diagnostics.workspace = true
+sloplint_python.workspace = true
+serde_json.workspace = true
