@@ -54,6 +54,13 @@ pub struct Limits {
     pub max_identifier_words: usize,
     /// SLP090: maximum `.py` modules directly in one directory before it's "flat fanout".
     pub dir_max_modules: usize,
+    /// SLP003: minimum comment density (comment lines / total lines, 0.0–1.0) a function must
+    /// have to be eligible for the "comment deodorant" smell.
+    pub comment_deodorant_density: f64,
+    /// SLP003: minimum cognitive complexity a function must *also* have for the smell to fire.
+    /// The smell is the *composite* — dense comments over genuinely hard code — never either
+    /// signal alone.
+    pub comment_deodorant_cognitive: usize,
 }
 
 impl Default for Limits {
@@ -63,6 +70,8 @@ impl Default for Limits {
             nesting_max_depth: 4,
             max_identifier_words: 4,
             dir_max_modules: 15,
+            comment_deodorant_density: 0.30,
+            comment_deodorant_cognitive: 10,
         }
     }
 }

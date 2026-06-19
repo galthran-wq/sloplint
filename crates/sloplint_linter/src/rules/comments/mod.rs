@@ -4,8 +4,10 @@
 //! - `SLP050` ASCII-only source (stable).
 //! - `SLP001` redundant "what" comment (preview — heuristic).
 //! - `SLP002` redundant docstring (preview — heuristic).
+//! - `SLP003` comment "deodorant" — dense comments over complex code (preview — heuristic).
 
 pub mod ascii_only;
+pub mod comment_deodorant;
 pub mod comment_policy;
 pub mod redundant_comment;
 pub mod redundant_docstring;
@@ -27,6 +29,9 @@ pub fn rules() -> Vec<RegisteredRule> {
         }),
         RegisteredRule::new("SLP002", RuleGroup::Preview, || {
             Box::new(redundant_docstring::RedundantDocstring)
+        }),
+        RegisteredRule::new("SLP003", RuleGroup::Preview, || {
+            Box::new(comment_deodorant::CommentDeodorant)
         }),
     ]
 }
@@ -59,5 +64,11 @@ mod tests {
         redundant_docstring::RedundantDocstring,
         "comments",
         "SLP002"
+    );
+    test_rule!(
+        slp003_comment_deodorant,
+        comment_deodorant::CommentDeodorant,
+        "comments",
+        "SLP003"
     );
 }

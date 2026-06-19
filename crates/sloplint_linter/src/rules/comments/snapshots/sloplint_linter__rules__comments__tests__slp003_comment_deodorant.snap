@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/comments/mod.rs
+expression: rendered
+---
+7:1 SLP003 [warning] function `process`: 64% comment density over cognitive complexity 16 — comments may be masking unclear code; clarify the code instead
