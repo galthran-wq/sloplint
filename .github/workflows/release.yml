@@ -1,0 +1,51 @@
+# Builds prebuilt sloplint binaries for each platform and attaches them to the GitHub
+# Release when a `v*` tag is pushed. The action downloads these instead of building from
+# source. Cut a release with: `git tag v0.1.0 && git push origin v0.1.0`.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --bin sloplint --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tar -czf "sloplint-${{ matrix.target }}.tar.gz" -C "target/${{ matrix.target }}/release" sloplint
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: 7z a "sloplint-${{ matrix.target }}.zip" "./target/${{ matrix.target }}/release/sloplint.exe"
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sloplint-${{ matrix.target }}.*
+          fail_on_unmatched_files: true
