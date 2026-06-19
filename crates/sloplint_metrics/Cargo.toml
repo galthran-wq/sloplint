@@ -7,3 +7,4 @@ description = "Software-quality metrics (complexity, nesting, LOC, duplication) 
 
 [dependencies]
 sloplint_python.workspace = true
+sloplint_clone.workspace = true

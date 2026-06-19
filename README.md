@@ -27,6 +27,7 @@ cargo run -p sloplint -- check src --format sarif       # SARIF / json / github 
 cargo run -p sloplint -- metrics src                    # software-quality metrics table
 cargo run -p sloplint -- metrics src --format github     # PR-summary markdown (CC risk tiers)
 cargo run -p sloplint -- metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
+cargo run -p sloplint -- metrics src --max-clone-coverage 25 # CI gate: exit 1 if >25% of funcs are clones
 cargo run -p sloplint -- metrics src --badges badges/   # emit SVG + shields-endpoint badges
 cargo run -p sloplint -- parse file.py                  # dump AST + tokens (debug aid)
 ```

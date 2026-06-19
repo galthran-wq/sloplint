@@ -1024,6 +1024,7 @@ dependencies = [
 name = "sloplint_metrics"
 version = "0.1.0"
 dependencies = [
+ "sloplint_clone",
  "sloplint_python",
 ]
 

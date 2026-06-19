@@ -19,6 +19,7 @@ use sloplint_linter::config::{Config, Selector};
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_metrics::badge::{Badge, Color};
+use sloplint_metrics::clone_coverage::{clone_coverage, CloneCoverage};
 use sloplint_metrics::{aggregate, file_metrics, FileMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged, TextRange};
 use sloplint_report::ReportEntry;
@@ -70,6 +71,10 @@ enum Command {
         /// Ruff's `C901`. McCabe recommends a ceiling of 10.
         #[arg(long)]
         max_cyclomatic: Option<usize>,
+        /// Fail (exit 1) if project clone coverage (percent of functions involved in a
+        /// near-duplicate) exceeds this ceiling, e.g. `--max-clone-coverage 25`.
+        #[arg(long)]
+        max_clone_coverage: Option<f64>,
     },
 }
 
@@ -117,9 +122,16 @@ fn main() -> ExitCode {
             format,
             badges,
             max_cyclomatic,
-        } => match run_metrics(&paths, format, badges.as_deref(), max_cyclomatic) {
-            Ok(true) => ExitCode::SUCCESS,  // under the gate (or no gate)
-            Ok(false) => ExitCode::from(1), // a function exceeded --max-cyclomatic
+            max_clone_coverage,
+        } => match run_metrics(
+            &paths,
+            format,
+            badges.as_deref(),
+            max_cyclomatic,
+            max_clone_coverage,
+        ) {
+            Ok(true) => ExitCode::SUCCESS,  // under the gates (or no gate)
+            Ok(false) => ExitCode::from(1), // a metric exceeded its CI ceiling
             Err(err) => tool_error(err),
         },
     }
@@ -427,20 +439,33 @@ fn is_python(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "py")
 }
 
-/// Compute and report software-quality metrics; optionally emit badges and enforce a
-/// cyclomatic-complexity gate. Returns `Ok(false)` only when `max_cyclomatic` is set and some
-/// function exceeds it — the CI gate. Reporting/badge writing always happens first so the
-/// numbers are visible even on a failing gate.
+/// Compute and report software-quality metrics; optionally emit badges and enforce CI gates
+/// (`--max-cyclomatic`, `--max-clone-coverage`). Returns `Ok(false)` when any gate trips.
+/// Reporting/badge writing always happens first so the numbers are visible even on a failure.
 fn run_metrics(
     paths: &[String],
     format: MetricsFormat,
     badges: Option<&str>,
     max_cyclomatic: Option<usize>,
+    max_clone_coverage: Option<f64>,
 ) -> anyhow::Result<bool> {
+    // Clone coverage is reproducible from the `[clone]` config, so it's read from the same
+    // discovered `sloplint.toml` the linter uses.
+    let cwd = env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
+    let config = Config::discover(&cwd)?;
+    let clone_config = CloneConfig {
+        min_statements: config.clone.min_statements,
+        similarity: config.clone.similarity,
+        ..CloneConfig::default()
+    };
+
     let (files, _) = discover_python_files(paths);
     // Keep path + source alongside metrics so the gate can name offending functions with a
     // resolved `path:line` location.
     let mut per_file: Vec<MeasuredFile> = Vec::new();
+    // Clone units across all files (whole-tree), plus each unit's (first, last) line span.
+    let mut units: Vec<FunctionUnit> = Vec::new();
+    let mut unit_spans: Vec<(usize, usize)> = Vec::new();
     for path in files {
         let display = path.to_string_lossy().to_string();
         let Ok(source) = fs::read_to_string(&path) else {
@@ -450,6 +475,10 @@ fn run_metrics(
             continue;
         };
         let metrics = file_metrics(&source, &parsed);
+        for unit in extract_functions(&display, &source, &parsed, clone_config.shingle_k) {
+            unit_spans.push(unit_line_span(&source, unit.range));
+            units.push(unit);
+        }
         per_file.push(MeasuredFile {
             path: display,
             source,
@@ -458,17 +487,20 @@ fn run_metrics(
     }
     let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
     let repo = aggregate(&just_metrics);
+    let coverage = clone_coverage(&units, &unit_spans, &clone_config);
 
     match format {
-        MetricsFormat::Text => print_metrics_table(&repo),
-        MetricsFormat::Json => println!("{}", metrics_json(&repo)),
-        MetricsFormat::Github => println!("{}", metrics_markdown(&repo)),
+        MetricsFormat::Text => print_metrics_table(&repo, &coverage),
+        MetricsFormat::Json => println!("{}", metrics_json(&repo, &coverage)),
+        MetricsFormat::Github => println!("{}", metrics_markdown(&repo, &coverage)),
     }
 
     if let Some(dir) = badges {
-        write_badges(dir, &repo)?;
+        write_badges(dir, &repo, &coverage)?;
     }
 
+    // Evaluate every configured gate (don't short-circuit), then fail if any tripped.
+    let mut passed = true;
     if let Some(ceiling) = max_cyclomatic {
         let offenders = gate_offenders(&per_file, ceiling);
         if !offenders.is_empty() {
@@ -482,10 +514,36 @@ fn run_metrics(
                     offender.location, offender.name, offender.cyclomatic
                 );
             }
-            return Ok(false);
+            passed = false;
         }
     }
-    Ok(true)
+    if let Some(ceiling) = max_clone_coverage {
+        if !ceiling.is_finite() || ceiling < 0.0 {
+            return Err(anyhow!(
+                "--max-clone-coverage must be a non-negative percentage, got {ceiling}"
+            ));
+        }
+        let pct = coverage.coverage_funcs() * 100.0;
+        if pct > ceiling {
+            eprintln!(
+                "sloplint: clone coverage {pct:.1}% ({}/{} functions) exceeds the ceiling of \
+                 {ceiling:.1}%",
+                coverage.clone_functions, coverage.total_functions
+            );
+            passed = false;
+        }
+    }
+    Ok(passed)
+}
+
+/// Inclusive 1-based `(first_line, last_line)` of `range` within `source` — the line span the
+/// clone-coverage metric unions per file.
+fn unit_line_span(source: &str, range: TextRange) -> (usize, usize) {
+    let start = u32::from(range.start());
+    let end = u32::from(range.end());
+    let first = line_of(source, start);
+    let last = line_of(source, end.saturating_sub(1).max(start));
+    (first, last)
 }
 
 /// A measured file: its display path, source, and per-function metrics.
@@ -523,7 +581,7 @@ fn gate_offenders(per_file: &[MeasuredFile], ceiling: usize) -> Vec<GateOffender
     offenders
 }
 
-fn print_metrics_table(repo: &RepoMetrics) {
+fn print_metrics_table(repo: &RepoMetrics, coverage: &CloneCoverage) {
     println!("sloplint metrics");
     println!("  files               {}", repo.files);
     println!("  functions           {}", repo.functions);
@@ -541,9 +599,16 @@ fn print_metrics_table(repo: &RepoMetrics) {
     println!("  max cognitive       {}", repo.max_cognitive);
     println!("  max nesting         {}", repo.max_nesting);
     println!("  comment density     {:.1}%", repo.comment_density * 100.0);
+    println!(
+        "  clone coverage      {:.1}% funcs ({}/{}), {:.1}% lines",
+        coverage.coverage_funcs() * 100.0,
+        coverage.clone_functions,
+        coverage.total_functions,
+        coverage.coverage_lines() * 100.0,
+    );
 }
 
-fn metrics_json(repo: &RepoMetrics) -> String {
+fn metrics_json(repo: &RepoMetrics, coverage: &CloneCoverage) -> String {
     serde_json::to_string_pretty(&serde_json::json!({
         "files": repo.files,
         "functions": repo.functions,
@@ -562,18 +627,33 @@ fn metrics_json(repo: &RepoMetrics) -> String {
         "max_cognitive": repo.max_cognitive,
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
+        "clone_coverage": {
+            "coverage_funcs": coverage.coverage_funcs(),
+            "coverage_lines": coverage.coverage_lines(),
+            "clone_functions": coverage.clone_functions,
+            "total_functions": coverage.total_functions,
+            "clone_function_lines": coverage.clone_function_lines,
+            "total_function_lines": coverage.total_function_lines,
+            "clone_pairs": coverage.clone_pairs,
+            "min_statements": coverage.min_statements,
+            "similarity": coverage.similarity,
+        },
     }))
     .unwrap()
 }
 
-/// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from
-/// `sloplint_metrics`, under a heading. Pairs with the `cyclomatic-risk` badge.
-fn metrics_markdown(repo: &RepoMetrics) -> String {
-    format!("### sloplint metrics\n\n{}", repo.cyclomatic_markdown())
+/// GitHub-flavored markdown for the PR summary: the cyclomatic risk block plus the
+/// clone-coverage line. Pairs with the metric badges.
+fn metrics_markdown(repo: &RepoMetrics, coverage: &CloneCoverage) -> String {
+    format!(
+        "### sloplint metrics\n\n{}\n{}",
+        repo.cyclomatic_markdown(),
+        coverage.markdown()
+    )
 }
 
 /// Badges for the headline metrics, each with a "lower is better" color threshold.
-fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
+fn metric_badges(repo: &RepoMetrics, coverage: &CloneCoverage) -> Vec<(&'static str, Badge)> {
     vec![
         (
             "avg-function-loc",
@@ -617,12 +697,14 @@ fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
                 Color::for_value(repo.comment_density * 100.0, 20.0, 40.0),
             ),
         ),
+        // Project-level clone coverage (issue #9): green <10%, yellow <25%, red at/above.
+        ("clone-coverage", coverage.badge()),
     ]
 }
 
-fn write_badges(dir: &str, repo: &RepoMetrics) -> anyhow::Result<()> {
+fn write_badges(dir: &str, repo: &RepoMetrics, coverage: &CloneCoverage) -> anyhow::Result<()> {
     fs::create_dir_all(dir).map_err(|e| anyhow!("creating {dir}: {e}"))?;
-    let badges = metric_badges(repo);
+    let badges = metric_badges(repo, coverage);
     for (slug, badge) in &badges {
         let svg_path = Path::new(dir).join(format!("{slug}.svg"));
         let json_path = Path::new(dir).join(format!("{slug}.json"));
