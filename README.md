@@ -17,6 +17,8 @@ Patterns that no mainstream linter flags today:
   slightly different" (the flagship clone engine).
 - Redundant type hints, overly defensive `try/except`, verbose mechanical naming.
 - ASCII-only enforcement (no emoji), deep-nesting caps, oversized files, flat-directory fanout.
+- **Deeply nested data-structure literals** — a dict-of-lists-of-dicts inline blob past a
+  configurable depth, distinct from control-flow nesting (model it with a named type).
 - Software-quality-metric **badges** + a per-PR summary, via a GitHub Action.
 
 ## Usage
@@ -30,7 +32,7 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060`) are preview — enable with `--preview`.
+(`SLP001/002/040/060/084`) are preview — enable with `--preview`.
 
 ## GitHub Action
 

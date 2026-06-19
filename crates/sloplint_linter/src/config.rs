@@ -50,6 +50,8 @@ pub struct Limits {
     pub file_max_lines: usize,
     /// SLP082: maximum nesting depth allowed inside one function.
     pub nesting_max_depth: usize,
+    /// SLP084: maximum nesting depth of a single data-structure literal/comprehension.
+    pub data_nesting_max_depth: usize,
     /// SLP060: maximum words in an identifier before it's "verbose" (preview).
     pub max_identifier_words: usize,
     /// SLP090: maximum `.py` modules directly in one directory before it's "flat fanout".
@@ -61,6 +63,7 @@ impl Default for Limits {
         Self {
             file_max_lines: 400,
             nesting_max_depth: 4,
+            data_nesting_max_depth: 3,
             max_identifier_words: 4,
             dir_max_modules: 15,
         }

@@ -1,0 +1,8 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+3:10 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
+5:10 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
+7:10 SLP084 [warning] data-structure literal nested 5 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
+11:9 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
