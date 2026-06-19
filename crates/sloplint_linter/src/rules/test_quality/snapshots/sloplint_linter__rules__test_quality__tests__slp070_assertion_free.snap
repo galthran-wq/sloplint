@@ -1,0 +1,9 @@
+---
+source: crates/sloplint_linter/src/rules/test_quality/mod.rs
+expression: rendered
+---
+3:5 SLP070 [warning] test `test_runs_but_asserts_nothing` runs code but asserts nothing
+8:5 SLP070 [warning] every assertion in test `test_assert_true` checks only constants — it verifies nothing about the code under test
+13:5 SLP070 [warning] every assertion in test `test_tautological_compare` checks only constants — it verifies nothing about the code under test
+18:5 SLP070 [warning] every assertion in test `test_assert_on_local_literal` checks only constants — it verifies nothing about the code under test
+24:9 SLP070 [warning] test `test_no_assert` runs code but asserts nothing

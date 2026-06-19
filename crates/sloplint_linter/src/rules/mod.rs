@@ -6,3 +6,4 @@
 pub mod comments;
 pub mod duplication;
 pub mod structure;
+pub mod test_quality;
