@@ -27,6 +27,15 @@ pub struct CloneConfig {
     pub num_hashes: usize,
     /// Number of LSH bands. More bands = more candidates = higher recall, more work.
     pub bands: usize,
+    /// Opt-in (preview): also detect Type-3 "gapped" clones — functions with the same
+    /// statements reordered, or with a few inserted/removed — via the unordered statement bag.
+    /// Off by default so Type-1/2 precision is unaffected. The unordered bag trades precision
+    /// for recall: distinct functions built from the same statement *shapes* can read as
+    /// similar, so this is a lower-confidence band.
+    pub detect_gapped: bool,
+    /// Statement-bag Jaccard at/above which two functions are reported as a gapped clone. A
+    /// separate, typically lower threshold from `similarity`; only used when `detect_gapped`.
+    pub gapped_similarity: f64,
 }
 
 impl Default for CloneConfig {
@@ -37,6 +46,8 @@ impl Default for CloneConfig {
             shingle_k: 4,
             num_hashes: 64,
             bands: 16,
+            detect_gapped: false,
+            gapped_similarity: 0.8,
         }
     }
 }
@@ -51,27 +62,27 @@ pub struct ClonePair {
 }
 
 /// Find near-duplicate functions among `units`. Returns confirmed pairs, sorted for
-/// determinism. Functions below `min_statements`, or with no shingles, are ignored.
+/// determinism. Functions below `min_statements`, or with an empty signature, are ignored.
+///
+/// Always runs the high-precision *ordered* shingle pass (Type-1/2 + shallow Type-3). When
+/// `config.detect_gapped` is set, it also runs an *unordered* statement-bag pass that catches
+/// reordered / gap-edited (Type-3) clones the ordered pass misses, and unions the results —
+/// so with the default config the result is byte-identical to the ordered pass alone.
 pub fn find_clones(units: &[FunctionUnit], config: &CloneConfig) -> Vec<ClonePair> {
-    // Eligible units only — keep their original indices so callers can map back.
-    let eligible: Vec<usize> = (0..units.len())
-        .filter(|&i| units[i].statements >= config.min_statements && !units[i].shingles.is_empty())
-        .collect();
+    let mut pairs = find_pairs(units, config, config.similarity, |unit| &unit.shingles);
 
-    let signatures: HashMap<usize, Vec<u64>> = eligible
-        .iter()
-        .map(|&i| (i, min_hash(&units[i].shingles, config.num_hashes)))
-        .collect();
-
-    let candidates = lsh_candidates(&eligible, &signatures, config);
-
-    let mut pairs: Vec<ClonePair> = candidates
-        .into_iter()
-        .filter_map(|(a, b)| {
-            let similarity = jaccard(&units[a].shingles, &units[b].shingles);
-            (similarity >= config.similarity).then_some(ClonePair { a, b, similarity })
-        })
-        .collect();
+    if config.detect_gapped {
+        let mut seen: HashSet<(usize, usize)> = pairs.iter().map(|p| (p.a, p.b)).collect();
+        // Add only pairs the ordered pass didn't already report; keep the ordered (higher-
+        // confidence) similarity when a pair is found by both.
+        for pair in find_pairs(units, config, config.gapped_similarity, |unit| {
+            &unit.statement_set
+        }) {
+            if seen.insert((pair.a, pair.b)) {
+                pairs.push(pair);
+            }
+        }
+    }
 
     // Deterministic order: by position, then similarity.
     pairs.sort_by(|p, q| {
@@ -80,6 +91,36 @@ pub fn find_clones(units: &[FunctionUnit], config: &CloneConfig) -> Vec<ClonePai
             .then(p.similarity.total_cmp(&q.similarity))
     });
     pairs
+}
+
+/// MinHash + LSH + exact-Jaccard confirm over the signature selected by `signature`, reporting
+/// pairs at/above `threshold`. Eligibility uses `min_statements` and a non-empty signature.
+fn find_pairs(
+    units: &[FunctionUnit],
+    config: &CloneConfig,
+    threshold: f64,
+    signature: impl Fn(&FunctionUnit) -> &HashSet<u64>,
+) -> Vec<ClonePair> {
+    let eligible: Vec<usize> = (0..units.len())
+        .filter(|&i| {
+            units[i].statements >= config.min_statements && !signature(&units[i]).is_empty()
+        })
+        .collect();
+
+    let signatures: HashMap<usize, Vec<u64>> = eligible
+        .iter()
+        .map(|&i| (i, min_hash(signature(&units[i]), config.num_hashes)))
+        .collect();
+
+    let candidates = lsh_candidates(&eligible, &signatures, config);
+
+    candidates
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let similarity = jaccard(signature(&units[a]), signature(&units[b]));
+            (similarity >= threshold).then_some(ClonePair { a, b, similarity })
+        })
+        .collect()
 }
 
 /// MinHash signature: for each hash function, the minimum hashed shingle. The fraction of
@@ -246,5 +287,91 @@ def beta(rows):
         let second = find_clones(&units, &CloneConfig::default());
         assert_eq!(first, second, "results must be deterministic");
         assert_eq!(first.len(), 1);
+    }
+
+    fn gapped() -> CloneConfig {
+        CloneConfig {
+            detect_gapped: true,
+            ..CloneConfig::default()
+        }
+    }
+
+    #[test]
+    fn reordered_statements_caught_only_with_gapped() {
+        // Same statements, reordered (the `seen`/`total` lines swapped, and swapped again
+        // inside the loop) — a Type-3 clone the ordered shingle pass misses.
+        let source = "\
+def alpha(rows):
+    total = 0
+    seen = set()
+    for row in rows:
+        total += row.value
+        seen.add(row.id)
+    ratio = total / len(seen)
+    return ratio
+
+def beta(rows):
+    seen = set()
+    total = 0
+    for row in rows:
+        seen.add(row.id)
+        total += row.value
+    ratio = total / len(seen)
+    return ratio
+";
+        let units = units_from("a.py", source);
+        assert!(
+            find_clones(&units, &CloneConfig::default()).is_empty(),
+            "the ordered pass misses the reordering"
+        );
+        assert_eq!(
+            find_clones(&units, &gapped()).len(),
+            1,
+            "the statement-bag pass catches it"
+        );
+    }
+
+    #[test]
+    fn inserted_statement_caught_with_gapped() {
+        // `padded` is `compute` with one extra statement spliced in — a gapped clone.
+        let source = "\
+def compute(xs):
+    total = 0
+    biggest = 0
+    for x in xs:
+        total += x
+        biggest = max(biggest, x)
+    return total, biggest
+
+def padded(xs):
+    total = 0
+    biggest = 0
+    for x in xs:
+        total += x
+        log(x)
+        biggest = max(biggest, x)
+    return total, biggest
+";
+        let units = units_from("a.py", source);
+        assert_eq!(find_clones(&units, &gapped()).len(), 1);
+    }
+
+    #[test]
+    fn gapped_does_not_pair_unrelated_functions() {
+        // Precision: enabling gapped detection must not invent clones among unrelated code.
+        let source = "\
+def normalize(values):
+    total = sum(values)
+    if total == 0:
+        return values
+    return [v / total for v in values]
+
+def parse_config(path):
+    with open(path) as handle:
+        data = handle.read()
+    return data.strip().splitlines()
+";
+        let units = units_from("a.py", source);
+        assert!(find_clones(&units, &gapped()).is_empty());
     }
 }

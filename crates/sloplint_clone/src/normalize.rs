@@ -23,8 +23,14 @@ pub struct FunctionUnit {
     pub range: TextRange,
     /// Statement count (incl. nested), the size guard against trivially-similar tiny funcs.
     pub statements: usize,
-    /// Set of hashed k-gram shingles over the normalized symbol stream.
+    /// Set of hashed k-gram shingles over the normalized symbol stream. The *ordered*
+    /// signature — sensitive to statement order, the basis of high-precision Type-1/2 (and
+    /// shallow Type-3) detection.
     pub shingles: HashSet<u64>,
+    /// Set of per-logical-line normalized hashes — an *unordered* statement bag, independent
+    /// of statement order and nesting depth. Degrades gracefully under reordering and inserted
+    /// or deleted statements (Type-3 "gapped"); used only when gapped detection is enabled.
+    pub statement_set: HashSet<u64>,
 }
 
 // Fixed symbols for normalized token classes. Distinct from operator/keyword hashes, which
@@ -54,12 +60,20 @@ pub fn extract_functions(
         .into_iter()
         .map(|function| {
             let symbols = normalized_symbols(source, function.range(), parsed);
+            // The statement bag is computed over the body only (from the first body statement
+            // onward), so the `def NAME(params):` header / decorators don't add a shared
+            // element that two same-arity functions would match on.
+            let body_range = function.body.first().map_or(function.range(), |first| {
+                TextRange::new(first.range().start(), function.range().end())
+            });
+            let body_symbols = normalized_symbols(source, body_range, parsed);
             FunctionUnit {
                 file: file.to_string(),
                 name: function.name.to_string(),
                 range: function.range(),
                 statements: count_statements(&function.body),
                 shingles: shingle(&symbols, shingle_k),
+                statement_set: statement_set(&body_symbols),
             }
         })
         .collect()
@@ -120,6 +134,32 @@ fn shingle(symbols: &[u64], k: usize) -> HashSet<u64> {
         shingles.insert(hash_window(window));
     }
     shingles
+}
+
+/// Hash each *logical line* of the normalized stream into a set — an unordered bag of
+/// statements. Lines are split on `NEWLINE`; the `INDENT`/`DEDENT` nesting markers are
+/// dropped so a statement hashes the same regardless of how deeply it's nested. Reordering
+/// statements leaves the set unchanged; inserting/removing one changes it by a single
+/// element, so similarity degrades gracefully (the Type-3 "gapped" signal).
+fn statement_set(symbols: &[u64]) -> HashSet<u64> {
+    let mut set = HashSet::new();
+    let mut line = Vec::new();
+    for &sym in symbols {
+        match sym {
+            SYM_NEWLINE => {
+                if !line.is_empty() {
+                    set.insert(hash_window(&line));
+                    line.clear();
+                }
+            }
+            SYM_INDENT | SYM_DEDENT => {}
+            other => line.push(other),
+        }
+    }
+    if !line.is_empty() {
+        set.insert(hash_window(&line));
+    }
+    set
 }
 
 fn hash_window(window: &[u64]) -> u64 {

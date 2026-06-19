@@ -14,7 +14,8 @@ Patterns that no mainstream linter flags today:
 - Redundant "what" comments & docstrings that just restate the code (default: comments are
   **banned**, configurable per-path).
 - **Cross-file duplicated / near-duplicate functions** — copy-paste *and* "same logic,
-  slightly different" (the flagship clone engine).
+  slightly different" (the flagship clone engine). Opt into Type-3 "gapped" detection
+  (reordered / gap-edited clones) with `[clone] detect_gapped = true` in `sloplint.toml`.
 - Redundant type hints, overly defensive `try/except`, verbose mechanical naming.
 - ASCII-only enforcement (no emoji), deep-nesting caps, oversized files, flat-directory fanout.
 - Software-quality-metric **badges** + a per-PR summary, via a GitHub Action.

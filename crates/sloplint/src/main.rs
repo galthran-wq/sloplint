@@ -168,6 +168,8 @@ fn run_check(
     let clone_config = CloneConfig {
         min_statements: config.clone.min_statements,
         similarity: config.clone.similarity,
+        detect_gapped: config.clone.detect_gapped,
+        gapped_similarity: config.clone.gapped_similarity,
         ..CloneConfig::default()
     };
 
