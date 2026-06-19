@@ -8,7 +8,10 @@
 pub mod badge;
 
 use badge::{Badge, Color};
-use sloplint_python::ast::{ExceptHandler, ModModule, Parameters, Stmt, StmtFunctionDef};
+use sloplint_python::ast::visitor::{self, Visitor};
+use sloplint_python::ast::{
+    Comprehension, ExceptHandler, Expr, ModModule, Parameters, Stmt, StmtFunctionDef,
+};
 use sloplint_python::parser::Parsed;
 use sloplint_python::{Ranged, TextRange, TokenKind};
 
@@ -270,7 +273,7 @@ fn function_metrics(
         name_range: function.name.range(),
         loc: line_span(source, function.range()),
         cyclomatic: cyclomatic(parsed, function.range(), nested),
-        cognitive: cognitive(&function.body, 0),
+        cognitive: cognitive(&function.body),
         max_nesting: max_nesting(&function.body, 0),
         params: param_count(&function.parameters),
     }
@@ -355,55 +358,156 @@ fn is_branch_token(kind: TokenKind) -> bool {
     )
 }
 
-/// Cognitive complexity: each control structure adds `1 + nesting`, and nesting deepens as
-/// we descend. A flattened structure scores lower than a deeply nested one of equal size.
-fn cognitive(body: &[Stmt], depth: usize) -> usize {
-    let mut score = 0;
-    for stmt in body {
+/// Cognitive complexity (SonarSource, Campbell 2018) — a readability-oriented complement to
+/// cyclomatic complexity that *penalizes nesting* and ignores shorthand that aids reading. The
+/// headline difference from CC: a flat `match` of N cases scores 1 (you read the cases
+/// linearly), while N deeply-nested `if`s score far higher.
+///
+/// Documented increment rules (the exact ruleset this targets):
+/// - **+1 plus the current nesting level** for each: `if`, `for`, `while`, `except` handler,
+///   ternary (`x if c else y`), and a `match` statement — counted **once**, not per `case`.
+/// - **+1 flat** (no nesting) for each: `elif`, `else`, and each boolean-operator *sequence*
+///   (one `and`/`or` chain is one `BoolOp` node = +1; `a and b or c` is two sequences = +2).
+/// - **+1 plus nesting** for each comprehension `if` filter.
+/// - **Nesting deepens by one** inside the body of `if`/`elif`/`else`, `for`/`while` (and their
+///   `else`), `except`, and each `match` case.
+/// - **No increment and no nesting change** for `try`, `with`, `finally`, and nested
+///   function/class declarations (a nested function is measured on its own).
+///
+/// Boolean ops / ternaries in any condition position are scored — `if`/`while` tests, `for`
+/// iterables, `match` subjects and case guards, `with`-item context expressions, and simple
+/// statements.
+///
+/// Documented simplification vs. the full spec: nesting is tracked at the *statement* level —
+/// a ternary or boolean op nested inside another expression is scored at its enclosing
+/// statement's nesting rather than accruing extra intra-expression nesting. The comprehension
+/// generator itself is not counted (only its `if` filters).
+fn cognitive(body: &[Stmt]) -> usize {
+    let mut scorer = Cognitive::default();
+    scorer.block(body, 0);
+    scorer.score
+}
+
+#[derive(Default)]
+struct Cognitive {
+    score: usize,
+}
+
+impl Cognitive {
+    fn block(&mut self, body: &[Stmt], nesting: usize) {
+        for stmt in body {
+            self.stmt(stmt, nesting);
+        }
+    }
+
+    fn stmt(&mut self, stmt: &Stmt, nesting: usize) {
         match stmt {
             Stmt::If(node) => {
-                score += 1 + depth;
-                score += cognitive(&node.body, depth + 1);
+                self.score += 1 + nesting;
+                self.expr(&node.test, nesting);
+                self.block(&node.body, nesting + 1);
                 for clause in &node.elif_else_clauses {
-                    // `elif`/`else` each add a small flat increment.
-                    score += 1;
-                    score += cognitive(&clause.body, depth + 1);
+                    // `elif`/`else`: a flat increment, no nesting penalty.
+                    self.score += 1;
+                    if let Some(test) = &clause.test {
+                        self.expr(test, nesting);
+                    }
+                    self.block(&clause.body, nesting + 1);
                 }
             }
             Stmt::For(node) => {
-                score += 1 + depth;
-                score += cognitive(&node.body, depth + 1);
-                score += cognitive(&node.orelse, depth + 1);
+                self.score += 1 + nesting;
+                self.expr(&node.iter, nesting);
+                self.block(&node.body, nesting + 1);
+                self.block(&node.orelse, nesting + 1);
             }
             Stmt::While(node) => {
-                score += 1 + depth;
-                score += cognitive(&node.body, depth + 1);
-                score += cognitive(&node.orelse, depth + 1);
+                self.score += 1 + nesting;
+                self.expr(&node.test, nesting);
+                self.block(&node.body, nesting + 1);
+                self.block(&node.orelse, nesting + 1);
             }
             Stmt::Try(node) => {
-                score += cognitive(&node.body, depth);
+                // `try`/`finally` are not flow breaks: no increment, no nesting change.
+                self.block(&node.body, nesting);
                 for handler in &node.handlers {
                     let ExceptHandler::ExceptHandler(handler) = handler;
-                    score += 1 + depth;
-                    score += cognitive(&handler.body, depth + 1);
+                    self.score += 1 + nesting;
+                    self.block(&handler.body, nesting + 1);
                 }
-                score += cognitive(&node.orelse, depth + 1);
-                score += cognitive(&node.finalbody, depth);
+                self.block(&node.orelse, nesting);
+                self.block(&node.finalbody, nesting);
             }
-            Stmt::With(node) => score += cognitive(&node.body, depth + 1),
-            // A nested function is measured on its own; don't fold its score into ours.
+            // `with` is not a flow break, but its context expressions can still hold boolean
+            // ops / ternaries that count.
+            Stmt::With(node) => {
+                for item in &node.items {
+                    self.expr(&item.context_expr, nesting);
+                }
+                self.block(&node.body, nesting);
+            }
+            // A nested function is measured on its own.
             Stmt::FunctionDef(_) => {}
-            Stmt::ClassDef(node) => score += cognitive(&node.body, depth),
+            Stmt::ClassDef(node) => self.block(&node.body, nesting),
             Stmt::Match(node) => {
+                self.expr(&node.subject, nesting);
+                // The whole `match` is one structure read top-to-bottom — counted ONCE.
+                self.score += 1 + nesting;
                 for case in &node.cases {
-                    score += 1 + depth;
-                    score += cognitive(&case.body, depth + 1);
+                    // A `case ... if guard:` guard is a condition; score its expression-level
+                    // increments (boolean ops / ternaries).
+                    if let Some(guard) = &case.guard {
+                        self.expr(guard, nesting);
+                    }
+                    self.block(&case.body, nesting + 1);
                 }
             }
-            _ => {}
+            // Simple statement: score the boolean ops / ternaries / comprehensions it contains.
+            other => self.scan(other, nesting),
         }
     }
-    score
+
+    /// Add the expression-level increments inside a compound statement's condition `expr`.
+    fn expr(&mut self, expr: &Expr, nesting: usize) {
+        let mut scan = Scan { score: 0, nesting };
+        scan.visit_expr(expr);
+        self.score += scan.score;
+    }
+
+    /// Add the expression-level increments across a whole simple statement.
+    fn scan(&mut self, stmt: &Stmt, nesting: usize) {
+        let mut scan = Scan { score: 0, nesting };
+        scan.visit_stmt(stmt);
+        self.score += scan.score;
+    }
+}
+
+/// Walks an expression tree adding the cognitive increments that live in expressions: each
+/// boolean-op sequence (+1), each ternary (+1+nesting), each comprehension `if` filter
+/// (+1+nesting). Nesting is fixed for the walk (the documented statement-level simplification).
+struct Scan {
+    score: usize,
+    nesting: usize,
+}
+
+impl<'a> Visitor<'a> for Scan {
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        match expr {
+            Expr::BoolOp(_) => self.score += 1,
+            Expr::If(_) => self.score += 1 + self.nesting,
+            Expr::ListComp(comp) => self.score += comp_filters(&comp.generators, self.nesting),
+            Expr::SetComp(comp) => self.score += comp_filters(&comp.generators, self.nesting),
+            Expr::DictComp(comp) => self.score += comp_filters(&comp.generators, self.nesting),
+            Expr::Generator(comp) => self.score += comp_filters(&comp.generators, self.nesting),
+            _ => {}
+        }
+        visitor::walk_expr(self, expr);
+    }
+}
+
+fn comp_filters(generators: &[Comprehension], nesting: usize) -> usize {
+    let filters: usize = generators.iter().map(|g| g.ifs.len()).sum();
+    filters * (1 + nesting)
 }
 
 fn max_nesting(body: &[Stmt], depth: usize) -> usize {
@@ -491,6 +595,132 @@ mod tests {
 
     fn metrics(source: &str) -> FileMetrics {
         file_metrics(source, &parse(source).unwrap())
+    }
+
+    /// Cognitive complexity of the first function in `source`.
+    fn cog(source: &str) -> usize {
+        metrics(source).functions[0].cognitive
+    }
+
+    #[test]
+    fn flat_match_scores_far_below_a_nested_tangle() {
+        // The headline of SonarSource cognitive complexity: a flat `match` is read linearly.
+        let flat = "\
+def classify(x):
+    match x:
+        case 1:
+            return \"one\"
+        case 2:
+            return \"two\"
+        case 3:
+            return \"three\"
+        case _:
+            return \"other\"
+";
+        // The whole match is one structure (+1), counted once regardless of case count.
+        assert_eq!(cog(flat), 1);
+
+        let tangle = "\
+def tangle(a, b, c):
+    if a:
+        if b:
+            if c:
+                return 1
+    return 0
+";
+        // if(1+0) + if(1+1) + if(1+2) = 6 — nesting is penalized.
+        assert_eq!(cog(tangle), 6);
+    }
+
+    #[test]
+    fn boolean_operator_sequences_each_add_one() {
+        // `a and b and c` is one And sequence (+1); `a and b or c` is two sequences (+2).
+        let source = "\
+def f(a, b, c):
+    if a and b and c:
+        return 1
+    if a and b or c:
+        return 2
+    return 0
+";
+        // if(1) + 1 boolop  +  if(1) + 2 boolops  = 2 + 3 = 5
+        assert_eq!(cog(source), 5);
+    }
+
+    #[test]
+    fn ternary_and_comprehension_filters_count_with_nesting() {
+        assert_eq!(
+            cog("def f(a, b):\n    x = a if b else 0\n    return x\n"),
+            1
+        );
+        // ternary nested inside an `if` body: if(1) + ternary(1+1) = 3
+        assert_eq!(
+            cog("def f(a, b, c):\n    if a:\n        return b if c else 0\n    return 0\n"),
+            3
+        );
+        // a comprehension `if` filter, top level: +1
+        assert_eq!(cog("def f(xs):\n    return [x for x in xs if x > 0]\n"), 1);
+        // comprehension filter nested in a loop: for(1) + filter(1+1) = 3
+        assert_eq!(
+            cog("def f(xss):\n    out = []\n    for xs in xss:\n        out.append([x for x in xs if x])\n    return out\n"),
+            3
+        );
+    }
+
+    #[test]
+    fn with_and_try_are_not_flow_breaks() {
+        // `with` adds no increment and no nesting, so the inner `if` stays at level 0.
+        assert_eq!(
+            cog("def f(path):\n    with open(path) as fh:\n        if fh:\n            return 1\n    return 0\n"),
+            1
+        );
+        // `try` adds nothing; only the `except` handler increments.
+        assert_eq!(
+            cog("def f(x):\n    try:\n        return risky(x)\n    except ValueError:\n        return 0\n"),
+            1
+        );
+    }
+
+    #[test]
+    fn else_adds_a_flat_increment() {
+        // if(1+0) + else(+1 flat) = 2
+        assert_eq!(
+            cog("def f(a):\n    if a:\n        return 1\n    else:\n        return 0\n"),
+            2
+        );
+    }
+
+    #[test]
+    fn match_guard_conditions_are_scored() {
+        // match(+1) + the guard's `a and b` boolean op (+1) = 2 (regression: guards were dropped).
+        let source = "\
+def f(x, a, b):
+    match x:
+        case 1 if a and b:
+            return 1
+        case _:
+            return 0
+";
+        assert_eq!(cog(source), 2);
+    }
+
+    #[test]
+    fn with_item_conditions_are_scored() {
+        // `with` is not a flow break, but the `a and b` in its context expression counts (+1).
+        assert_eq!(
+            cog("def f(a, b):\n    with make(a and b) as fh:\n        return fh\n"),
+            1
+        );
+    }
+
+    #[test]
+    fn nested_ternary_uses_statement_level_nesting() {
+        // Documented simplification: both ternaries score at the statement's nesting (0), so
+        // `a if b else (c if d else e)` is 1 + 1 = 2, not 1 + 2.
+        assert_eq!(
+            cog("def f(a, b, c, d, e):\n    return a if b else (c if d else e)\n"),
+            2
+        );
     }
 
     #[test]
