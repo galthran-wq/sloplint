@@ -24,6 +24,8 @@ pub struct Config {
     pub overrides: Vec<PathOverride>,
     /// Near-duplicate (clone) detection settings.
     pub clone: CloneSettings,
+    /// Size/shape limits for the structural rules.
+    pub limits: Limits,
 }
 
 impl Default for Config {
@@ -34,6 +36,33 @@ impl Default for Config {
             preview: false,
             overrides: Vec::new(),
             clone: CloneSettings::default(),
+            limits: Limits::default(),
+        }
+    }
+}
+
+/// Tunable thresholds for the structural rules. `Copy` so it can ride along in a
+/// `FileContext` without lifetimes. Defaults are opinionated but not punishing.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Limits {
+    /// SLP080: file length (lines) above which a file is flagged.
+    pub file_max_lines: usize,
+    /// SLP082: maximum nesting depth allowed inside one function.
+    pub nesting_max_depth: usize,
+    /// SLP060: maximum words in an identifier before it's "verbose" (preview).
+    pub max_identifier_words: usize,
+    /// SLP090: maximum `.py` modules directly in one directory before it's "flat fanout".
+    pub dir_max_modules: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            file_max_lines: 400,
+            nesting_max_depth: 4,
+            max_identifier_words: 4,
+            dir_max_modules: 15,
         }
     }
 }

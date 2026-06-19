@@ -69,6 +69,7 @@ macro_rules! test_rule {
                 path: FIXTURE,
                 source: &source,
                 parsed: &parsed,
+                limits: ::core::default::Default::default(),
             };
             let diagnostics = $crate::lint::check_file(&ctx, &[&rule as &dyn $crate::lint::Rule]);
             let rendered =

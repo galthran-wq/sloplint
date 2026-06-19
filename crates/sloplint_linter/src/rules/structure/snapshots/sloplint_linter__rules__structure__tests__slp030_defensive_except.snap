@@ -1,0 +1,7 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+4:5 SLP030 [warning] broad except whose body only passes, logs, or re-raises adds no value
+11:5 SLP030 [warning] broad except whose body only passes, logs, or re-raises adds no value
+18:5 SLP030 [warning] broad except whose body only passes, logs, or re-raises adds no value

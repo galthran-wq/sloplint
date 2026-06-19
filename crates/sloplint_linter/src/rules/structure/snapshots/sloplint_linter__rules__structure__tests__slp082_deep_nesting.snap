@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+7:25 SLP082 [warning] nesting deeper than 4 levels in function `deep`

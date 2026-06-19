@@ -10,6 +10,7 @@
 //!
 //! The PRs that follow fill these in; today they establish the structure.
 
+pub mod ast_util;
 pub mod checkers;
 pub mod codes;
 pub mod config;

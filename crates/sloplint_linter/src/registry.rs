@@ -69,7 +69,9 @@ impl Registry {
 
 /// The shipped rule catalog. Each rule slice contributes its category's rules here.
 fn shipped_rules() -> Vec<RegisteredRule> {
-    crate::rules::comments::rules()
+    let mut rules = crate::rules::comments::rules();
+    rules.extend(crate::rules::structure::rules());
+    rules
 }
 
 #[cfg(test)]
@@ -118,6 +120,7 @@ mod tests {
             path: "src/app.py",
             source,
             parsed: &parsed,
+            limits: Default::default(),
         };
         let refs: Vec<&dyn Rule> = rules.iter().map(|b| b.as_ref()).collect();
         let diagnostics = check_file(&ctx, &refs);
