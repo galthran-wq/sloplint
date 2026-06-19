@@ -1,0 +1,9 @@
+[package]
+name = "sloplint_metrics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Software-quality metrics (complexity, nesting, LOC, duplication) + badge emission."
+
+[dependencies]
+sloplint_python.workspace = true
