@@ -8,6 +8,9 @@ description = "The linter crate: all sloplint rules and the core logic for runni
 [dependencies]
 sloplint_python.workspace = true
 sloplint_diagnostics.workspace = true
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+globset = "0.4"
 
 [dev-dependencies]
 insta = "1"
