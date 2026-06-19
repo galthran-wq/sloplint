@@ -1,0 +1,8 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+1:8 SLP040 [warning] type hint `int` restates the literal value
+2:7 SLP040 [warning] type hint `str` restates the literal value
+3:7 SLP040 [warning] type hint `bool` restates the literal value
+4:8 SLP040 [warning] type hint `float` restates the literal value

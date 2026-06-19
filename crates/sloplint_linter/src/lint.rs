@@ -9,6 +9,8 @@ use sloplint_diagnostics::Diagnostic;
 use sloplint_python::ast::ModModule;
 use sloplint_python::parser::Parsed;
 
+use crate::config::Limits;
+
 /// Everything a rule needs about a single file under analysis.
 pub struct FileContext<'a> {
     /// Path of the file (for messages / per-path config gating).
@@ -17,6 +19,8 @@ pub struct FileContext<'a> {
     pub source: &'a str,
     /// The parsed tree: `parsed.syntax()` for the AST, `parsed.tokens()` for comments.
     pub parsed: &'a Parsed<ModModule>,
+    /// Tunable thresholds for the structural rules.
+    pub limits: Limits,
 }
 
 /// A single lint rule. Rules push findings rather than returning them, so one AST/token

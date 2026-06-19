@@ -4,7 +4,7 @@
 //! - `check` — discover config, run the shipped per-file rules over Python files, then
 //!   run cross-file clone detection (SLP020), and report all findings.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::{env, fs};
@@ -15,10 +15,10 @@ use ignore::WalkBuilder;
 use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
 use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_linter::config::Config;
+use sloplint_linter::config::{Config, Selector};
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
-use sloplint_python::{parse, Ranged};
+use sloplint_python::{parse, Ranged, TextRange};
 
 #[derive(Parser)]
 #[command(
@@ -152,6 +152,7 @@ fn run_check(paths: &[String], config_path: Option<&str>, preview: bool) -> anyh
             path: &display,
             source: &source,
             parsed: &parsed,
+            limits: config.limits,
         };
         let diagnostics = check_file(&ctx, &refs);
 
@@ -172,6 +173,7 @@ fn run_check(paths: &[String], config_path: Option<&str>, preview: bool) -> anyh
     }
 
     attribute_clones(&units, &unit_result, &clone_config, &mut results);
+    attribute_fanout(&mut results, &selector, config.limits.dir_max_modules);
 
     let mut findings = 0usize;
     for result in &results {
@@ -258,6 +260,40 @@ fn attribute_clones(
     }
 }
 
+/// Flag directories holding more than `max_modules` Python files directly (flat fanout —
+/// SLP090). One diagnostic per over-full directory, attributed to its first file.
+fn attribute_fanout(results: &mut [FileResult], selector: &Selector, max_modules: usize) {
+    let mut by_dir: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (index, result) in results.iter().enumerate() {
+        let dir = Path::new(&result.path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        by_dir.entry(dir).or_default().push(index);
+    }
+
+    for (dir, indices) in by_dir {
+        if indices.len() <= max_modules {
+            continue;
+        }
+        let representative = indices[0];
+        if !selector.is_enabled("SLP090", &results[representative].path) {
+            continue;
+        }
+        let shown_dir = if dir.is_empty() { "." } else { &dir };
+        let count = indices.len();
+        results[representative].diagnostics.push(Diagnostic::new(
+            "SLP090",
+            format!(
+                "directory `{shown_dir}` holds {count} Python modules (max {max_modules}); \
+                 split it into sub-packages"
+            ),
+            TextRange::default(),
+            Severity::Warning,
+        ));
+    }
+}
+
 /// 1-based line number for a byte offset.
 fn line_of(source: &str, offset: u32) -> usize {
     let offset = (offset as usize).min(source.len());
@@ -319,9 +355,7 @@ fn is_python(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize;
-    use sloplint_linter::config::Config;
-    use std::path::Path;
+    use super::*;
 
     #[test]
     fn normalize_strips_leading_dot_slash() {
@@ -343,5 +377,36 @@ mod tests {
         let selector = config.prepare().unwrap();
         let walked = normalize(Path::new("./tests/t.py"));
         assert!(!selector.is_enabled("SLP010", &walked.to_string_lossy()));
+    }
+
+    fn empty_result(path: &str) -> FileResult {
+        FileResult {
+            path: path.to_string(),
+            source: String::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn fanout_flags_over_full_directory_once() {
+        let config = Config::default();
+        let selector = config.prepare().unwrap();
+
+        let mut over: Vec<FileResult> = (0..5)
+            .map(|i| empty_result(&format!("pkg/m{i}.py")))
+            .collect();
+        attribute_fanout(&mut over, &selector, 3);
+        let flagged: usize = over.iter().map(|r| r.diagnostics.len()).sum();
+        assert_eq!(flagged, 1, "exactly one SLP090 for the over-full directory");
+
+        let mut under: Vec<FileResult> = (0..3)
+            .map(|i| empty_result(&format!("pkg/m{i}.py")))
+            .collect();
+        attribute_fanout(&mut under, &selector, 3);
+        assert_eq!(
+            under.iter().map(|r| r.diagnostics.len()).sum::<usize>(),
+            0,
+            "at the limit is fine"
+        );
     }
 }
