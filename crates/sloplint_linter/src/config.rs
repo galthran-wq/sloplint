@@ -75,6 +75,12 @@ pub struct CloneSettings {
     pub min_statements: usize,
     /// Jaccard similarity at/above which two functions are reported as clones.
     pub similarity: f64,
+    /// Opt-in: also flag Type-3 "gapped" clones — same statements reordered, or with a few
+    /// inserted/removed — via an unordered statement bag. Off by default (preview).
+    pub detect_gapped: bool,
+    /// Statement-bag similarity at/above which a gapped clone is reported (used only when
+    /// `detect_gapped`). Typically a touch lower than `similarity`.
+    pub gapped_similarity: f64,
 }
 
 impl Default for CloneSettings {
@@ -82,6 +88,8 @@ impl Default for CloneSettings {
         Self {
             min_statements: 3,
             similarity: 0.85,
+            detect_gapped: false,
+            gapped_similarity: 0.8,
         }
     }
 }
