@@ -1,0 +1,9 @@
+---
+source: crates/sloplint_linter/src/rules/overengineering/mod.rs
+expression: rendered
+---
+7:5 SLP110 [warning] function `fetch_user` is a pass-through wrapper: it only forwards its arguments to `_impl.fetch_user` — inline the call or drop the layer
+11:5 SLP110 [warning] function `render` is a pass-through wrapper: it only forwards its arguments to `engine.render` — inline the call or drop the layer
+16:11 SLP110 [warning] function `save` is a pass-through wrapper: it only forwards its arguments to `store.save` — inline the call or drop the layer
+21:9 SLP110 [warning] function `handle` is a pass-through wrapper: it only forwards its arguments to `self._client.handle` — inline the call or drop the layer
+25:5 SLP110 [warning] function `relay` is a pass-through wrapper: it only forwards its arguments to `dispatch` — inline the call or drop the layer

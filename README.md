@@ -30,7 +30,8 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060`) are preview — enable with `--preview`.
+(`SLP001/002/040/060/110`) are preview — enable with `--preview`. `SLP110` flags
+pass-through wrapper functions (a body that only forwards its arguments to one call).
 
 ## GitHub Action
 
