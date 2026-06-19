@@ -38,11 +38,15 @@ pub fn check_file(ctx: &FileContext, rules: &[&dyn Rule]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// The rules that ship and run by default.
+/// The shipped rules enabled under the default config (path-agnostic).
 ///
-/// Empty until real rules land in later slices. The corpus runner calls this so its
-/// precision/recall reflects the *actual shipped behavior* — we deliberately do not seed
-/// it with the example/test rule, which would inflate the numbers.
+/// Delegates to the registry so it always reflects the *actual shipped behavior* — empty
+/// until real rules land. The corpus runner uses this; per-path selection is applied by
+/// callers that have a real config (the CLI).
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    Vec::new()
+    let config = crate::config::Config::default();
+    let selector = config
+        .prepare()
+        .expect("the default config contains no globs and always compiles");
+    crate::registry::Registry::shipped().enabled_for(&selector, "")
 }

@@ -1,0 +1,26 @@
+# sloplint configuration. All keys are optional; the values below are the defaults.
+#
+# sloplint runs *after* Ruff in the same CI job and only checks what Ruff doesn't, so this
+# file controls the slop-specific rules (SLPxxx) only.
+
+# Code prefixes to enable. "SLP" enables every stable rule. These are PREFIXES, not exact
+# codes: "SLP01" matches SLP010, SLP011, ... not just SLP01.
+select = ["SLP"]
+
+# Code prefixes to disable (wins over `select`). Same prefix semantics as `select`.
+ignore = []
+
+# Enable preview (unstable) rules. Off by default.
+preview = false
+
+# Per-path overrides. All matching overrides apply; their `ignore` lists accumulate.
+# Comments are banned by default; opt specific paths back in here.
+#
+# [[overrides]]
+# path = "alembic/**"        # gitignore-style glob matched against the file path
+# allow_comments = true      # migrations may carry explanatory comments
+# ignore = ["SLP010"]        # and don't enforce the comment ban there
+#
+# [[overrides]]
+# path = "tests/**"
+# allow_comments = true
