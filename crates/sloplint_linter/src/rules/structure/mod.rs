@@ -4,11 +4,13 @@
 //! - `SLP040` redundant type hint (preview — heuristic).
 //! - `SLP060` verbose mechanical naming (preview — heuristic).
 //! - `SLP080` oversized file (stable).
-//! - `SLP082` deep nesting (stable).
+//! - `SLP082` deep nesting — control flow (stable).
+//! - `SLP084` deep data-structure nesting — expression tree (preview — heuristic).
 //!
 //! (`SLP090` flat-directory fanout is a whole-tree analysis handled in the CLI, not a
 //! per-file rule, so it isn't registered here.)
 
+pub mod deep_data_nesting;
 pub mod deep_nesting;
 pub mod defensive_except;
 pub mod oversized_file;
@@ -33,6 +35,9 @@ pub fn rules() -> Vec<RegisteredRule> {
         }),
         RegisteredRule::new("SLP060", RuleGroup::Preview, || {
             Box::new(verbose_naming::VerboseNaming)
+        }),
+        RegisteredRule::new("SLP084", RuleGroup::Preview, || {
+            Box::new(deep_data_nesting::DeepDataNesting)
         }),
     ]
 }
@@ -67,5 +72,11 @@ mod tests {
         deep_nesting::DeepNesting,
         "structure",
         "SLP082"
+    );
+    test_rule!(
+        slp084_deep_data_nesting,
+        deep_data_nesting::DeepDataNesting,
+        "structure",
+        "SLP084"
     );
 }
