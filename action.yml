@@ -1,0 +1,101 @@
+name: "sloplint"
+description: "Lint Python for AI slop (after Ruff) and report findings + software-quality metrics."
+branding:
+  icon: "alert-triangle"
+  color: "purple"
+
+inputs:
+  paths:
+    description: "Files or directories to check (space-separated)."
+    default: "."
+    required: false
+  preview:
+    description: "Enable preview (unstable) rules."
+    default: "false"
+    required: false
+  config:
+    description: "Path to a sloplint.toml (otherwise discovered)."
+    default: ""
+    required: false
+  comment:
+    description: "Post a PR comment with the findings summary (pull_request events only)."
+    default: "true"
+    required: false
+  upload-sarif:
+    description: "Upload SARIF to GitHub code scanning for inline annotations."
+    default: "true"
+    required: false
+  badges-dir:
+    description: "If set, write metric badge SVGs + endpoint JSON into this directory."
+    default: ""
+    required: false
+  fail-on-findings:
+    description: "Fail the job when sloplint reports issues."
+    default: "true"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: "1.94.0"
+
+    - name: Build sloplint
+      shell: bash
+      run: cargo build --release --bin sloplint --manifest-path "${{ github.action_path }}/Cargo.toml"
+
+    - name: Run sloplint
+      id: run
+      shell: bash
+      env:
+        # GitHub expressions build the optional flags so empty inputs don't add stray args.
+        PREVIEW_FLAG: ${{ inputs.preview == 'true' && '--preview' || '' }}
+        CONFIG_FLAG: ${{ inputs.config != '' && format('--config {0}', inputs.config) || '' }}
+      run: |
+        # `check` exits 1 when it finds slop, so we must NOT use `set -e` here — the
+        # findings are the expected output, and the SARIF/comment must still be produced.
+        # The lint exit code is captured for the gating step at the end.
+        set +e
+        BIN="${{ github.action_path }}/target/release/sloplint"
+        PATHS="${{ inputs.paths }}"
+
+        # Human-readable run in the job log.
+        "$BIN" check $PATHS $PREVIEW_FLAG $CONFIG_FLAG
+        echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+        "$BIN" check $PATHS $PREVIEW_FLAG $CONFIG_FLAG --format sarif > sloplint.sarif
+        "$BIN" check $PATHS $PREVIEW_FLAG $CONFIG_FLAG --format github > sloplint-comment.md
+
+        if [ -n "${{ inputs.badges-dir }}" ]; then
+          # `metrics` doesn't take --config (it has no config-driven behavior yet).
+          "$BIN" metrics $PATHS --badges "${{ inputs.badges-dir }}"
+        fi
+
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: sloplint.sarif
+        category: sloplint
+
+    - name: Comment on PR
+      if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        # Sticky comment: edit the previous sloplint comment if present, else create one,
+        # and never hard-fail the job if the token lacks `pull-requests: write`.
+        gh pr comment "$PR" --edit-last --body-file sloplint-comment.md 2>/dev/null \
+          || gh pr comment "$PR" --body-file sloplint-comment.md 2>/dev/null \
+          || echo "::warning::sloplint could not post a PR comment (needs 'pull-requests: write')"
+
+    - name: Fail if issues were found
+      if: ${{ inputs.fail-on-findings == 'true' && steps.run.outputs.exit_code != '0' }}
+      shell: bash
+      run: |
+        echo "::error::sloplint reported issues (exit ${{ steps.run.outputs.exit_code }})"
+        exit 1
