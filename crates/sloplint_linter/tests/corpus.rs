@@ -102,9 +102,13 @@ fn corpus_precision_recall() {
         "precision {precision:.3} fell below {MIN_PRECISION}: a shipped rule flagged clean code"
     );
 
-    // Soft recall gate, raised as real rules land (no rules ship yet → recall is 0.0).
-    const MIN_RECALL: f64 = 0.0;
-    assert!(recall >= MIN_RECALL);
+    // Recall gate, raised as rules land. SLP010 (comment ban) + SLP050 (ASCII) now flag
+    // the comment-bearing slop files; type-hint/duplication slop awaits later slices.
+    const MIN_RECALL: f64 = 0.6;
+    assert!(
+        recall >= MIN_RECALL,
+        "recall {recall:.3} fell below {MIN_RECALL}: shipped rules regressed on slop"
+    );
 }
 
 /// Guard the whole corpus — including `duplicates/`, which the metrics test doesn't load

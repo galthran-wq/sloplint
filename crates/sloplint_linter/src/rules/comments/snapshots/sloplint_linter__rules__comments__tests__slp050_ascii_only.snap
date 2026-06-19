@@ -1,0 +1,8 @@
+---
+source: crates/sloplint_linter/src/rules/comments/mod.rs
+expression: rendered
+---
+2:18 SLP050 [warning] non-ASCII character; sloplint enforces ASCII-only source
+3:12 SLP050 [warning] non-ASCII character; sloplint enforces ASCII-only source
+4:11 SLP050 [warning] non-ASCII character; sloplint enforces ASCII-only source
+4:13 SLP050 [warning] non-ASCII character; sloplint enforces ASCII-only source

@@ -67,9 +67,9 @@ impl Registry {
     }
 }
 
-/// The shipped rule catalog. Empty for now — rule slices register their rules here.
+/// The shipped rule catalog. Each rule slice contributes its category's rules here.
 fn shipped_rules() -> Vec<RegisteredRule> {
-    Vec::new()
+    crate::rules::comments::rules()
 }
 
 #[cfg(test)]

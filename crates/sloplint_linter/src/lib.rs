@@ -17,3 +17,4 @@ pub mod lint;
 pub mod registry;
 pub mod rules;
 pub mod testing;
+pub mod words;

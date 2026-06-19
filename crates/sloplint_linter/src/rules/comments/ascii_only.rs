@@ -1,0 +1,42 @@
+//! SLP050: ASCII-only source.
+
+use sloplint_diagnostics::{Diagnostic, Severity};
+use sloplint_python::{TextRange, TextSize};
+
+use crate::lint::{FileContext, Rule};
+
+/// Flags any non-ASCII character anywhere in the source — emoji, accented letters, smart
+/// quotes — in code, comments, or string literals alike. A strong AI tell and a
+/// portability win. One finding is reported per contiguous non-ASCII run.
+pub struct AsciiOnly;
+
+impl Rule for AsciiOnly {
+    fn code(&self) -> &'static str {
+        "SLP050"
+    }
+
+    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let mut run_start: Option<usize> = None;
+        for (idx, ch) in ctx.source.char_indices() {
+            if ch.is_ascii() {
+                if let Some(start) = run_start.take() {
+                    push_run(diagnostics, start, idx);
+                }
+            } else if run_start.is_none() {
+                run_start = Some(idx);
+            }
+        }
+        if let Some(start) = run_start {
+            push_run(diagnostics, start, ctx.source.len());
+        }
+    }
+}
+
+fn push_run(diagnostics: &mut Vec<Diagnostic>, start: usize, end: usize) {
+    diagnostics.push(Diagnostic::new(
+        "SLP050",
+        "non-ASCII character; sloplint enforces ASCII-only source",
+        TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32)),
+        Severity::Warning,
+    ));
+}
