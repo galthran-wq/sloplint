@@ -204,6 +204,7 @@ fn run_check(
             source: &source,
             parsed: &parsed,
             limits: config.limits,
+            placeholders: &config.placeholders.extra,
         };
         let diagnostics = check_file(&ctx, &refs);
 

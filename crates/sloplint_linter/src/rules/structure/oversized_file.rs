@@ -48,6 +48,7 @@ mod tests {
                 file_max_lines,
                 ..Limits::default()
             },
+            placeholders: &[],
         };
         let mut diagnostics = Vec::new();
         OversizedFile.check(&ctx, &mut diagnostics);

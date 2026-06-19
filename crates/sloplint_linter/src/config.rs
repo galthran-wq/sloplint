@@ -26,6 +26,8 @@ pub struct Config {
     pub clone: CloneSettings,
     /// Size/shape limits for the structural rules.
     pub limits: Limits,
+    /// SLP100 leftover-placeholder settings (user lexicon extensions).
+    pub placeholders: PlaceholderSettings,
 }
 
 impl Default for Config {
@@ -37,6 +39,7 @@ impl Default for Config {
             overrides: Vec::new(),
             clone: CloneSettings::default(),
             limits: Limits::default(),
+            placeholders: PlaceholderSettings::default(),
         }
     }
 }
@@ -84,6 +87,16 @@ impl Default for CloneSettings {
             similarity: 0.85,
         }
     }
+}
+
+/// SLP100 leftover-placeholder settings. The rule ships a curated built-in lexicon; this
+/// lets a project add its own template phrases without code changes.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlaceholderSettings {
+    /// Extra placeholder phrases to flag, in addition to the built-in lexicon. Matched
+    /// case-insensitively as substrings of comments and string literals.
+    pub extra: Vec<String>,
 }
 
 /// A per-path override: extra rule ignores (and, later, comment allowances) for files whose

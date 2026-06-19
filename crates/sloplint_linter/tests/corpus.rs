@@ -61,6 +61,7 @@ fn is_flagged(path: &Path) -> bool {
         source: &source,
         parsed: &parsed,
         limits: Default::default(),
+        placeholders: &[],
     };
     !check_file(&ctx, &refs).is_empty()
 }

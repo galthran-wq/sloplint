@@ -21,6 +21,9 @@ pub struct FileContext<'a> {
     pub parsed: &'a Parsed<ModModule>,
     /// Tunable thresholds for the structural rules.
     pub limits: Limits,
+    /// User-supplied extra placeholder phrases for SLP100 (empty for the built-in lexicon
+    /// only). Borrowed from the config so rules don't own it.
+    pub placeholders: &'a [String],
 }
 
 /// A single lint rule. Rules push findings rather than returning them, so one AST/token

@@ -1,0 +1,9 @@
+---
+source: crates/sloplint_linter/src/rules/placeholders/mod.rs
+expression: rendered
+---
+8:11 SLP100 [warning] leftover template placeholder (secret placeholder): `your_api_key_here` — finish or remove it
+9:14 SLP100 [warning] leftover template placeholder (secret placeholder): `your_token_here` — finish or remove it
+13:5 SLP100 [warning] leftover template placeholder (unimplemented stub): `insert your code here` — finish or remove it
+18:5 SLP100 [warning] leftover template placeholder (replace-with-your): `replace this with your` — finish or remove it
+23:14 SLP100 [warning] leftover template placeholder (secret placeholder): `your_api_key_here` — finish or remove it
