@@ -13,6 +13,7 @@ path = "src/main.rs"
 sloplint_python.workspace = true
 sloplint_linter.workspace = true
 sloplint_diagnostics.workspace = true
+sloplint_clone.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 ignore = "0.4"

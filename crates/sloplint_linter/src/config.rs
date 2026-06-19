@@ -22,6 +22,8 @@ pub struct Config {
     pub preview: bool,
     /// Per-path overrides; all matching overrides apply (their ignores accumulate).
     pub overrides: Vec<PathOverride>,
+    /// Near-duplicate (clone) detection settings.
+    pub clone: CloneSettings,
 }
 
 impl Default for Config {
@@ -31,6 +33,26 @@ impl Default for Config {
             ignore: Vec::new(),
             preview: false,
             overrides: Vec::new(),
+            clone: CloneSettings::default(),
+        }
+    }
+}
+
+/// Tunable thresholds for SLP020 near-duplicate detection. Conservative by default.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CloneSettings {
+    /// Minimum statements (incl. nested) for a function to be considered for cloning.
+    pub min_statements: usize,
+    /// Jaccard similarity at/above which two functions are reported as clones.
+    pub similarity: f64,
+}
+
+impl Default for CloneSettings {
+    fn default() -> Self {
+        Self {
+            min_statements: 3,
+            similarity: 0.85,
         }
     }
 }
