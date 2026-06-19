@@ -1,0 +1,6 @@
+---
+source: crates/sloplint_linter/src/rules/comments/mod.rs
+expression: rendered
+---
+1:26 SLP001 [warning] comment restates the code (redundant 'what' comment)
+4:24 SLP001 [warning] comment restates the code (redundant 'what' comment)

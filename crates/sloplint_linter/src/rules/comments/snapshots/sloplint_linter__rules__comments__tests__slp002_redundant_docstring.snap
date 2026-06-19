@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/comments/mod.rs
+expression: rendered
+---
+2:5 SLP002 [warning] docstring restates the signature (redundant docstring)
