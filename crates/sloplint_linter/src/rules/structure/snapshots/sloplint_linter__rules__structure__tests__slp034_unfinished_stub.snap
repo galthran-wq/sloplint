@@ -1,0 +1,9 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+3:5 SLP034 [warning] function `handle` is an unfinished stub: a trivial body plus a comment admitting it isn't done — finish it or drop the placeholder
+9:5 SLP034 [warning] function `parse` is an unfinished stub: a trivial body plus a comment admitting it isn't done — finish it or drop the placeholder
+13:5 SLP034 [warning] function `render` is an unfinished stub: a trivial body plus a comment admitting it isn't done — finish it or drop the placeholder
+18:5 SLP034 [warning] function `total` is an unfinished stub: a trivial body plus a comment admitting it isn't done — finish it or drop the placeholder
+23:5 SLP034 [warning] function `connect` is an unfinished stub: a trivial body plus a comment admitting it isn't done — finish it or drop the placeholder

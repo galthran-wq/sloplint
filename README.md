@@ -16,6 +16,8 @@ Patterns that no mainstream linter flags today:
 - **Cross-file duplicated / near-duplicate functions** — copy-paste *and* "same logic,
   slightly different" (the flagship clone engine).
 - Redundant type hints, overly defensive `try/except`, verbose mechanical naming.
+- **Unfinished stubs** — a trivial body (`pass`/`...`/`raise NotImplementedError`) plus a
+  comment admitting it isn't done ("not sure how", "implement this later"), shipped anyway.
 - ASCII-only enforcement (no emoji), deep-nesting caps, oversized files, flat-directory fanout.
 - Software-quality-metric **badges** + a per-PR summary, via a GitHub Action.
 
@@ -30,7 +32,7 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060`) are preview — enable with `--preview`.
+(`SLP001/002/034/040/060`) are preview — enable with `--preview`.
 
 ## GitHub Action
 

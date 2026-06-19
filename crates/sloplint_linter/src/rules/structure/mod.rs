@@ -1,6 +1,7 @@
 //! Structural rules.
 //!
 //! - `SLP030` overly defensive try/except (stable).
+//! - `SLP034` unfinished stub + self-admitted debt (preview — heuristic).
 //! - `SLP040` redundant type hint (preview — heuristic).
 //! - `SLP060` verbose mechanical naming (preview — heuristic).
 //! - `SLP080` oversized file (stable).
@@ -13,6 +14,7 @@ pub mod deep_nesting;
 pub mod defensive_except;
 pub mod oversized_file;
 pub mod redundant_type_hint;
+pub mod unfinished_stub;
 pub mod verbose_naming;
 
 use crate::registry::{RegisteredRule, RuleGroup};
@@ -21,6 +23,9 @@ pub fn rules() -> Vec<RegisteredRule> {
     vec![
         RegisteredRule::new("SLP030", RuleGroup::Stable, || {
             Box::new(defensive_except::DefensiveExcept)
+        }),
+        RegisteredRule::new("SLP034", RuleGroup::Preview, || {
+            Box::new(unfinished_stub::UnfinishedStub)
         }),
         RegisteredRule::new("SLP080", RuleGroup::Stable, || {
             Box::new(oversized_file::OversizedFile)
@@ -67,5 +72,11 @@ mod tests {
         deep_nesting::DeepNesting,
         "structure",
         "SLP082"
+    );
+    test_rule!(
+        slp034_unfinished_stub,
+        unfinished_stub::UnfinishedStub,
+        "structure",
+        "SLP034"
     );
 }
