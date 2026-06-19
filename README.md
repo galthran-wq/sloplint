@@ -30,7 +30,9 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060`) are preview — enable with `--preview`.
+(`SLP001/002/040/060`, plus the whole-project `SLP111`) are preview — enable with
+`--preview`. `SLP111` flags single-method classes that are instantiated exactly once across
+the project (needless ceremony — they could have been a function).
 
 ## GitHub Action
 

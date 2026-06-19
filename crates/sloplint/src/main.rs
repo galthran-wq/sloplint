@@ -4,6 +4,8 @@
 //! - `check` — discover config, run the shipped per-file rules over Python files, then
 //!   run cross-file clone detection (SLP020), and report all findings.
 
+mod single_use;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -178,6 +180,10 @@ fn run_check(
     let mut results: Vec<FileResult> = Vec::new();
     let mut units: Vec<FunctionUnit> = Vec::new();
     let mut unit_result: Vec<usize> = Vec::new();
+    // Per-file scans for the whole-project single-use-class pass (SLP111), with the result
+    // index each belongs to. Gathered only when SLP111 is enabled (preview + selected).
+    let mut single_use_scans: Vec<single_use::FileScan> = Vec::new();
+    let mut single_use_result: Vec<usize> = Vec::new();
 
     for path in files {
         let display = path.to_string_lossy().to_string();
@@ -216,6 +222,12 @@ fn run_check(
                 unit_result.push(result_index);
             }
         }
+        // SLP111 is a preview, whole-tree analysis: collect each file's class/instantiation
+        // signals now (parsed is alive), resolve them across the project after the loop.
+        if selector.preview() && selector.is_enabled("SLP111", &display) {
+            single_use_scans.push(single_use::scan_file(&parsed));
+            single_use_result.push(result_index);
+        }
         results.push(FileResult {
             path: display,
             source,
@@ -225,6 +237,7 @@ fn run_check(
 
     attribute_clones(&units, &unit_result, &clone_config, &mut results);
     attribute_fanout(&mut results, &selector, config.limits.dir_max_modules);
+    attribute_single_use(&mut results, &single_use_scans, &single_use_result);
 
     let findings: usize = results.iter().map(|r| r.diagnostics.len()).sum();
     let entries: Vec<ReportEntry> = results
@@ -354,6 +367,29 @@ fn attribute_fanout(results: &mut [FileResult], selector: &Selector, max_modules
                  split it into sub-packages"
             ),
             TextRange::default(),
+            Severity::Warning,
+        ));
+    }
+}
+
+/// Whole-project SLP111: flag single-method classes instantiated exactly once. The per-file
+/// scans were gathered (preview-gated) during the walk; this resolves them against the
+/// project-wide instantiation counts and attributes each finding to its file.
+fn attribute_single_use(
+    results: &mut [FileResult],
+    scans: &[single_use::FileScan],
+    scan_result: &[usize],
+) {
+    for finding in single_use::findings(scans) {
+        let result_index = scan_result[finding.scan_index];
+        results[result_index].diagnostics.push(Diagnostic::new(
+            "SLP111",
+            format!(
+                "class `{}` has a single method and is instantiated once — consider making \
+                 it a function",
+                finding.name
+            ),
+            finding.range,
             Severity::Warning,
         ));
     }
