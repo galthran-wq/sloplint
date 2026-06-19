@@ -18,7 +18,10 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::{Config, Selector};
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
+use sloplint_metrics::badge::{Badge, Color};
+use sloplint_metrics::{aggregate, file_metrics, FileMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged, TextRange};
+use sloplint_report::ReportEntry;
 
 #[derive(Parser)]
 #[command(
@@ -48,7 +51,41 @@ enum Command {
         /// Enable preview (unstable) rules.
         #[arg(long)]
         preview: bool,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
     },
+    /// Report software-quality metrics for Python files.
+    Metrics {
+        /// Files or directories to measure (defaults to the current directory).
+        paths: Vec<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = MetricsFormat::Text)]
+        format: MetricsFormat,
+        /// Write badge SVGs and shields endpoint JSON into this directory.
+        #[arg(long)]
+        badges: Option<String>,
+    },
+}
+
+/// Output format for `check`.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum Format {
+    /// Human-readable text (default).
+    Text,
+    /// Flat JSON array of findings.
+    Json,
+    /// SARIF 2.1.0 for GitHub code scanning.
+    Sarif,
+    /// GitHub-flavored markdown summary (for PR comments).
+    Github,
+}
+
+/// Output format for `metrics`.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum MetricsFormat {
+    Text,
+    Json,
 }
 
 fn main() -> ExitCode {
@@ -62,10 +99,19 @@ fn main() -> ExitCode {
             paths,
             config,
             preview,
-        } => match run_check(&paths, config.as_deref(), preview) {
+            format,
+        } => match run_check(&paths, config.as_deref(), preview, format) {
             Ok(true) => ExitCode::SUCCESS,  // clean
             Ok(false) => ExitCode::from(1), // findings or read/parse errors
             Err(err) => tool_error(err),    // could not run at all
+        },
+        Command::Metrics {
+            paths,
+            format,
+            badges,
+        } => match run_metrics(&paths, format, badges.as_deref()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => tool_error(err),
         },
     }
 }
@@ -94,7 +140,12 @@ fn run_parse(path: &str) -> anyhow::Result<()> {
 
 /// Returns `Ok(true)` when the run is clean, `Ok(false)` when there are findings or
 /// per-file read/parse errors, and `Err` only when the run could not start (bad config).
-fn run_check(paths: &[String], config_path: Option<&str>, preview: bool) -> anyhow::Result<bool> {
+fn run_check(
+    paths: &[String],
+    config_path: Option<&str>,
+    preview: bool,
+    format: Format,
+) -> anyhow::Result<bool> {
     let mut config = match config_path {
         Some(path) => {
             let text =
@@ -175,24 +226,38 @@ fn run_check(paths: &[String], config_path: Option<&str>, preview: bool) -> anyh
     attribute_clones(&units, &unit_result, &clone_config, &mut results);
     attribute_fanout(&mut results, &selector, config.limits.dir_max_modules);
 
-    let mut findings = 0usize;
-    for result in &results {
-        if result.diagnostics.is_empty() {
-            continue;
+    let findings: usize = results.iter().map(|r| r.diagnostics.len()).sum();
+    let entries: Vec<ReportEntry> = results
+        .iter()
+        .map(|result| ReportEntry {
+            path: &result.path,
+            source: &result.source,
+            diagnostics: &result.diagnostics,
+        })
+        .collect();
+
+    match format {
+        Format::Text => {
+            for result in &results {
+                if !result.diagnostics.is_empty() {
+                    print!(
+                        "{}\n{}",
+                        result.path,
+                        render_diagnostics(&result.source, &result.diagnostics)
+                    );
+                }
+            }
+            if findings == 0 && !had_error {
+                eprintln!("sloplint: no issues found");
+            } else {
+                eprintln!("sloplint: {findings} issue(s)");
+            }
         }
-        findings += result.diagnostics.len();
-        print!(
-            "{}\n{}",
-            result.path,
-            render_diagnostics(&result.source, &result.diagnostics)
-        );
+        Format::Json => println!("{}", sloplint_report::to_json(&entries)),
+        Format::Sarif => println!("{}", sloplint_report::to_sarif(&entries)),
+        Format::Github => println!("{}", sloplint_report::to_github_markdown(&entries)),
     }
 
-    if findings == 0 && !had_error {
-        eprintln!("sloplint: no issues found");
-    } else {
-        eprintln!("sloplint: {findings} issue(s)");
-    }
     Ok(findings == 0 && !had_error)
 }
 
@@ -351,6 +416,125 @@ fn normalize(path: &Path) -> PathBuf {
 
 fn is_python(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "py")
+}
+
+/// Compute and report software-quality metrics; optionally emit badges.
+fn run_metrics(
+    paths: &[String],
+    format: MetricsFormat,
+    badges: Option<&str>,
+) -> anyhow::Result<()> {
+    let (files, _) = discover_python_files(paths);
+    let mut per_file: Vec<FileMetrics> = Vec::new();
+    for path in files {
+        let Ok(source) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(parsed) = parse(&source) else {
+            continue;
+        };
+        per_file.push(file_metrics(&source, &parsed));
+    }
+    let repo = aggregate(&per_file);
+
+    match format {
+        MetricsFormat::Text => print_metrics_table(&repo),
+        MetricsFormat::Json => println!("{}", metrics_json(&repo)),
+    }
+
+    if let Some(dir) = badges {
+        write_badges(dir, &repo)?;
+    }
+    Ok(())
+}
+
+fn print_metrics_table(repo: &RepoMetrics) {
+    println!("sloplint metrics");
+    println!("  files               {}", repo.files);
+    println!("  functions           {}", repo.functions);
+    println!("  total lines         {}", repo.total_loc);
+    println!("  avg function LoC    {:.1}", repo.avg_function_loc);
+    println!("  max function LoC    {}", repo.max_function_loc);
+    println!("  max cyclomatic      {}", repo.max_cyclomatic);
+    println!("  max cognitive       {}", repo.max_cognitive);
+    println!("  max nesting         {}", repo.max_nesting);
+    println!("  comment density     {:.1}%", repo.comment_density * 100.0);
+}
+
+fn metrics_json(repo: &RepoMetrics) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "files": repo.files,
+        "functions": repo.functions,
+        "total_loc": repo.total_loc,
+        "avg_function_loc": repo.avg_function_loc,
+        "max_function_loc": repo.max_function_loc,
+        "max_cyclomatic": repo.max_cyclomatic,
+        "max_cognitive": repo.max_cognitive,
+        "max_nesting": repo.max_nesting,
+        "comment_density": repo.comment_density,
+    }))
+    .unwrap()
+}
+
+/// Badges for the headline metrics, each with a "lower is better" color threshold.
+fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
+    vec![
+        (
+            "avg-function-loc",
+            Badge::new(
+                "avg function LoC",
+                format!("{:.0}", repo.avg_function_loc),
+                Color::for_value(repo.avg_function_loc, 30.0, 60.0),
+            ),
+        ),
+        (
+            "max-cyclomatic",
+            Badge::new(
+                "max complexity",
+                repo.max_cyclomatic.to_string(),
+                Color::for_value(repo.max_cyclomatic as f64, 10.0, 20.0),
+            ),
+        ),
+        (
+            "max-cognitive",
+            Badge::new(
+                "max cognitive",
+                repo.max_cognitive.to_string(),
+                Color::for_value(repo.max_cognitive as f64, 15.0, 30.0),
+            ),
+        ),
+        (
+            "max-nesting",
+            Badge::new(
+                "max nesting",
+                repo.max_nesting.to_string(),
+                Color::for_value(repo.max_nesting as f64, 4.0, 6.0),
+            ),
+        ),
+        (
+            "comment-density",
+            Badge::new(
+                "comment density",
+                format!("{:.0}%", repo.comment_density * 100.0),
+                Color::for_value(repo.comment_density * 100.0, 20.0, 40.0),
+            ),
+        ),
+    ]
+}
+
+fn write_badges(dir: &str, repo: &RepoMetrics) -> anyhow::Result<()> {
+    fs::create_dir_all(dir).map_err(|e| anyhow!("creating {dir}: {e}"))?;
+    let badges = metric_badges(repo);
+    for (slug, badge) in &badges {
+        let svg_path = Path::new(dir).join(format!("{slug}.svg"));
+        let json_path = Path::new(dir).join(format!("{slug}.json"));
+        fs::write(&svg_path, badge.svg())
+            .map_err(|e| anyhow!("writing {}: {e}", svg_path.display()))?;
+        fs::write(&json_path, badge.endpoint_json())
+            .map_err(|e| anyhow!("writing {}: {e}", json_path.display()))?;
+    }
+    eprintln!("sloplint: wrote {} badges to {dir}", badges.len());
+    Ok(())
 }
 
 #[cfg(test)]

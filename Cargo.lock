@@ -981,10 +981,13 @@ dependencies = [
  "anyhow",
  "clap",
  "ignore",
+ "serde_json",
  "sloplint_clone",
  "sloplint_diagnostics",
  "sloplint_linter",
+ "sloplint_metrics",
  "sloplint_python",
+ "sloplint_report",
 ]
 
 [[package]]
@@ -1038,7 +1041,9 @@ dependencies = [
 name = "sloplint_report"
 version = "0.0.0"
 dependencies = [
+ "serde_json",
  "sloplint_diagnostics",
+ "sloplint_python",
 ]
 
 [[package]]
