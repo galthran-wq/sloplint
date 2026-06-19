@@ -65,6 +65,11 @@ enum Command {
         /// Write badge SVGs and shields endpoint JSON into this directory.
         #[arg(long)]
         badges: Option<String>,
+        /// Fail (exit 1) if any function's cyclomatic complexity exceeds this ceiling. This
+        /// is a CI gate, not a finding — it never emits a diagnostic, so it doesn't duplicate
+        /// Ruff's `C901`. McCabe recommends a ceiling of 10.
+        #[arg(long)]
+        max_cyclomatic: Option<usize>,
     },
 }
 
@@ -86,6 +91,8 @@ enum Format {
 enum MetricsFormat {
     Text,
     Json,
+    /// GitHub-flavored markdown summary (a PR-comment line + risk-tier table).
+    Github,
 }
 
 fn main() -> ExitCode {
@@ -109,8 +116,10 @@ fn main() -> ExitCode {
             paths,
             format,
             badges,
-        } => match run_metrics(&paths, format, badges.as_deref()) {
-            Ok(()) => ExitCode::SUCCESS,
+            max_cyclomatic,
+        } => match run_metrics(&paths, format, badges.as_deref(), max_cyclomatic) {
+            Ok(true) => ExitCode::SUCCESS,  // under the gate (or no gate)
+            Ok(false) => ExitCode::from(1), // a function exceeded --max-cyclomatic
             Err(err) => tool_error(err),
         },
     }
@@ -418,34 +427,100 @@ fn is_python(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "py")
 }
 
-/// Compute and report software-quality metrics; optionally emit badges.
+/// Compute and report software-quality metrics; optionally emit badges and enforce a
+/// cyclomatic-complexity gate. Returns `Ok(false)` only when `max_cyclomatic` is set and some
+/// function exceeds it — the CI gate. Reporting/badge writing always happens first so the
+/// numbers are visible even on a failing gate.
 fn run_metrics(
     paths: &[String],
     format: MetricsFormat,
     badges: Option<&str>,
-) -> anyhow::Result<()> {
+    max_cyclomatic: Option<usize>,
+) -> anyhow::Result<bool> {
     let (files, _) = discover_python_files(paths);
-    let mut per_file: Vec<FileMetrics> = Vec::new();
+    // Keep path + source alongside metrics so the gate can name offending functions with a
+    // resolved `path:line` location.
+    let mut per_file: Vec<MeasuredFile> = Vec::new();
     for path in files {
+        let display = path.to_string_lossy().to_string();
         let Ok(source) = fs::read_to_string(&path) else {
             continue;
         };
         let Ok(parsed) = parse(&source) else {
             continue;
         };
-        per_file.push(file_metrics(&source, &parsed));
+        let metrics = file_metrics(&source, &parsed);
+        per_file.push(MeasuredFile {
+            path: display,
+            source,
+            metrics,
+        });
     }
-    let repo = aggregate(&per_file);
+    let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
+    let repo = aggregate(&just_metrics);
 
     match format {
         MetricsFormat::Text => print_metrics_table(&repo),
         MetricsFormat::Json => println!("{}", metrics_json(&repo)),
+        MetricsFormat::Github => println!("{}", metrics_markdown(&repo)),
     }
 
     if let Some(dir) = badges {
         write_badges(dir, &repo)?;
     }
-    Ok(())
+
+    if let Some(ceiling) = max_cyclomatic {
+        let offenders = gate_offenders(&per_file, ceiling);
+        if !offenders.is_empty() {
+            eprintln!(
+                "sloplint: {} function(s) over the cyclomatic ceiling of {ceiling}:",
+                offenders.len()
+            );
+            for offender in &offenders {
+                eprintln!(
+                    "  {}: `{}` has cyclomatic complexity {}",
+                    offender.location, offender.name, offender.cyclomatic
+                );
+            }
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// A measured file: its display path, source, and per-function metrics.
+struct MeasuredFile {
+    path: String,
+    source: String,
+    metrics: FileMetrics,
+}
+
+/// A function whose cyclomatic complexity exceeds the configured ceiling.
+struct GateOffender {
+    /// `path:line` of the function's `def` line (its name, not the first decorator).
+    location: String,
+    name: String,
+    cyclomatic: usize,
+}
+
+/// Collect every function over `ceiling`, in file then source order (deterministic).
+fn gate_offenders(per_file: &[MeasuredFile], ceiling: usize) -> Vec<GateOffender> {
+    let mut offenders = Vec::new();
+    for file in per_file {
+        for function in &file.metrics.functions {
+            if function.cyclomatic > ceiling {
+                // Locate the `def` line via the name span — `range` would point at the first
+                // decorator on a decorated function.
+                let line = line_of(&file.source, function.name_range.start().into());
+                offenders.push(GateOffender {
+                    location: format!("{}:{line}", file.path),
+                    name: function.name.clone(),
+                    cyclomatic: function.cyclomatic,
+                });
+            }
+        }
+    }
+    offenders
 }
 
 fn print_metrics_table(repo: &RepoMetrics) {
@@ -455,7 +530,14 @@ fn print_metrics_table(repo: &RepoMetrics) {
     println!("  total lines         {}", repo.total_loc);
     println!("  avg function LoC    {:.1}", repo.avg_function_loc);
     println!("  max function LoC    {}", repo.max_function_loc);
+    println!("  avg cyclomatic      {:.1}", repo.avg_cyclomatic);
+    println!("  p95 cyclomatic      {}", repo.p95_cyclomatic);
     println!("  max cyclomatic      {}", repo.max_cyclomatic);
+    let risk = repo.cyclomatic_risk;
+    println!(
+        "  CC risk tiers       low {} / moderate {} / high {} / very high {}",
+        risk.low, risk.moderate, risk.high, risk.very_high
+    );
     println!("  max cognitive       {}", repo.max_cognitive);
     println!("  max nesting         {}", repo.max_nesting);
     println!("  comment density     {:.1}%", repo.comment_density * 100.0);
@@ -468,12 +550,26 @@ fn metrics_json(repo: &RepoMetrics) -> String {
         "total_loc": repo.total_loc,
         "avg_function_loc": repo.avg_function_loc,
         "max_function_loc": repo.max_function_loc,
+        "avg_cyclomatic": repo.avg_cyclomatic,
+        "p95_cyclomatic": repo.p95_cyclomatic,
         "max_cyclomatic": repo.max_cyclomatic,
+        "cyclomatic_risk": {
+            "low": repo.cyclomatic_risk.low,
+            "moderate": repo.cyclomatic_risk.moderate,
+            "high": repo.cyclomatic_risk.high,
+            "very_high": repo.cyclomatic_risk.very_high,
+        },
         "max_cognitive": repo.max_cognitive,
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
     }))
     .unwrap()
+}
+
+/// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from
+/// `sloplint_metrics`, under a heading. Pairs with the `cyclomatic-risk` badge.
+fn metrics_markdown(repo: &RepoMetrics) -> String {
+    format!("### sloplint metrics\n\n{}", repo.cyclomatic_markdown())
 }
 
 /// Badges for the headline metrics, each with a "lower is better" color threshold.
@@ -495,6 +591,8 @@ fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
                 Color::for_value(repo.max_cyclomatic as f64, 10.0, 20.0),
             ),
         ),
+        // Headline cyclomatic risk, colored by McCabe's tier rather than a flat threshold.
+        ("cyclomatic-risk", repo.cyclomatic_badge()),
         (
             "max-cognitive",
             Badge::new(
