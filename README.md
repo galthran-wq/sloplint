@@ -34,7 +34,9 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060/084`) are preview — enable with `--preview`.
+(`SLP001/002/040/060/084/120`) are preview — enable with `--preview`. `SLP120` flags
+low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups;
+thresholds `lcom4_max_components` / `lcom4_min_methods` under `[limits]`).
 
 ## GitHub Action
 

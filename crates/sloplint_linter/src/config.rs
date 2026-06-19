@@ -56,6 +56,12 @@ pub struct Limits {
     pub max_identifier_words: usize,
     /// SLP090: maximum `.py` modules directly in one directory before it's "flat fanout".
     pub dir_max_modules: usize,
+    /// SLP120: maximum LCOM4 cohesion components a class may split into before it's a
+    /// low-cohesion "god class" (fire when components exceed this).
+    pub lcom4_max_components: usize,
+    /// SLP120: minimum methods a class must have before LCOM4 is applied — small classes are
+    /// too noisy to judge for cohesion.
+    pub lcom4_min_methods: usize,
 }
 
 impl Default for Limits {
@@ -66,6 +72,8 @@ impl Default for Limits {
             data_nesting_max_depth: 3,
             max_identifier_words: 4,
             dir_max_modules: 15,
+            lcom4_max_components: 1,
+            lcom4_min_methods: 3,
         }
     }
 }
