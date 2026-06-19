@@ -1,0 +1,6 @@
+---
+source: crates/sloplint_linter/src/testing.rs
+expression: rendered
+---
+1:1 SLP000 [warning] example: TODO found in comment
+6:5 SLP000 [warning] example: TODO found in comment
