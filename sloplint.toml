@@ -13,6 +13,11 @@ ignore = []
 # Enable preview (unstable) rules. Off by default.
 preview = false
 
+# Near-duplicate (clone) detection — SLP020. Conservative by default (near-identical only).
+[clone]
+min_statements = 3    # ignore functions smaller than this (avoids flagging trivial getters)
+similarity = 0.85     # Jaccard similarity at/above which two functions are called clones
+
 # Per-path overrides. All matching overrides apply; their `ignore` lists accumulate.
 # Comments are banned by default; opt specific paths back in here.
 #
