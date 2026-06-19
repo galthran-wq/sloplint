@@ -29,3 +29,5 @@ jobs:
         run: cargo build --workspace
       - name: test
         run: cargo test --workspace
+      - name: benches compile
+        run: cargo bench --workspace --no-run

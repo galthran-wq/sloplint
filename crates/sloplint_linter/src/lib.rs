@@ -12,5 +12,7 @@
 
 pub mod checkers;
 pub mod codes;
+pub mod lint;
 pub mod registry;
 pub mod rules;
+pub mod testing;

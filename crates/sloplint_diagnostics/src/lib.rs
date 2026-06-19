@@ -5,6 +5,8 @@
 //! severity policy, suppression — is fleshed out in the diagnostics/registry PR. This is
 //! the seam crate so downstream crates can already depend on it.
 
+pub mod render;
+
 use ruff_text_size::TextRange;
 
 /// How serious a finding is. Drives exit codes and badge colors.
