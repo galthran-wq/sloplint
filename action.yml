@@ -33,23 +33,79 @@ inputs:
     description: "Fail the job when sloplint reports issues."
     default: "true"
     required: false
+  version:
+    description: "Release tag of a prebuilt binary to download (e.g. v0.1.0), or 'latest'. Falls back to building from source if unavailable."
+    default: "latest"
+    required: false
 
 runs:
   using: "composite"
   steps:
+    - name: Resolve prebuilt sloplint
+      id: resolve
+      shell: bash
+      env:
+        ACTION_REPO: ${{ github.action_repository }}
+        VERSION: ${{ inputs.version }}
+        RUNNER_OS_ARCH: ${{ runner.os }}-${{ runner.arch }}
+      run: |
+        set -uo pipefail
+        # Map the runner to a release target triple (only prebuilt platforms).
+        case "$RUNNER_OS_ARCH" in
+          Linux-X64)   TRIPLE="x86_64-unknown-linux-gnu" ;;
+          macOS-X64)   TRIPLE="x86_64-apple-darwin" ;;
+          macOS-ARM64) TRIPLE="aarch64-apple-darwin" ;;
+          *)           TRIPLE="" ;;
+        esac
+
+        BIN=""
+        # Try a prebuilt binary first (fast). Skipped for local `uses: ./` (no action repo),
+        # unknown platforms, or when `version` is blank.
+        if [ -n "$TRIPLE" ] && [ -n "$ACTION_REPO" ] && [ -n "$VERSION" ]; then
+          if [ "$VERSION" = "latest" ]; then
+            URL="https://github.com/$ACTION_REPO/releases/latest/download/sloplint-$TRIPLE.tar.gz"
+          else
+            URL="https://github.com/$ACTION_REPO/releases/download/$VERSION/sloplint-$TRIPLE.tar.gz"
+          fi
+          mkdir -p "$RUNNER_TEMP/sloplint-bin"
+          if curl -fsSL "$URL" -o "$RUNNER_TEMP/sloplint.tar.gz"; then
+            tar -xzf "$RUNNER_TEMP/sloplint.tar.gz" -C "$RUNNER_TEMP/sloplint-bin"
+            if [ -x "$RUNNER_TEMP/sloplint-bin/sloplint" ]; then
+              BIN="$RUNNER_TEMP/sloplint-bin/sloplint"
+              echo "Using prebuilt sloplint ($VERSION, $TRIPLE)."
+            fi
+          fi
+        fi
+
+        if [ -n "$BIN" ]; then
+          echo "bin=$BIN" >> "$GITHUB_OUTPUT"
+          echo "build=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "No prebuilt binary available; will build from source."
+          echo "build=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    # Rust toolchain + source build only when no prebuilt binary was found — so the common
+    # (prebuilt) path pays for neither.
     - name: Set up Rust
+      if: ${{ steps.resolve.outputs.build == 'true' }}
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: "1.94.0"
 
-    - name: Build sloplint
+    - name: Build sloplint from source
+      if: ${{ steps.resolve.outputs.build == 'true' }}
+      id: build
       shell: bash
-      run: cargo build --release --bin sloplint --manifest-path "${{ github.action_path }}/Cargo.toml"
+      run: |
+        cargo build --release --bin sloplint --manifest-path "${{ github.action_path }}/Cargo.toml"
+        echo "bin=${{ github.action_path }}/target/release/sloplint" >> "$GITHUB_OUTPUT"
 
     - name: Run sloplint
       id: run
       shell: bash
       env:
+        BIN: ${{ steps.resolve.outputs.bin != '' && steps.resolve.outputs.bin || steps.build.outputs.bin }}
         # GitHub expressions build the optional flags so empty inputs don't add stray args.
         PREVIEW_FLAG: ${{ inputs.preview == 'true' && '--preview' || '' }}
         CONFIG_FLAG: ${{ inputs.config != '' && format('--config {0}', inputs.config) || '' }}
@@ -58,7 +114,6 @@ runs:
         # findings are the expected output, and the SARIF/comment must still be produced.
         # The lint exit code is captured for the gating step at the end.
         set +e
-        BIN="${{ github.action_path }}/target/release/sloplint"
         PATHS="${{ inputs.paths }}"
 
         # Human-readable run in the job log.
