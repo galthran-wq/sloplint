@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/scaffolding/mod.rs
+expression: rendered
+---
+18:4 SLP140 [warning] `if __name__ == "__main__":` block looks like example/demo scaffolding (it exercises this module's own API and prints) — move it to `examples/` or delete it
