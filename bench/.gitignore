@@ -1,0 +1,9 @@
+# Cloned repo trees — never committed (license + size). Reproduce from repos.json.
+/checkouts/
+
+# Everything under results/ is transient — raw per-repo dumps, candidate-discovery
+# scratch (slop_candidates*.jsonl), and run logs — EXCEPT the two committed deliverables:
+# the distilled comparison report and the reproducible run manifest.
+/results/*
+!/results/report.md
+!/results/run_manifest.json
