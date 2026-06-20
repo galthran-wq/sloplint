@@ -406,6 +406,27 @@ impl ImportGraph {
         }
         reachable_pairs as f64 / (n as f64 * n as f64)
     }
+
+    /// Newman–Girvan modularity (issue #69): Q of the declared package partition vs. Q of the
+    /// Louvain-detected community structure, over the undirected projection of the module graph.
+    /// The gap between them flags packages-in-name-only. See [`crate::modularity`].
+    pub fn modularity(&self) -> crate::modularity::ModularityReport {
+        // Declared partition: map each module's package (directory) to a dense community id, in
+        // node-index order so the assignment is deterministic.
+        let mut package_id: HashMap<String, usize> = HashMap::new();
+        let mut declared = vec![0usize; self.graph.node_count()];
+        for node in self.graph.node_indices() {
+            let pkg = self.package_of_node(&self.graph[node]);
+            let next = package_id.len();
+            declared[node.index()] = *package_id.entry(pkg).or_insert(next);
+        }
+        let edges: Vec<(usize, usize)> = self
+            .graph
+            .edge_references()
+            .map(|e| (e.source().index(), e.target().index()))
+            .collect();
+        crate::modularity::analyze(self.graph.node_count(), &edges, &declared)
+    }
 }
 
 /// Derive a module's dotted name from a file path *relative to its source root*: an

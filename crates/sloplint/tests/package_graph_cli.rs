@@ -128,3 +128,27 @@ fn json_rollup_reports_propagation_cost() {
     // (4*3 + 1*4) / 7^2 = 16/49.
     assert!((pc - 16.0 / 49.0).abs() < 1e-9, "propagation_cost = {pc}");
 }
+
+#[test]
+fn json_rollup_reports_modularity() {
+    let value: Value = serde_json::from_str(&run("json")).expect("metrics --format json is valid");
+    let m = &value["packages"]["modularity"];
+
+    // Three declared packages (proj, proj.sub, root `.`).
+    assert_eq!(m["communities_declared"], 3);
+
+    // The declared partition scores *negative* modularity: proj.sub.helper is more coupled to
+    // proj (imports proj.b, imported by proj.a) than to its own proj.sub package, so the declared
+    // boundaries are worse than random. Q = (6/10 - (8/10)^2) + (-(2/10)^2) = -0.08.
+    let q_declared = m["q_declared"].as_f64().unwrap();
+    assert!(
+        (q_declared + 0.08).abs() < 1e-9,
+        "q_declared = {q_declared}"
+    );
+
+    // Louvain recovers the connected component as one community (Q = 0), beating the declared
+    // partition — so the gap is positive, flagging the mismatch.
+    assert_eq!(m["q_detected"], 0.0);
+    let gap = m["gap"].as_f64().unwrap();
+    assert!((gap - 0.08).abs() < 1e-9, "gap = {gap}");
+}
