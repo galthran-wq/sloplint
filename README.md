@@ -7,19 +7,30 @@ judgments Ruff intentionally won't ship, and **never re-checks anything Ruff alr
 
 Written in Rust, reusing Ruff's own parser crates for a full-fidelity AST + token stream.
 
-## What it targets
+## Features
 
-Patterns that no mainstream linter flags today:
+Rules that flag slop patterns no mainstream linter covers today. **Stable** rules run by
+default; **preview** rules are heuristic — enable them with `--preview`.
 
-- Redundant "what" comments & docstrings that just restate the code (default: comments are
-  **banned**, configurable per-path).
-- **Cross-file duplicated / near-duplicate functions** — copy-paste *and* "same logic,
-  slightly different" (the flagship clone engine).
-- Redundant type hints, overly defensive `try/except`, verbose mechanical naming.
-- ASCII-only enforcement (no emoji), deep-nesting caps, oversized files, flat-directory fanout.
-- **Deeply nested data-structure literals** — a dict-of-lists-of-dicts inline blob past a
-  configurable depth, distinct from control-flow nesting (model it with a named type).
-- Software-quality-metric **badges** + a per-PR summary, via a GitHub Action.
+| Rule | Stability | What it flags |
+| --- | --- | --- |
+| `SLP010` | stable | Comments — **banned by default** (relax per-path in `sloplint.toml`) |
+| `SLP020` | stable | Cross-file duplicate / near-duplicate functions — copy-paste *and* "same logic, slightly different" (the flagship clone engine) |
+| `SLP030` | stable | Overly defensive `try`/`except` |
+| `SLP050` | stable | Non-ASCII source (e.g. emoji) |
+| `SLP080` | stable | Oversized files (configurable line cap) |
+| `SLP082` | stable | Deep control-flow nesting inside a function |
+| `SLP090` | stable | Flat-directory fanout — too many `.py` modules in one directory |
+| `SLP001` | preview | Redundant "what" comments that just restate the code |
+| `SLP002` | preview | Redundant docstrings that just restate the code |
+| `SLP040` | preview | Redundant type hints |
+| `SLP060` | preview | Verbose, mechanical identifier naming |
+| `SLP084` | preview | Deeply nested data-structure literals (a dict-of-lists-of-dicts blob past a depth — model it with a named type) |
+| `SLP120` | preview | Low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups) |
+
+Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
+McCabe risk tiers, shields **badges**, and a per-PR summary — via the `metrics` command and the
+GitHub Action.
 
 ## Installation
 

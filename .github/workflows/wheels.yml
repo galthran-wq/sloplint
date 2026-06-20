@@ -1,18 +1,27 @@
 name: Wheels
 
-# Build PyPI wheels that bundle the sloplint binary (issue #47). On every PR/push we build a
-# Linux wheel and smoke-test that it installs a working `sloplint`; on a `v*` tag we build the
-# full platform matrix and publish to PyPI.
+# Build PyPI wheels that bundle the sloplint binary (issue #47). On a PR that touches
+# packaging/build files we smoke-test just the Linux wheel; on push to main and `v*` tags we
+# build the full platform matrix (and publish to PyPI on a tag). Docs-only PRs don't trigger it.
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    paths:
+      - "pyproject.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/wheels.yml"
 
 jobs:
   build:
     name: wheel ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    # On PRs, only build the Linux smoke wheel; build the full matrix on push/tags.
+    if: ${{ github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
