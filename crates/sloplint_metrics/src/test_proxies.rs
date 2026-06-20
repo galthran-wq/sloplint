@@ -16,8 +16,8 @@
 //! far less test code with shallower assertions, so as distribution signals they add real
 //! information even though no single repo's number is a verdict.
 //!
-//! Complements the SLP070 (assertion-free test) and SLP160 (test mirroring) *rules* with
-//! aggregate *metrics*.
+//! These aggregate *metrics* are the cohort-level counterpart to the per-file
+//! assertion-free-test (SLP070) and test-mirroring (SLP160) *rules*.
 
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, ModModule, Stmt, StmtFunctionDef};
@@ -147,9 +147,19 @@ fn collect_test_functions<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtFunctionDe
     }
 }
 
-/// A test function by pytest/unittest convention: the name starts with `test`.
+/// A test function by pytest/unittest convention: exactly `test`, a `test_*` name (pytest), or
+/// a `testCamelCase` name (unittest's default loader). The character after `test` must be `_` or
+/// uppercase, so ordinary helpers like `testing()` or `tested_value()` are *not* miscounted as
+/// tests (which would otherwise inflate the denominator and deflate assertion density).
 fn is_test_name(name: &str) -> bool {
-    name.starts_with("test")
+    match name.strip_prefix("test") {
+        None => false,
+        Some("") => true,
+        Some(rest) => rest
+            .chars()
+            .next()
+            .is_some_and(|c| c == '_' || c.is_ascii_uppercase()),
+    }
 }
 
 /// Count assertions in a test function's body: `assert` statements plus assertion calls,
@@ -182,7 +192,11 @@ fn count_assertions(body: &[Stmt]) -> usize {
 
 /// Whether an expression is a recognized assertion *call* — the same shapes SLP070 treats as
 /// proof a test actually checks something:
-/// - `<receiver>.assert*(...)` — unittest's `assertEqual`/`assertTrue`/`assertRaises`/...;
+/// - `<receiver>.assertX(...)` — unittest's `assertEqual`/`assertTrue`/`assertRaises`/...; the
+///   `assert` prefix must be followed by an UPPERCASE letter (the unittest camelCase
+///   convention), so snake_case lookalikes are excluded: a user helper `assertion_helper()` and
+///   `mock.assert_called_with(...)` (a mock-configuration call, not a test assertion) do not
+///   count;
 /// - `self.fail(...)` / `cls.fail(...)`;
 /// - `pytest.raises(...)` / `pytest.warns(...)` / `pytest.deprecated_call(...)` (incl. as the
 ///   context expression of a `with`, which is visited as a normal call).
@@ -195,7 +209,7 @@ fn is_assertion_call(expr: &Expr) -> bool {
     };
     let method = attribute.attr.as_str();
 
-    if method.starts_with("assert") {
+    if is_unittest_assert(method) {
         return true;
     }
     if method == "fail" && receiver_is(&attribute.value, &["self", "cls"]) {
@@ -207,6 +221,15 @@ fn is_assertion_call(expr: &Expr) -> bool {
         return true;
     }
     false
+}
+
+/// A unittest `assertX` method name: `assert` followed by an uppercase letter (`assertEqual`,
+/// `assertTrue`, `assertRaises`). Excludes `assert_called_with` (mock) and `assertion_helper`.
+fn is_unittest_assert(method: &str) -> bool {
+    method
+        .strip_prefix("assert")
+        .and_then(|rest| rest.chars().next())
+        .is_some_and(|c| c.is_ascii_uppercase())
 }
 
 /// Whether `expr` is a bare name matching one of `names` (the receiver of an attribute access).
@@ -283,6 +306,39 @@ class TestThing:
         assert_eq!(stats.test_functions, 0);
         assert_eq!(stats.assertions, 0);
         assert_eq!(stats.loc, 2);
+    }
+
+    #[test]
+    fn test_name_matches_pytest_and_unittest_but_not_lookalikes() {
+        // pytest + unittest conventions.
+        assert!(is_test_name("test"));
+        assert!(is_test_name("test_add"));
+        assert!(is_test_name("testAddition")); // unittest camelCase
+                                               // Helpers that merely start with the letters "test" must not count.
+        assert!(!is_test_name("testing"));
+        assert!(!is_test_name("tested_value"));
+        assert!(!is_test_name("teardown"));
+    }
+
+    #[test]
+    fn unittest_assert_excludes_mock_and_helper_lookalikes() {
+        // camelCase unittest assertions count; snake_case lookalikes do not.
+        assert!(is_unittest_assert("assertEqual"));
+        assert!(is_unittest_assert("assertTrue"));
+        assert!(!is_unittest_assert("assert_called_with")); // mock configuration, not a test
+        assert!(!is_unittest_assert("assertion_helper")); // user helper
+        assert!(!is_unittest_assert("assert")); // bare (not a real method name anyway)
+
+        // End-to-end through the counter: only the real unittest assertions count.
+        let source = "\
+def test_mock_calls():
+    mock.assert_called_with(1)  # not a test assertion
+    self.assertion_helper()     # user helper, not a test assertion
+    self.assertEqual(a, b)      # counts
+";
+        let parsed = parse_src(source);
+        let stats = file_test_stats("test_mocks.py", source.lines().count(), &parsed);
+        assert_eq!(stats.assertions, 1);
     }
 
     #[test]

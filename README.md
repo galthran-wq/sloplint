@@ -262,7 +262,7 @@ codebase is, computed without running anything:
 
 ```jsonc
 "test_proxies": {
-  "_note": "Static proxies, NOT coverage. Descriptive cohort statistics only — never a gate.",
+  "_note": "Static proxies, NOT coverage. Descriptive cohort statistics only — never a pass/fail gate. ...",
   "test_files": 12, "production_files": 48,
   "test_loc": 1840, "production_loc": 5210,
   "test_code_ratio": 0.353,    // test LoC / production LoC
@@ -282,7 +282,8 @@ the figures also appear in the text table and the `--format github` PR summary.
 > asserts and verify nothing, or few asserts and be excellent. So they are reported as descriptive
 > cohort statistics and are **never** a pass/fail gate. Their value is across a *cohort* (slop
 > tends to ship far less test code with shallower assertions), not as a per-repo verdict. They
-> complement the `SLP070` (assertion-free tests) and `SLP160` (test mirroring) *rules*.
+> are the cohort-level counterpart to the per-file `SLP070` (assertion-free tests) and `SLP160`
+> (test mirroring) *rules*.
 
 ## GitHub Action
 
