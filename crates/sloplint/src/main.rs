@@ -828,6 +828,8 @@ fn run_metrics(
                     name,
                     imports: graph::scan_module_imports(&parsed),
                     loc: metrics.loc,
+                    classes: metrics.classes.len(),
+                    abstract_classes: metrics.classes.iter().filter(|c| c.is_abstract).count(),
                 });
             }
         }
@@ -1001,6 +1003,7 @@ fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::
         "methods": class.methods,
         "attributes": class.attributes,
         "lcom4": class.lcom4,
+        "is_abstract": class.is_abstract,
     })
 }
 
@@ -1017,8 +1020,9 @@ fn print_package_rows(graph: &ImportGraph) {
 /// Build the JSONL row for one package. Split out so its shape can be unit-tested.
 ///
 /// `ce`/`ca` are Martin's efferent/afferent coupling (the counts of distinct first-party packages
-/// in `imports`/`imported_by`); `instability` is `ce / (ce + ca)` (#67). The named-package lists
-/// are kept so a consumer can see *which* packages couple, not just how many.
+/// in `imports`/`imported_by`); `instability` is `ce / (ce + ca)` (#67). `abstractness` and
+/// `distance` are Martin's `A` and `D = |A + I − 1|` (#70, heuristic in Python). The named-package
+/// lists are kept so a consumer can see *which* packages couple, not just how many.
 fn package_row(row: &PackageRow) -> serde_json::Value {
     serde_json::json!({
         "package": row.package,
@@ -1030,6 +1034,10 @@ fn package_row(row: &PackageRow) -> serde_json::Value {
         "ca": row.imported_by.len(),
         "instability": row.instability,
         "in_cycle": row.in_cycle,
+        "classes": row.classes,
+        "abstract_classes": row.abstract_classes,
+        "abstractness": row.abstractness,
+        "distance": row.distance,
     })
 }
 
@@ -1452,10 +1460,13 @@ class Counter:
         assert_eq!(row["attributes"], 1); // self.total
         assert_eq!(row["lcom4"], 1, "add/show share self.total");
         assert!(row["loc"].as_u64().unwrap() >= 7);
+        assert_eq!(row["is_abstract"], false, "a plain concrete class");
     }
 
     #[test]
     fn package_row_has_module_count_and_coupling() {
+        let instability = graph::instability(1, 2);
+        let abstractness = graph::abstractness(1, 4); // 1 of 4 classes abstract
         let row = PackageRow {
             package: "pkg".to_string(),
             modules: 2,
@@ -1463,7 +1474,11 @@ class Counter:
             imports: vec!["pkg.sub".to_string()],
             imported_by: vec!["app".to_string(), "cli".to_string()],
             in_cycle: true,
-            instability: graph::instability(1, 2),
+            instability,
+            classes: 4,
+            abstract_classes: 1,
+            abstractness,
+            distance: graph::distance(abstractness, instability),
         };
         let value = package_row(&row);
         assert_eq!(value["package"], "pkg");
@@ -1475,6 +1490,11 @@ class Counter:
         assert_eq!(value["ca"], 2);
         assert_eq!(value["instability"], 1.0 / 3.0);
         assert_eq!(value["in_cycle"], true);
+        // A = 1/4 = 0.25; D = |0.25 + 1/3 − 1| = |−0.41666…| = 0.41666…
+        assert_eq!(value["classes"], 4);
+        assert_eq!(value["abstract_classes"], 1);
+        assert_eq!(value["abstractness"], 0.25);
+        assert_eq!(value["distance"], (0.25 + 1.0 / 3.0 - 1.0_f64).abs());
     }
 
     #[test]

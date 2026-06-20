@@ -74,6 +74,10 @@ pub struct ModuleInput {
     pub imports: Vec<RawImport>,
     /// Physical lines of code in the module file, summed into the owning package's `loc` (#67).
     pub loc: usize,
+    /// Classes defined in this module, summed into the owning package's `classes` (#70).
+    pub classes: usize,
+    /// Of those, the ones counted as abstract (see `class_is_abstract`), summed per package (#70).
+    pub abstract_classes: usize,
 }
 
 /// Merged flags on a resolved module→module edge. An edge can be produced by several import
@@ -123,6 +127,17 @@ pub struct PackageRow {
     /// Martin's instability `I = Ce / (Ce + Ca)` ∈ [0, 1], or `0.0` when `Ce + Ca == 0`
     /// (a package with no first-party coupling is treated as maximally stable, as in JDepend).
     pub instability: f64,
+    /// Total classes defined across this package's modules (#70).
+    pub classes: usize,
+    /// Of those, the ones counted as abstract by the heuristic (#70).
+    pub abstract_classes: usize,
+    /// Martin's abstractness `A = abstract_classes / classes` ∈ [0, 1], or `0.0` when there are
+    /// no classes (matching JDepend). A *heuristic* in Python — see `class_is_abstract`.
+    pub abstractness: f64,
+    /// Distance from the main sequence `D = |A + I − 1|` ∈ [0, 1] (#70). High `D` flags the
+    /// "zone of pain" (concrete + heavily depended on) or "zone of uselessness" (abstract +
+    /// unused). Weakly validated — design guidance more than a defect signal.
+    pub distance: f64,
 }
 
 /// Martin's instability `I = Ce / (Ce + Ca)`, defined as `0.0` when `Ce + Ca == 0` (matching
@@ -134,6 +149,23 @@ pub fn instability(ce: usize, ca: usize) -> f64 {
     } else {
         ce as f64 / total as f64
     }
+}
+
+/// Martin's abstractness `A = abstract_classes / classes`, defined as `0.0` when `classes == 0`
+/// (matching JDepend, which returns `0` for a class-less package rather than dividing by zero).
+pub fn abstractness(abstract_classes: usize, classes: usize) -> f64 {
+    if classes == 0 {
+        0.0
+    } else {
+        abstract_classes as f64 / classes as f64
+    }
+}
+
+/// Distance from the main sequence `D = |A + I − 1|` ∈ [0, 1] — how far a package sits from the
+/// ideal balance where abstractness and instability sum to one (JDepend's `distance()` with the
+/// default volatility of 1).
+pub fn distance(abstractness: f64, instability: f64) -> f64 {
+    (abstractness + instability - 1.0).abs()
 }
 
 /// Cyclic-dependency tangles found by running Tarjan's SCC over the module import graph
@@ -188,6 +220,8 @@ pub struct ImportGraph {
     is_package: HashMap<String, bool>,
     /// `dotted name -> physical lines of code`, summed per package for `PackageRow::loc`.
     loc: HashMap<String, usize>,
+    /// `dotted name -> (total classes, abstract classes)`, summed per package for abstractness.
+    class_counts: HashMap<String, (usize, usize)>,
 }
 
 impl ImportGraph {
@@ -201,11 +235,16 @@ impl ImportGraph {
         let mut index = HashMap::new();
         let mut is_package = HashMap::new();
         let mut loc = HashMap::new();
+        let mut class_counts = HashMap::new();
         for module in &modules {
             let node = graph.add_node(module.name.dotted.clone());
             index.insert(module.name.dotted.clone(), node);
             is_package.insert(module.name.dotted.clone(), module.name.is_package);
             loc.insert(module.name.dotted.clone(), module.loc);
+            class_counts.insert(
+                module.name.dotted.clone(),
+                (module.classes, module.abstract_classes),
+            );
         }
 
         for module in &modules {
@@ -232,6 +271,7 @@ impl ImportGraph {
             index,
             is_package,
             loc,
+            class_counts,
         }
     }
 
@@ -276,6 +316,8 @@ impl ImportGraph {
         let mut module_count: BTreeMap<String, usize> = BTreeMap::new();
         let mut in_cycle: BTreeMap<String, bool> = BTreeMap::new();
         let mut loc: BTreeMap<String, usize> = BTreeMap::new();
+        let mut classes: BTreeMap<String, usize> = BTreeMap::new();
+        let mut abstract_classes: BTreeMap<String, usize> = BTreeMap::new();
         let mut efferent: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut afferent: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
@@ -284,6 +326,9 @@ impl ImportGraph {
             *module_count.entry(pkg.clone()).or_default() += 1;
             *in_cycle.entry(pkg.clone()).or_default() |= cycle_modules.contains(name.as_str());
             *loc.entry(pkg.clone()).or_default() += self.loc.get(name).copied().unwrap_or(0);
+            let (total, abstract_) = self.class_counts.get(name).copied().unwrap_or((0, 0));
+            *classes.entry(pkg.clone()).or_default() += total;
+            *abstract_classes.entry(pkg.clone()).or_default() += abstract_;
             efferent.entry(pkg.clone()).or_default();
             afferent.entry(pkg).or_default();
         }
@@ -302,8 +347,16 @@ impl ImportGraph {
             .map(|(package, modules)| {
                 let imports: Vec<String> = efferent[&package].iter().cloned().collect();
                 let imported_by: Vec<String> = afferent[&package].iter().cloned().collect();
+                let instability = instability(imports.len(), imported_by.len());
+                let total_classes = classes[&package];
+                let abstract_count = abstract_classes[&package];
+                let abstractness = abstractness(abstract_count, total_classes);
                 PackageRow {
-                    instability: instability(imports.len(), imported_by.len()),
+                    distance: distance(abstractness, instability),
+                    abstractness,
+                    classes: total_classes,
+                    abstract_classes: abstract_count,
+                    instability,
                     loc: loc[&package],
                     in_cycle: in_cycle[&package],
                     imports,
@@ -673,6 +726,10 @@ mod tests {
                     name,
                     imports: scan_module_imports(&parsed),
                     loc: src.lines().count(),
+                    // Class counts are exercised separately (see the abstractness tests, which
+                    // build inputs directly); the import-graph tests don't need them.
+                    classes: 0,
+                    abstract_classes: 0,
                 })
             })
             .collect();
@@ -985,6 +1042,63 @@ from pkg import *
         assert_eq!(instability(3, 0), 1.0); // depends on others, depended on by none
         assert_eq!(instability(0, 3), 0.0); // depended on by others, depends on none
         assert_eq!(instability(1, 3), 0.25);
+    }
+
+    #[test]
+    fn abstractness_and_distance_formula_edge_cases() {
+        assert_eq!(abstractness(0, 0), 0.0); // no classes → 0, no divide-by-zero
+        assert_eq!(abstractness(0, 4), 0.0); // all concrete
+        assert_eq!(abstractness(4, 4), 1.0); // all abstract
+        assert_eq!(abstractness(1, 4), 0.25);
+
+        // D = |A + I − 1|: on the main sequence (A+I=1) distance is 0; at the corners it is 1.
+        assert_eq!(distance(0.0, 1.0), 0.0); // pure concrete + unstable: ideal
+        assert_eq!(distance(1.0, 0.0), 0.0); // pure abstract + stable: ideal
+        assert_eq!(distance(0.0, 0.0), 1.0); // zone of pain: concrete + stable
+        assert_eq!(distance(1.0, 1.0), 1.0); // zone of uselessness: abstract + unstable
+        assert!((distance(0.25, 0.25) - 0.5).abs() < 1e-12);
+    }
+
+    /// Abstractness and distance aggregate class counts across a package's modules, then derive
+    /// `A = abstract/total` and `D = |A + I − 1|`. Inputs are built directly so the test exercises
+    /// the aggregation, not the (separately tested) class-detection heuristic.
+    #[test]
+    fn package_rows_aggregate_abstractness_and_distance() {
+        fn input(path: &str, classes: usize, abstract_classes: usize) -> ModuleInput {
+            ModuleInput {
+                name: module_from_path(path).unwrap(),
+                imports: Vec::new(),
+                loc: 0,
+                classes,
+                abstract_classes,
+            }
+        }
+        // `iface` is a leaf package of 3 abstract + 1 concrete class across two modules: A = 3/4,
+        // and with no coupling I = 0, so D = |0.75 + 0 − 1| = 0.25.
+        let g = ImportGraph::build(vec![
+            input("iface/__init__.py", 0, 0),
+            input("iface/a.py", 2, 2),
+            input("iface/b.py", 2, 1),
+        ]);
+        let rows = g.package_rows();
+        let iface = rows.iter().find(|r| r.package == "iface").unwrap();
+        assert_eq!(iface.classes, 4);
+        assert_eq!(iface.abstract_classes, 3);
+        assert_eq!(iface.abstractness, 0.75);
+        assert_eq!(iface.instability, 0.0);
+        assert_eq!(iface.distance, 0.25);
+    }
+
+    #[test]
+    fn package_with_no_classes_has_zero_abstractness() {
+        // The import-graph fixtures define no classes, so abstractness is 0 and distance reduces
+        // to |I − 1| — here a leaf with no coupling (I=0) sits in the zone of pain (D=1).
+        let g = graph_of(&[("pkg/__init__.py", ""), ("pkg/a.py", "")]);
+        let rows = g.package_rows();
+        let pkg = rows.iter().find(|r| r.package == "pkg").unwrap();
+        assert_eq!(pkg.classes, 0);
+        assert_eq!(pkg.abstractness, 0.0);
+        assert_eq!(pkg.distance, 1.0);
     }
 
     #[test]
