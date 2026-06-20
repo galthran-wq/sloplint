@@ -1,0 +1,38 @@
+# PyPI packaging for sloplint (issue #47). maturin's `bin` bindings compile the
+# `crates/sloplint` binary and package it into a platform wheel, so `pip install sloplint`
+# (or uvx / uv tool / pipx) puts the native `sloplint` executable on PATH — no Rust toolchain
+# needed to *use* it. This is distribution metadata only; the tool itself stays pure Rust.
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "sloplint"
+description = "Fast, deterministic linter for AI 'slop' in Python — runs right after Ruff."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "sloplint contributors" }]
+keywords = ["linter", "python", "ruff", "ai", "slop", "static-analysis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python",
+    "Topic :: Software Development :: Quality Assurance",
+]
+# Version is read from crates/sloplint/Cargo.toml by maturin.
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/galthran-wq/sloplint"
+Issues = "https://github.com/galthran-wq/sloplint/issues"
+
+[tool.maturin]
+# Ship the compiled CLI binary itself (not a PyO3 extension module).
+bindings = "bin"
+# Build the CLI crate out of the cargo workspace.
+manifest-path = "crates/sloplint/Cargo.toml"
+strip = true
