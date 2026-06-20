@@ -6,6 +6,7 @@
 //! deterministic, token+AST based.
 
 pub mod badge;
+pub mod cohesion;
 
 use badge::{Badge, Color};
 use sloplint_python::ast::visitor::{self, Visitor};
