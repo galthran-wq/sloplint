@@ -165,7 +165,11 @@ def request(self, ...):   # sloplint: allow SLP020  (sync/async mirror of AsyncC
   why" — and is never itself reported.
 
 A directive applies to any finding whose span covers the comment's line, so placing it on the
-`def`/statement line is enough even for a whole-function finding. This works for **every** rule.
+`def`/statement line is enough even for a whole-function finding — this works for the per-file
+rules, SLP020 (clones), and SLP180 (imports). The one exception is the directory-level rule SLP090
+(too many modules in a directory): its finding has no per-site anchor, so tune it via
+`dir_max_modules` or `ignore` rather than an inline comment.
+
 Duplication is the motivating case: SLP020 is on by default ("no un-acknowledged duplication"), and
 a clone is reported at *each* end — so silencing a whole pair takes a directive in both functions,
 each documenting why that twin is intentional.
