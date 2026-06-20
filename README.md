@@ -151,9 +151,9 @@ allow_comments = true         # permit comments here (otherwise banned)
 ## Metrics & badges
 
 Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
-cognitive complexity (with McCabe risk tiers), average function length, max nesting, and comment
-density. These are **measured, not linted**, so they never duplicate Ruff. Gate them in CI by
-exit code (each names the offending functions and exits 1):
+cognitive complexity (with McCabe risk tiers), average function length, max nesting, comment
+density, and type-hint coverage. These are **measured, not linted**, so they never duplicate Ruff.
+Gate them in CI by exit code (each names the offending functions and exits 1):
 
 ```bash
 sloplint metrics src --max-cyclomatic 10   # fail if any function's cyclomatic complexity > 10
@@ -176,6 +176,16 @@ Choose which badges via `[badges]` in `sloplint.toml`: `include` picks the per-m
 
 Commit the SVGs, or host the `*.json` and point a shields URL at it for a badge that updates
 itself. The GitHub Action writes them when you set its `badges-dir` input.
+
+### Type-hint coverage
+
+`--format functions` rows carry per-function annotation counts (`typed_params`,
+`annotatable_params`, `has_return_annotation`), and `--format json` rolls them up into
+`param_annotation_coverage` (annotated ÷ annotatable params) and `fully_annotated_function_rate`
+(functions with every param **and** the return type annotated). Annotatable params exclude the
+`self`/`cls` receiver and `*args`/`**kwargs`. This measures **under**-annotation as a quality
+concern (missing types are harder to read and refactor, and weaken tooling) — the bad direction is
+*low* coverage only. Fully-typed code is neutral-to-good and is never itself a slop signal.
 
 ### Package & module architecture metrics
 

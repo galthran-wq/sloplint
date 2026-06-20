@@ -47,6 +47,11 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
     assert_eq!(risk["moderate"], 1, "moderate() is in the 11-20 tier");
     assert_eq!(risk["high"], 0);
     assert_eq!(risk["very_high"], 0);
+
+    // Type-hint coverage (#85) is wired into the aggregate. The fixture is fully unannotated, so
+    // both land at 0.0 — the precise ratio math is covered by the metrics-crate unit tests.
+    assert_eq!(value["param_annotation_coverage"], 0.0);
+    assert_eq!(value["fully_annotated_function_rate"], 0.0);
 }
 
 #[test]

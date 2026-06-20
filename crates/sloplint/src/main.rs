@@ -1062,6 +1062,11 @@ fn function_row(
         "max_nesting": function.max_nesting,
         "params": function.params,
         "exits": function.exits,
+        // Type-hint coverage (#85): annotated vs. annotatable params, and whether a return type is
+        // declared. `annotatable_params` excludes the self/cls receiver and *args/**kwargs.
+        "typed_params": function.typed_params,
+        "annotatable_params": function.annotatable_params,
+        "has_return_annotation": function.has_return_annotation,
         "file_loc": file.loc,
         "file_comment_density": comment_density,
     })
@@ -1107,6 +1112,10 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
         "max_cognitive": repo.max_cognitive,
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
+        // Type-hint coverage (#85): a quality proxy for under-annotation. Low coverage is the
+        // smell; high coverage is neutral (fully-typed code is not slop).
+        "param_annotation_coverage": repo.param_annotation_coverage,
+        "fully_annotated_function_rate": repo.fully_annotated_function_rate,
         // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles +
         // propagation cost + modularity).
         "packages": {
@@ -1422,7 +1431,7 @@ mod tests {
 
     #[test]
     fn function_row_has_features_and_file_comment_density() {
-        let source = "# a comment\ndef f(a, b):\n    if a:\n        return b\n    return a\n";
+        let source = "# a comment\ndef f(a: int, b) -> str:\n    if a:\n        return b\n    return a\n";
         let parsed = parse(source).unwrap();
         let metrics = file_metrics(source, &parsed);
         let row = function_row("pkg/m.py", &metrics, &metrics.functions[0]);
@@ -1434,6 +1443,10 @@ mod tests {
             row["cyclomatic"].as_u64().unwrap() >= 2,
             "the `if` is a branch"
         );
+        // Type-hint coverage (#85): 1 of 2 params annotated, return type present.
+        assert_eq!(row["typed_params"], 1);
+        assert_eq!(row["annotatable_params"], 2);
+        assert_eq!(row["has_return_annotation"], true);
         // 1 comment line over the file's physical lines.
         let density = row["file_comment_density"].as_f64().unwrap();
         assert!(density > 0.0 && density < 1.0, "got {density}");
