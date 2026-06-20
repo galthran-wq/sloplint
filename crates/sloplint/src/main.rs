@@ -27,6 +27,7 @@ use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_metrics::badge::{Badge, Color};
 use sloplint_metrics::graph::{self, ImportGraph, ModuleInput, PackageRow};
+use sloplint_metrics::test_proxies::{self, FileTestStats, TestProxies};
 use sloplint_metrics::{aggregate, file_metrics, FileMetrics, FunctionMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged, TextRange};
 use sloplint_report::ReportEntry;
@@ -813,6 +814,9 @@ fn run_metrics(
     // resolved `path:line` location.
     let mut per_file: Vec<MeasuredFile> = Vec::new();
     let mut module_inputs: Vec<ModuleInput> = Vec::new();
+    // Static test proxies (#86): one per file, classified test-vs-production by path. Gathered
+    // here because the ratio needs paths, which `aggregate` (over `FileMetrics`) doesn't carry.
+    let mut test_stats: Vec<FileTestStats> = Vec::new();
     for path in files {
         let display = path.to_string_lossy().to_string();
         let Ok(source) = fs::read_to_string(&path) else {
@@ -822,6 +826,11 @@ fn run_metrics(
             continue;
         };
         let metrics = file_metrics(&source, &parsed);
+        test_stats.push(test_proxies::file_test_stats(
+            &display,
+            metrics.loc,
+            &parsed,
+        ));
         if needs_graph {
             if let Some(name) = module_name(&path) {
                 module_inputs.push(ModuleInput {
@@ -858,15 +867,16 @@ fn run_metrics(
     } else {
         let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
         let repo = aggregate(&just_metrics);
+        let proxies = test_proxies::aggregate_test_proxies(&test_stats);
         match format {
-            MetricsFormat::Text => print_metrics_table(&repo),
+            MetricsFormat::Text => print_metrics_table(&repo, &proxies),
             MetricsFormat::Json => {
                 println!(
                     "{}",
-                    metrics_json(&repo, &ImportGraph::build(module_inputs))
+                    metrics_json(&repo, &ImportGraph::build(module_inputs), &proxies)
                 )
             }
-            MetricsFormat::Github => println!("{}", metrics_markdown(&repo)),
+            MetricsFormat::Github => println!("{}", metrics_markdown(&repo, &proxies)),
             MetricsFormat::Functions | MetricsFormat::Classes | MetricsFormat::Packages => {
                 unreachable!()
             }
@@ -1087,7 +1097,7 @@ fn function_row(
     })
 }
 
-fn print_metrics_table(repo: &RepoMetrics) {
+fn print_metrics_table(repo: &RepoMetrics, proxies: &TestProxies) {
     println!("sloplint metrics");
     println!("  files               {}", repo.files);
     println!("  functions           {}", repo.functions);
@@ -1110,9 +1120,31 @@ fn print_metrics_table(repo: &RepoMetrics) {
         repo.docstring_coverage * 100.0
     );
     println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
+    // Static test proxies (#86) — descriptive only, NOT coverage and never a gate.
+    println!(
+        "  test:code ratio     {}  ({} test / {} prod LoC)",
+        opt_ratio(proxies.test_code_ratio),
+        proxies.test_loc,
+        proxies.production_loc,
+    );
+    println!(
+        "  assertion density   {}  ({} assertions / {} test fns)",
+        opt_ratio(proxies.assertion_density),
+        proxies.assertions,
+        proxies.test_functions,
+    );
+    println!("  (test proxies are static estimates, not coverage — descriptive only)");
 }
 
-fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
+/// Render an optional ratio: a fixed-precision number, or `n/a` when undefined (no denominator).
+fn opt_ratio(value: Option<f64>) -> String {
+    match value {
+        Some(v) => format!("{v:.2}"),
+        None => "n/a".to_string(),
+    }
+}
+
+fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph, proxies: &TestProxies) -> String {
     let summary = graph.summary();
     serde_json::to_string_pretty(&serde_json::json!({
         "files": repo.files,
@@ -1162,8 +1194,30 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
             // Newman–Girvan modularity: declared package partition vs. detected (issue #69).
             "modularity": modularity_json(graph),
         },
+        // Static test proxies (issue #86): test:code ratio + assertion density.
+        "test_proxies": test_proxies_json(proxies),
     }))
     .unwrap()
+}
+
+/// The test-proxies rollup for the JSON feed (issue #86). The `_note` is emitted inline so any
+/// consumer of the raw JSON sees the caveat: these are *static estimates*, NOT coverage, and
+/// must never be turned into a pass/fail gate. Undefined ratios (no production code / no test
+/// functions) serialize as `null`, not `0`, so consumers don't mistake "undefined" for "zero".
+fn test_proxies_json(proxies: &TestProxies) -> serde_json::Value {
+    serde_json::json!({
+        "_note": "Static proxies, NOT coverage. Descriptive cohort statistics only — never a \
+                  pass/fail gate. Many asserts do not guarantee a meaningful test, and few do \
+                  not prove a weak one.",
+        "test_files": proxies.test_files,
+        "production_files": proxies.production_files,
+        "test_loc": proxies.test_loc,
+        "production_loc": proxies.production_loc,
+        "test_code_ratio": proxies.test_code_ratio,
+        "test_functions": proxies.test_functions,
+        "assertions": proxies.assertions,
+        "assertion_density": proxies.assertion_density,
+    })
 }
 
 /// The modularity rollup for the JSON feed (issue #69): Q of the declared package partition, Q of
@@ -1203,8 +1257,29 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
 
 /// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from
 /// `sloplint_metrics`, under a heading. Pairs with the `cyclomatic-risk` badge.
-fn metrics_markdown(repo: &RepoMetrics) -> String {
-    format!("### sloplint metrics\n\n{}", repo.cyclomatic_markdown())
+fn metrics_markdown(repo: &RepoMetrics, proxies: &TestProxies) -> String {
+    format!(
+        "### sloplint metrics\n\n{}\n{}",
+        repo.cyclomatic_markdown(),
+        test_proxies_markdown(proxies)
+    )
+}
+
+/// A markdown block for the static test proxies (#86), explicitly captioned as *proxies, not
+/// coverage* so the PR summary can't be read as a gate.
+fn test_proxies_markdown(proxies: &TestProxies) -> String {
+    format!(
+        "**Test proxies** (static estimates — _not coverage_, descriptive only) — \
+         test:code ratio {} ({} test / {} prod LoC), assertion density {} ({} assertions over \
+         {} test functions). These suggest under-testing across a cohort; they are never a \
+         per-repo pass/fail verdict.\n",
+        opt_ratio(proxies.test_code_ratio),
+        proxies.test_loc,
+        proxies.production_loc,
+        opt_ratio(proxies.assertion_density),
+        proxies.assertions,
+        proxies.test_functions,
+    )
 }
 
 /// Badges for the headline metrics, each with a "lower is better" color threshold.
