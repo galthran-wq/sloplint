@@ -7,6 +7,7 @@
 
 pub mod badge;
 pub mod cohesion;
+pub mod graph;
 
 use badge::{Badge, Color};
 use sloplint_python::ast::visitor::{self, Visitor};
