@@ -71,6 +71,7 @@ sloplint metrics src                     # software-quality metrics table
 sloplint metrics src --format github     # PR-summary markdown (CC risk tiers)
 sloplint metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
 sloplint metrics src --badges badges/    # emit SVG + shields-endpoint badges
+sloplint init                            # wire sloplint into your AI coding tool (see below)
 sloplint parse file.py                   # dump AST + tokens (debug aid)
 ```
 
@@ -79,6 +80,35 @@ build a wheel locally with [maturin](https://www.maturin.rs/) (`maturin build --
 
 Comments are banned by default; relax per-path (see [Configuration](#configuration)). Preview
 rules need `--preview`.
+
+## Agent-loop integration
+
+sloplint is fast, deterministic and reproducible — so instead of only catching slop in CI,
+after the code has landed, you can run it *inside* your AI coding tool's edit loop. The tool
+fires a hook after every file edit, sloplint checks the just-edited file, and any findings go
+straight back to the agent so it self-corrects in the same turn — a guardrail, not just a gate.
+
+```bash
+sloplint init                 # detect the tools in this repo and wire them up
+sloplint init --tool claude   # or target one: claude | cursor | aider | all
+sloplint init --dry-run       # preview the config changes without writing
+```
+
+`init` writes (merging into any existing config, never clobbering it):
+
+| Tool | Config | Mechanism |
+| --- | --- | --- |
+| Claude Code | `.claude/settings.json` | `PostToolUse` hook → `sloplint check --hook --format agent` |
+| Cursor | `.cursor/hooks.json` | `afterFileEdit` hook → `sloplint check --hook --format agent` |
+| Aider | `.aider.conf.yml` | `lint-cmd: "python: sloplint check --format agent"` |
+
+The Claude Code and Cursor hooks pass the edited path as JSON on stdin; `check --hook` reads it
+(no `jq` needed), lints just that file with the fast per-file rules, prints any findings to
+stderr in the terse `path:line:col: CODE message` agent format, and exits 2 so the agent sees
+them. A clean edit exits 0 silently. Whole-project rules (clone detection, dir fanout,
+undeclared imports) still belong in the CI run — they need the whole tree, not one edit.
+
+You can use the agent format anywhere, not just in hooks: `sloplint check src --format agent`.
 
 ## Configuration
 
