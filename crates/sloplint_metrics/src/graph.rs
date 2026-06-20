@@ -387,6 +387,10 @@ impl ImportGraph {
     ///
     /// Computed by a DFS from each node over the full import graph — cheaper than Floyd–Warshall
     /// on a sparse graph. Returns `0.0` for an empty graph.
+    ///
+    /// Unlike the cycle metric there is intentionally no runtime-only variant: an
+    /// `if TYPE_CHECKING:` import is still a real source-level coupling a developer must reason
+    /// about when changing an interface, which is exactly the change-impact surface this measures.
     pub fn propagation_cost(&self) -> f64 {
         let n = self.graph.node_count();
         if n == 0 {
