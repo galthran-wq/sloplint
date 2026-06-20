@@ -988,6 +988,7 @@ dependencies = [
  "sloplint_metrics",
  "sloplint_python",
  "sloplint_report",
+ "toml",
 ]
 
 [[package]]

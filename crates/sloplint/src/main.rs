@@ -4,6 +4,9 @@
 //! - `check` — discover config, run the shipped per-file rules over Python files, then
 //!   run cross-file clone detection (SLP020), and report all findings.
 
+mod imports;
+mod stdlib;
+
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -202,15 +205,25 @@ fn run_check(
 
     let (files, mut had_error) = discover_python_files(paths);
 
+    // First-party module names come from the full discovered tree (incl. files that fail to
+    // parse), so SLP180 never mistakes a local package for a third-party import.
+    let all_display: Vec<String> = files
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+
     // Per-file results are collected first; cross-file clone detection (SLP020) needs every
     // file's functions before it can report duplicates, so we render only at the end.
     let mut results: Vec<FileResult> = Vec::new();
     let mut units: Vec<FunctionUnit> = Vec::new();
     let mut unit_result: Vec<usize> = Vec::new();
+    // SLP180 (preview) is a whole-project rule: collect every file's module-level imports,
+    // then resolve them against the manifest after the loop.
+    let mut import_scans: Vec<(String, Vec<imports::ImportRef>)> = Vec::new();
 
-    for path in files {
+    for path in &files {
         let display = path.to_string_lossy().to_string();
-        let source = match fs::read_to_string(&path) {
+        let source = match fs::read_to_string(path) {
             Ok(source) => source,
             Err(err) => {
                 eprintln!("error: reading {display}: {err}");
@@ -245,6 +258,10 @@ fn run_check(
                 unit_result.push(result_index);
             }
         }
+        // Collect imports for all files when preview is on; emission is gated per-path later.
+        if selector.preview() {
+            import_scans.push((display.clone(), imports::scan_imports(&parsed)));
+        }
         results.push(FileResult {
             path: display,
             source,
@@ -254,6 +271,15 @@ fn run_check(
 
     attribute_clones(&units, &unit_result, &clone_config, &mut results);
     attribute_fanout(&mut results, &selector, config.limits.dir_max_modules);
+    if selector.preview() {
+        attribute_undeclared_imports(
+            &import_scans,
+            &all_display,
+            &config.imports.extra,
+            &selector,
+            &mut results,
+        );
+    }
 
     let findings: usize = results.iter().map(|r| r.diagnostics.len()).sum();
     let entries: Vec<ReportEntry> = results
@@ -386,6 +412,82 @@ fn attribute_fanout(results: &mut [FileResult], selector: &Selector, max_modules
             Severity::Warning,
         ));
     }
+}
+
+/// SLP180: flag third-party imports not declared in the project's dependency manifest.
+///
+/// Whole-project, so emission (not collection) is gated per-path: imports are collected for
+/// every file (above) so the first-party set is complete, and a per-path `ignore` only
+/// suppresses the *finding*. Resolves the manifest once from the working directory; if none
+/// declares dependencies, the rule stays silent (conservative — false negatives over false
+/// positives).
+fn attribute_undeclared_imports(
+    import_scans: &[(String, Vec<imports::ImportRef>)],
+    all_paths: &[String],
+    extra: &[String],
+    selector: &Selector,
+    results: &mut [FileResult],
+) {
+    let cwd = match env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(_) => return,
+    };
+    let Some(declared) = imports::resolve_declared(&cwd) else {
+        return; // no manifest declaring deps -> ambiguous, don't fire.
+    };
+    // First-party names must reflect the whole project tree, not just the scanned paths —
+    // otherwise `sloplint check one_file.py` (or a pre-commit run over changed files only)
+    // would flag local packages outside the scan as undeclared. Walk the manifest's project
+    // root for that, then union the scanned paths (cheap, and covers files above the root).
+    let mut first_party = first_party_under(&declared.root);
+    first_party.extend(imports::first_party_names(all_paths));
+    let extra_set: std::collections::HashSet<String> =
+        extra.iter().map(|e| imports::normalize_dist(e)).collect();
+
+    let by_path: HashMap<String, usize> = results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.path.clone(), i))
+        .collect();
+
+    let findings = imports::findings(
+        import_scans,
+        &first_party,
+        &declared,
+        &extra_set,
+        stdlib::is_stdlib,
+    );
+    for finding in findings {
+        if !selector.is_enabled("SLP180", &finding.path) {
+            continue;
+        }
+        if let Some(&index) = by_path.get(finding.path.as_str()) {
+            results[index].diagnostics.push(Diagnostic::new(
+                "SLP180",
+                finding.message,
+                finding.range,
+                Severity::Warning,
+            ));
+        }
+    }
+}
+
+/// First-party (project-local) top-level module names found by walking the project `root`.
+///
+/// Honors `.gitignore` (so `.venv/` etc. are skipped) via the same `ignore` walker used for
+/// discovery. Names are computed from paths relative to `root`. Over-collecting is safe — a
+/// name treated as first-party is never flagged, preserving the false-negative bias.
+fn first_party_under(root: &Path) -> std::collections::HashSet<String> {
+    let mut rels = Vec::new();
+    for result in WalkBuilder::new(root).build().flatten() {
+        let path = result.path();
+        if path.is_file() && is_python(path) {
+            if let Ok(rel) = path.strip_prefix(root) {
+                rels.push(rel.to_string_lossy().to_string());
+            }
+        }
+    }
+    imports::first_party_names(&rels)
 }
 
 /// 1-based line number for a byte offset.
@@ -898,6 +1000,36 @@ mod tests {
         let selector = config.prepare().unwrap();
         let walked = normalize(Path::new("./tests/t.py"));
         assert!(!selector.is_enabled("SLP010", &walked.to_string_lossy()));
+    }
+
+    #[test]
+    fn first_party_under_collects_top_level_names_from_the_tree() {
+        // SLP180 first-party detection walks the whole project root, so a single-file run
+        // still resolves every local package. Build a small tree and check the names.
+        let root = std::env::temp_dir().join(format!("sloplint-fp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("pkg")).unwrap();
+        std::fs::create_dir_all(root.join("src").join("other")).unwrap();
+        std::fs::write(root.join("pkg").join("__init__.py"), "").unwrap();
+        std::fs::write(root.join("pkg").join("mod.py"), "").unwrap();
+        std::fs::write(root.join("src").join("other").join("__init__.py"), "").unwrap();
+        std::fs::write(root.join("top.py"), "").unwrap();
+        std::fs::write(root.join("README.md"), "").unwrap(); // non-Python ignored
+
+        let names = first_party_under(&root);
+        assert!(
+            names.contains("pkg"),
+            "package dir is first-party: {names:?}"
+        );
+        assert!(names.contains("other"), "src-layout package: {names:?}");
+        assert!(names.contains("top"), "top-level module: {names:?}");
+        assert!(
+            !names.contains("src"),
+            "the src root itself is not a package"
+        );
+        assert!(!names.contains("README"), "non-Python files are ignored");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     fn empty_result(path: &str) -> FileResult {
