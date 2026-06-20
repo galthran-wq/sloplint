@@ -37,6 +37,7 @@ fn units_under(dir: &Path, config: &CloneConfig) -> Vec<FunctionUnit> {
             &source,
             &parsed,
             config.shingle_k,
+            config.canonicalize_commutative,
         ));
     }
     units

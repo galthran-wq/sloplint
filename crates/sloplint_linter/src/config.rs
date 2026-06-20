@@ -75,6 +75,9 @@ pub struct CloneSettings {
     pub min_statements: usize,
     /// Jaccard similarity at/above which two functions are reported as clones.
     pub similarity: f64,
+    /// Type-4 (semantic): canonicalize commutative operands so reshuffled-but-equivalent
+    /// functions are caught. Off by default — a heuristic band on top of exact Type-1/2/3.
+    pub canonicalize_commutative: bool,
 }
 
 impl Default for CloneSettings {
@@ -82,6 +85,7 @@ impl Default for CloneSettings {
         Self {
             min_statements: 3,
             similarity: 0.85,
+            canonicalize_commutative: false,
         }
     }
 }

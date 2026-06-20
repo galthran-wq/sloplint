@@ -168,6 +168,7 @@ fn run_check(
     let clone_config = CloneConfig {
         min_statements: config.clone.min_statements,
         similarity: config.clone.similarity,
+        canonicalize_commutative: config.clone.canonicalize_commutative,
         ..CloneConfig::default()
     };
 
@@ -211,7 +212,13 @@ fn run_check(
         // SLP020 is a whole-tree analysis, not a per-file registry rule, so it's gated by
         // config select/ignore only (enabled by default) — it has no preview/stable group.
         if selector.is_enabled("SLP020", &display) {
-            for unit in extract_functions(&display, &source, &parsed, clone_config.shingle_k) {
+            for unit in extract_functions(
+                &display,
+                &source,
+                &parsed,
+                clone_config.shingle_k,
+                clone_config.canonicalize_commutative,
+            ) {
                 units.push(unit);
                 unit_result.push(result_index);
             }

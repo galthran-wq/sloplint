@@ -27,6 +27,10 @@ pub struct CloneConfig {
     pub num_hashes: usize,
     /// Number of LSH bands. More bands = more candidates = higher recall, more work.
     pub bands: usize,
+    /// Type-4 (semantic): canonicalize commutative operands before shingling, so functions
+    /// that differ only by reshuffled `+ * & | ^` / `and` / `or` / `== !=` operands match.
+    /// Off by default — a heuristic, lower-confidence band on top of exact Type-1/2/3.
+    pub canonicalize_commutative: bool,
 }
 
 impl Default for CloneConfig {
@@ -37,6 +41,7 @@ impl Default for CloneConfig {
             shingle_k: 4,
             num_hashes: 64,
             bands: 16,
+            canonicalize_commutative: false,
         }
     }
 }
@@ -169,7 +174,24 @@ mod tests {
 
     fn units_from(file: &str, source: &str) -> Vec<FunctionUnit> {
         let parsed = parse(source).expect("valid python");
-        extract_functions(file, source, &parsed, CloneConfig::default().shingle_k)
+        extract_functions(
+            file,
+            source,
+            &parsed,
+            CloneConfig::default().shingle_k,
+            false,
+        )
+    }
+
+    fn units_canon(file: &str, source: &str) -> Vec<FunctionUnit> {
+        let parsed = parse(source).expect("valid python");
+        extract_functions(
+            file,
+            source,
+            &parsed,
+            CloneConfig::default().shingle_k,
+            true,
+        )
     }
 
     #[test]
@@ -192,6 +214,53 @@ def sum_costs(products):
         let pairs = find_clones(&units, &CloneConfig::default());
         assert_eq!(pairs.len(), 1, "the two functions should be one clone pair");
         assert!(pairs[0].similarity >= 0.85);
+    }
+
+    // A Type-4 pair: identical structure, but commutative operands (`*`, `+`, `==`) are
+    // reshuffled throughout — no two lines are token-identical.
+    const REORDERED_PAIR: &str = "\
+def score(a, b, c):
+    base = a * b + c
+    scaled = base + tax(a)
+    flagged = scaled + pen(b)
+    if flagged == cap(c):
+        return flagged
+    return base
+
+def tally(a, b, c):
+    base = c + b * a
+    scaled = tax(a) + base
+    flagged = pen(b) + scaled
+    if cap(c) == flagged:
+        return flagged
+    return base
+";
+
+    #[test]
+    fn canonicalization_pairs_commutatively_reordered_functions() {
+        // With canonicalization, the reshuffled operands collapse → a confirmed clone pair.
+        let pairs = find_clones(
+            &units_canon("a.py", REORDERED_PAIR),
+            &CloneConfig::default(),
+        );
+        assert_eq!(
+            pairs.len(),
+            1,
+            "reordered pair should match under canonicalization"
+        );
+        assert!(
+            pairs[0].similarity >= 0.85,
+            "similarity {}",
+            pairs[0].similarity
+        );
+    }
+
+    #[test]
+    fn reordered_functions_are_not_paired_without_canonicalization() {
+        // The default token path is order-sensitive, so this Type-4 pair slips through — which
+        // is exactly the gap canonicalization closes (and proves the flag is doing real work).
+        let pairs = find_clones(&units_from("a.py", REORDERED_PAIR), &CloneConfig::default());
+        assert!(pairs.is_empty(), "should not pair without canonicalization");
     }
 
     #[test]

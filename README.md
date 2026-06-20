@@ -14,7 +14,10 @@ Patterns that no mainstream linter flags today:
 - Redundant "what" comments & docstrings that just restate the code (default: comments are
   **banned**, configurable per-path).
 - **Cross-file duplicated / near-duplicate functions** — copy-paste *and* "same logic,
-  slightly different" (the flagship clone engine).
+  slightly different" (the flagship clone engine). Opt in to Type-4 (semantic) matching with
+  `[clone] canonicalize_commutative = true`, which canonicalizes the operands of commutative
+  operators so functions that differ only by swapped operands match (`a*b + c` ≡ `c + b*a`).
+  (Operand swaps, per operator — re-association like `a+b+c` ≡ `c+b+a` is not normalized.)
 - Redundant type hints, overly defensive `try/except`, verbose mechanical naming.
 - ASCII-only enforcement (no emoji), deep-nesting caps, oversized files, flat-directory fanout.
 - Software-quality-metric **badges** + a per-PR summary, via a GitHub Action.
