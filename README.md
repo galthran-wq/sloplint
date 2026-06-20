@@ -291,6 +291,25 @@ itself. The GitHub Action writes them when you set its `badges-dir` input.
 concern (missing types are harder to read and refactor, and weaken tooling) — the bad direction is
 *low* coverage only. Fully-typed code is neutral-to-good and is never itself a slop signal.
 
+### Parameter count
+
+The **Long Parameter List** smell (Fowler) — too many arguments, a sign of a missing abstraction
+or data clump (#108). `--format json` emits, per profile:
+
+```jsonc
+"params": { "avg": 3.1, "max": 26, "p95": 8 },
+"param_count_risk": { "low": 7423, "moderate": 492, "high": 285, "very_high": 142 }
+// bands by arity:  low ≤4   moderate 5–6   high 7–10   very_high >10
+```
+
+Counts **caller-facing arity**: the `self`/`cls` receiver is excluded, and `*args`/`**kwargs` count
+once each (a `**kwargs` sink is the *opposite* of a long parameter list, so matplotlib-style APIs
+don't false-positive). The per-function `--format functions` feed carries `arity` alongside the raw
+`params`. It's distinct from complexity — a CC-3 wrapper threading 25 options is invisible to every
+other metric. As with the other tiers, arity has no canonical hard threshold (Fowler/Martin suggest
+≤3–4), so the bands are **descriptive, never a gate** — high `high`/`very_high` counts flag
+functions to *read* (numeric solvers genuinely take many knobs), not defects.
+
 ### Class metrics
 
 `--format classes` emits one JSONL row per class — the class-level discovery feed: `loc`,
