@@ -8,16 +8,23 @@ use std::process::Command;
 
 use serde_json::Value;
 
-fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cyclomatic.py")
+fn fixtures_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Run `sloplint metrics <fixture> <extra args...>` and return (stdout, stderr, exit code).
+fn fixture() -> PathBuf {
+    fixtures_dir().join("cyclomatic.py")
+}
+
+/// Run `sloplint metrics cyclomatic.py <extra args...>` from *inside* the fixtures dir, so the
+/// classified path is the bare `cyclomatic.py` (production). Running from the repo root would put
+/// a `tests/fixtures/` ancestor in the path and classify the fixture as a test file (#96),
+/// emptying the production panel these assertions read.
 fn run_metrics(extra: &[&str]) -> (String, String, i32) {
-    let fixture = fixture();
-    let mut args = vec!["metrics", fixture.to_str().unwrap()];
+    let mut args = vec!["metrics", "cyclomatic.py"];
     args.extend_from_slice(extra);
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
+        .current_dir(fixtures_dir())
         .args(&args)
         .output()
         .expect("failed to run sloplint binary");

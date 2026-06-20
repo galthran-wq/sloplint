@@ -104,6 +104,17 @@ enum Command {
         /// gate, not a diagnostic). SonarSource suggests 15 per function.
         #[arg(long)]
         max_cognitive: Option<usize>,
+        /// Which file partition the human/text view and the per-unit feeds report (#96).
+        /// Production and test code have different healthy norms, so they're measured apart.
+        /// `production` (default) reports only non-test files; `tests` only test files; `all`
+        /// reports both panels. Files are classified by path (`is_test_file`:
+        /// `test_*.py`/`*_test.py`/`conftest.py`/a `tests/` segment). Governs `--format
+        /// text`/`github` and the `functions`/`classes`/`packages` feeds (the packages graph is
+        /// built from the scoped modules only, so tests can't manufacture production coupling).
+        /// `--format json` ignores this — it always emits the all-files panel plus `production`
+        /// and `tests` sections and the all-files `test_proxies`.
+        #[arg(long, value_enum, default_value_t = MetricsScope::Production)]
+        scope: MetricsScope,
     },
 }
 
@@ -158,6 +169,30 @@ enum MetricsFormat {
     /// One JSON object per package (JSONL) — the first-party import graph collapsed to
     /// directory level: module count + the packages it imports / is imported by. Raw rows.
     Packages,
+}
+
+/// File partition reported by the text view and the per-unit feeds (#96). Production and test
+/// code have distinct healthy norms (tests are legitimately longer, more repetitive, less
+/// type-annotated), so collapsing them misleads in either direction.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum MetricsScope {
+    /// Non-test files only — what judges production quality (default).
+    Production,
+    /// Test files only.
+    Tests,
+    /// Both partitions: production then test panels, side by side.
+    All,
+}
+
+impl MetricsScope {
+    /// Whether a file with the given test classification is in this scope.
+    fn includes(self, is_test: bool) -> bool {
+        match self {
+            MetricsScope::Production => !is_test,
+            MetricsScope::Tests => is_test,
+            MetricsScope::All => true,
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -216,6 +251,7 @@ fn main() -> ExitCode {
             config,
             max_cyclomatic,
             max_cognitive,
+            scope,
         } => match run_metrics(
             &paths,
             format,
@@ -223,6 +259,7 @@ fn main() -> ExitCode {
             config.as_deref(),
             max_cyclomatic,
             max_cognitive,
+            scope,
         ) {
             Ok(true) => ExitCode::SUCCESS,  // under the gate(s) (or no gate)
             Ok(false) => ExitCode::from(1), // a function exceeded a --max-* ceiling
@@ -816,6 +853,7 @@ fn run_metrics(
     config_path: Option<&str>,
     max_cyclomatic: Option<usize>,
     max_cognitive: Option<usize>,
+    scope: MetricsScope,
 ) -> anyhow::Result<bool> {
     let (files, _) = discover_python_files(paths);
     // The package feed and the JSON rollup need the first-party import graph, which is a
@@ -825,7 +863,9 @@ fn run_metrics(
     // Keep path + source alongside metrics so the gate can name offending functions with a
     // resolved `path:line` location.
     let mut per_file: Vec<MeasuredFile> = Vec::new();
-    let mut module_inputs: Vec<ModuleInput> = Vec::new();
+    // Each module input carries its file's test classification so the import graph can be built
+    // per partition (#96) — a test importing production must not manufacture production coupling.
+    let mut module_inputs: Vec<(ModuleInput, bool)> = Vec::new();
     // Static test proxies (#86): one per file, classified test-vs-production by path. Gathered
     // here because the ratio needs paths, which `aggregate` (over `FileMetrics`) doesn't carry.
     let mut test_stats: Vec<FileTestStats> = Vec::new();
@@ -838,6 +878,7 @@ fn run_metrics(
             continue;
         };
         let metrics = file_metrics(&source, &parsed);
+        let is_test = test_proxies::is_test_file(&display);
         test_stats.push(test_proxies::file_test_stats(
             &display,
             metrics.loc,
@@ -845,57 +886,104 @@ fn run_metrics(
         ));
         if needs_graph {
             if let Some(name) = module_name(&path) {
-                module_inputs.push(ModuleInput {
-                    name,
-                    imports: graph::scan_module_imports(&parsed),
-                    loc: metrics.loc,
-                    classes: metrics.classes.len(),
-                    abstract_classes: metrics.classes.iter().filter(|c| c.is_abstract).count(),
-                });
+                module_inputs.push((
+                    ModuleInput {
+                        name,
+                        imports: graph::scan_module_imports(&parsed),
+                        loc: metrics.loc,
+                        classes: metrics.classes.len(),
+                        abstract_classes: metrics.classes.iter().filter(|c| c.is_abstract).count(),
+                    },
+                    is_test,
+                ));
             }
         }
         per_file.push(MeasuredFile {
             path: display,
             source,
             metrics,
+            is_test,
         });
     }
 
     // DIT is a whole-project property: a class's inheritance depth depends on bases defined in
-    // *other* files. Resolve it across the full set before any class-level output reads `dit`.
-    // Only the class and JSON feeds surface it, so skip the pass otherwise.
+    // *other* files (a test class may extend a production base), so resolve it across the FULL
+    // set — before any per-partition split — so both panels see the real depth.
     if matches!(format, MetricsFormat::Classes | MetricsFormat::Json) {
         let mut metrics: Vec<&mut FileMetrics> =
             per_file.iter_mut().map(|f| &mut f.metrics).collect();
         sloplint_metrics::resolve_inheritance_depth(&mut metrics);
     }
 
+    // The import graph for a partition: only the modules in that scope, so resolution can't reach
+    // across the production/test boundary.
+    let graph_for = |scope: MetricsScope| {
+        ImportGraph::build(
+            module_inputs
+                .iter()
+                .filter(|(_, is_test)| scope.includes(*is_test))
+                .map(|(m, _)| m.clone())
+                .collect(),
+        )
+    };
+    // The aggregate panel for a partition.
+    let panel_for = |scope: MetricsScope| {
+        let metrics: Vec<FileMetrics> = per_file
+            .iter()
+            .filter(|f| scope.includes(f.is_test))
+            .map(|f| f.metrics.clone())
+            .collect();
+        aggregate(&metrics)
+    };
+
     if let MetricsFormat::Functions = format {
-        print_function_rows(&per_file);
+        print_function_rows(&per_file, scope);
     } else if let MetricsFormat::Classes = format {
-        print_class_rows(&per_file);
+        print_class_rows(&per_file, scope);
     } else if let MetricsFormat::Packages = format {
-        print_package_rows(&ImportGraph::build(module_inputs));
+        print_package_rows(&graph_for(scope));
     } else {
-        let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
-        let repo = aggregate(&just_metrics);
         let proxies = test_proxies::aggregate_test_proxies(&test_stats);
         match format {
-            MetricsFormat::Text => print_metrics_table(&repo, &proxies),
-            MetricsFormat::Json => {
-                println!(
-                    "{}",
-                    metrics_json(&repo, &ImportGraph::build(module_inputs), &proxies)
-                )
+            MetricsFormat::Text => {
+                // `scope` selects which panel(s) print; the proxies (always the full split)
+                // follow once.
+                if scope.includes(false) {
+                    print_metrics_panel("production", &panel_for(MetricsScope::Production));
+                }
+                if scope.includes(true) {
+                    print_metrics_panel("tests", &panel_for(MetricsScope::Tests));
+                }
+                print_test_proxies_table(&proxies);
             }
-            MetricsFormat::Github => println!("{}", metrics_markdown(&repo, &proxies)),
+            // JSON is the comprehensive machine feed and ignores `--scope`: the all-files panel
+            // stays at the top level (backward-compatible), with `production` and `tests`
+            // sections beside it and the all-files `test_proxies`.
+            MetricsFormat::Json => println!(
+                "{}",
+                metrics_json(
+                    (
+                        &panel_for(MetricsScope::Production),
+                        &graph_for(MetricsScope::Production)
+                    ),
+                    (
+                        &panel_for(MetricsScope::Tests),
+                        &graph_for(MetricsScope::Tests)
+                    ),
+                    &proxies,
+                )
+            ),
+            MetricsFormat::Github => {
+                println!("{}", metrics_markdown(&panel_for(scope), &proxies))
+            }
             MetricsFormat::Functions | MetricsFormat::Classes | MetricsFormat::Packages => {
                 unreachable!()
             }
         }
         if let Some(dir) = badges {
             let settings = load_badge_settings(config_path)?;
-            write_badges(dir, &repo, &settings)?;
+            // Badges report the scoped panel — production by default, the quality headline.
+            write_badges(dir, &panel_for(scope), &settings)?;
         }
     }
 
@@ -959,11 +1047,13 @@ fn gate(
     true
 }
 
-/// A measured file: its display path, source, and per-function metrics.
+/// A measured file: its display path, source, per-function metrics, and whether its path marks
+/// it as a test file (#96 — used to partition the production vs test panels).
 struct MeasuredFile {
     path: String,
     source: String,
     metrics: FileMetrics,
+    is_test: bool,
 }
 
 /// A function whose `metric` value exceeds the configured ceiling.
@@ -1003,10 +1093,10 @@ fn gate_offenders(
 /// Emit one JSONL row per function: raw per-function features plus the enclosing file's
 /// length and comment density. This is the discovery feed — `analyze.py` mines these rows
 /// for features that separate the slop and clean cohorts.
-fn print_function_rows(per_file: &[MeasuredFile]) {
+fn print_function_rows(per_file: &[MeasuredFile], scope: MetricsScope) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    for file in per_file {
+    for file in per_file.iter().filter(|f| scope.includes(f.is_test)) {
         for function in &file.metrics.functions {
             let _ = writeln!(out, "{}", function_row(&file.path, &file.metrics, function));
         }
@@ -1015,10 +1105,10 @@ fn print_function_rows(per_file: &[MeasuredFile]) {
 
 /// Emit one JSONL row per class: size (methods, attributes) + LCOM4 cohesion. The class-level
 /// discovery feed, mirroring `print_function_rows`.
-fn print_class_rows(per_file: &[MeasuredFile]) {
+fn print_class_rows(per_file: &[MeasuredFile], scope: MetricsScope) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    for file in per_file {
+    for file in per_file.iter().filter(|f| scope.includes(f.is_test)) {
         for class in &file.metrics.classes {
             let _ = writeln!(out, "{}", class_row(&file.path, class));
         }
@@ -1109,8 +1199,10 @@ fn function_row(
     })
 }
 
-fn print_metrics_table(repo: &RepoMetrics, proxies: &TestProxies) {
-    println!("sloplint metrics");
+/// Print one labeled metric panel (#96) — the per-partition aggregates, without the test
+/// proxies (those are the project-wide split and are printed once, after the panel(s)).
+fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
+    println!("sloplint metrics — {label}");
     println!("  files               {}", repo.files);
     println!("  functions           {}", repo.functions);
     println!("  total lines         {}", repo.total_loc);
@@ -1132,7 +1224,12 @@ fn print_metrics_table(repo: &RepoMetrics, proxies: &TestProxies) {
         repo.docstring_coverage * 100.0
     );
     println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
-    // Static test proxies (#86) — descriptive only, NOT coverage and never a gate.
+}
+
+/// Print the static test proxies block (#86) once, beneath the panel(s). Always the full
+/// project-wide split (production vs test), independent of `--scope` — descriptive only, NOT
+/// coverage and never a gate.
+fn print_test_proxies_table(proxies: &TestProxies) {
     println!(
         "  test:code ratio     {}  ({} test / {} prod LoC)",
         opt_ratio(proxies.test_code_ratio),
@@ -1156,9 +1253,34 @@ fn opt_ratio(value: Option<f64>) -> String {
     }
 }
 
-fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph, proxies: &TestProxies) -> String {
+/// Assemble the full JSON feed (#96). The **production** panel is the top level — the honest
+/// default a consumer gets without walking sections — with the full **test** panel beside it
+/// under `tests`, and the project-wide `test_proxies` split (always over all files). `--scope`
+/// does not affect this feed: it always reports both partitions.
+fn metrics_json(
+    production: (&RepoMetrics, &ImportGraph),
+    tests: (&RepoMetrics, &ImportGraph),
+    proxies: &TestProxies,
+) -> String {
+    let mut root = panel_json(production.0, production.1);
+    root.insert(
+        "tests".to_string(),
+        serde_json::Value::Object(panel_json(tests.0, tests.1)),
+    );
+    // Static test proxies (issue #86): test:code ratio + assertion density.
+    root.insert("test_proxies".to_string(), test_proxies_json(proxies));
+    serde_json::to_string_pretty(&serde_json::Value::Object(root)).unwrap()
+}
+
+/// One metric panel as a JSON object (#96): every aggregate plus the import-graph rollup for the
+/// panel's file set. Shared by the production (top-level) and test (`tests`) sections so they
+/// stay identical in shape.
+fn panel_json(
+    repo: &RepoMetrics,
+    graph: &ImportGraph,
+) -> serde_json::Map<String, serde_json::Value> {
     let summary = graph.summary();
-    serde_json::to_string_pretty(&serde_json::json!({
+    let serde_json::Value::Object(map) = serde_json::json!({
         "files": repo.files,
         "functions": repo.functions,
         "total_loc": repo.total_loc,
@@ -1206,10 +1328,10 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph, proxies: &TestProxies) 
             // Newman–Girvan modularity: declared package partition vs. detected (issue #69).
             "modularity": modularity_json(graph),
         },
-        // Static test proxies (issue #86): test:code ratio + assertion density.
-        "test_proxies": test_proxies_json(proxies),
-    }))
-    .unwrap()
+    }) else {
+        unreachable!("a json object literal is an object")
+    };
+    map
 }
 
 /// The test-proxies rollup for the JSON feed (issue #86). The `_note` is emitted inline so any

@@ -14,10 +14,14 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ck_class_metrics")
 }
 
-/// Run `sloplint metrics <fixture> --format <format>` and return stdout, asserting a clean exit.
+/// Run `sloplint metrics . --format <format>` from *inside* the fixture dir, so the classified
+/// paths are project-relative (`base.py`, `shapes.py`) and count as production. Running from the
+/// repo root would put a `tests/fixtures/` ancestor in every path and classify the fixture as
+/// test code (#96), emptying the production panel/feed these assertions read.
 fn run(format: &str) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
-        .args(["metrics", fixture().to_str().unwrap(), "--format", format])
+        .current_dir(fixture())
+        .args(["metrics", ".", "--format", format])
         .output()
         .expect("failed to run sloplint binary");
     assert_eq!(

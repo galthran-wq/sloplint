@@ -19,15 +19,14 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/package_abstractness")
 }
 
-/// Parse the JSONL package feed into rows keyed by package name.
+/// Parse the JSONL package feed into rows keyed by package name. Run from *inside* the fixture
+/// dir so the classified paths are project-relative and count as production — from the repo root
+/// a `tests/fixtures/` ancestor would classify the whole fixture as test code (#96) and empty the
+/// production package feed.
 fn package_rows() -> std::collections::HashMap<String, Value> {
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
-        .args([
-            "metrics",
-            fixture().to_str().unwrap(),
-            "--format",
-            "packages",
-        ])
+        .current_dir(fixture())
+        .args(["metrics", ".", "--format", "packages"])
         .output()
         .expect("failed to run sloplint binary");
     assert_eq!(

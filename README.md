@@ -68,7 +68,8 @@ Once installed, `sloplint` is a native binary on your `PATH`:
 ```bash
 sloplint check path/to/code              # lint (exit 1 on findings)
 sloplint check src --format sarif        # SARIF / json / github / text
-sloplint metrics src                     # software-quality metrics table
+sloplint metrics src                     # software-quality metrics table (production code)
+sloplint metrics src --scope all         # both production and test panels
 sloplint metrics src --format github     # PR-summary markdown (CC risk tiers)
 sloplint metrics src --format packages   # per-package feed: coupling, cycles, abstractness (JSONL)
 sloplint metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
@@ -194,6 +195,25 @@ exits 1):
 sloplint metrics src --max-cyclomatic 10   # fail if any function's cyclomatic complexity > 10
 sloplint metrics src --max-cognitive 15    # ditto for SonarSource cognitive complexity
 ```
+
+### Production vs test partition
+
+Production and test code have different healthy norms — tests are legitimately longer, more
+repetitive, and less type-annotated — so collapsing them into one set of aggregates misleads in
+either direction (a heavy test-support class can dominate the "worst class", a thin test suite
+can drag down the averages). `sloplint metrics` keeps them apart, in **one run** (#96). Files are
+classified by path (`test_*.py`/`*_test.py`/`conftest.py`/a `tests/` segment).
+
+- **`--scope {production,tests,all}`** (default `production`) selects which partition the text
+  view and the per-unit feeds (`--format functions`/`classes`/`packages`) report. `production`
+  is the headline — what judges quality; `tests` reports only test files; `all` prints both
+  panels. The **packages graph is built from the scoped modules only**, so a test importing
+  production no longer manufactures cycles or coupling in the production architecture metrics.
+- **`--format json`** ignores `--scope` and is always comprehensive: the **production** panel at
+  the top level (the honest default), the full **`tests`** panel beside it, and the project-wide
+  **`test_proxies`** split (always over all files). One invocation yields every view — no more
+  pointing at the package dir, `rsync --exclude tests`, and a second whole-repo pass just to
+  recover the test figures.
 
 **Docstring coverage** is tracked separately from comment density, because the two measure
 different things: comment density counts `#`-comments, while many codebases document almost

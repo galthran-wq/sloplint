@@ -11,10 +11,15 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/package_graph")
 }
 
-/// Run `sloplint metrics <fixture> --format <format>` and return stdout.
+/// Run `sloplint metrics . --format <format>` from *inside* the fixture dir, so the classified
+/// paths are project-relative (`proj/a.py`, …) and count as production. Running from the repo
+/// root would put a `tests/fixtures/` ancestor in every path and classify the whole fixture as
+/// test code (#96), emptying the production import graph this feed reports. Module names are
+/// unaffected — `module_name` derives the package root from the `__init__.py` walk, not the cwd.
 fn run(format: &str) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
-        .args(["metrics", fixture().to_str().unwrap(), "--format", format])
+        .current_dir(fixture())
+        .args(["metrics", ".", "--format", format])
         .output()
         .expect("failed to run sloplint binary");
     assert_eq!(
