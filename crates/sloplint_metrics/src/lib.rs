@@ -1414,6 +1414,16 @@ class BaseTransport(ABC):
         );
         // *args/**kwargs are not annotatable params.
         assert_eq!(f("def g(a: int, *args, **kwargs): ...\n"), (1, 1, false), "variadics ignored");
+        // A positional-only receiver (`self, /`) is still the receiver and is excluded.
+        assert_eq!(
+            f("class C:\n    def m(self, /, a: int): ...\n"),
+            (1, 1, false),
+            "positional-only self excluded"
+        );
+        // Keyword-only params (after a bare `*`) count toward the denominator.
+        assert_eq!(f("def g(*, a: int, b): ...\n"), (1, 2, false), "keyword-only counted");
+        // `async def` is a function definition too — same treatment.
+        assert_eq!(f("async def g(a: int) -> str: ...\n"), (1, 1, true), "async");
         // No annotatable params: a zero denominator, return type tracked independently.
         assert_eq!(f("def g() -> int: ...\n"), (0, 0, true), "nullary with return");
     }
