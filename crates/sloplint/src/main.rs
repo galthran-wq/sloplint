@@ -4,6 +4,8 @@
 //! - `check` — discover config, run the shipped per-file rules over Python files, then
 //!   run cross-file clone detection (SLP020), and report all findings.
 
+mod test_mirroring;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -15,7 +17,7 @@ use ignore::WalkBuilder;
 use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
 use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_linter::config::{Config, Selector};
+use sloplint_linter::config::{Config, Limits, Selector};
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_metrics::badge::{Badge, Color};
@@ -178,6 +180,10 @@ fn run_check(
     let mut results: Vec<FileResult> = Vec::new();
     let mut units: Vec<FunctionUnit> = Vec::new();
     let mut unit_result: Vec<usize> = Vec::new();
+    // Per-file scans for the whole-project test-mirroring pass (SLP160), with the result index
+    // each belongs to. Gathered only when SLP160 is enabled (preview + selected).
+    let mut mirror_scans: Vec<test_mirroring::FileScan> = Vec::new();
+    let mut mirror_result: Vec<usize> = Vec::new();
 
     for path in files {
         let display = path.to_string_lossy().to_string();
@@ -216,6 +222,14 @@ fn run_check(
                 unit_result.push(result_index);
             }
         }
+        // SLP160 is a preview, whole-tree analysis: collect each file's test/production signals
+        // now (parsed is alive), resolve them across the project after the loop. Collected for
+        // *every* file under `--preview` (not gated per file) so that ignoring SLP160 on a
+        // production module doesn't strip its symbols; emission is gated per test-file path.
+        if selector.preview() {
+            mirror_scans.push(test_mirroring::scan_file(&display, &parsed));
+            mirror_result.push(result_index);
+        }
         results.push(FileResult {
             path: display,
             source,
@@ -225,6 +239,13 @@ fn run_check(
 
     attribute_clones(&units, &unit_result, &clone_config, &mut results);
     attribute_fanout(&mut results, &selector, config.limits.dir_max_modules);
+    attribute_test_mirroring(
+        &mut results,
+        &mirror_scans,
+        &mirror_result,
+        &selector,
+        config.limits,
+    );
 
     let findings: usize = results.iter().map(|r| r.diagnostics.len()).sum();
     let entries: Vec<ReportEntry> = results
@@ -354,6 +375,36 @@ fn attribute_fanout(results: &mut [FileResult], selector: &Selector, max_modules
                  split it into sub-packages"
             ),
             TextRange::default(),
+            Severity::Warning,
+        ));
+    }
+}
+
+/// Whole-project SLP160: flag test modules that mechanically mirror production 1:1 with
+/// shallow (assertion-free) tests. The per-file scans were gathered (preview-gated) during the
+/// walk; this resolves them against the project-wide production symbol set.
+fn attribute_test_mirroring(
+    results: &mut [FileResult],
+    scans: &[test_mirroring::FileScan],
+    scan_result: &[usize],
+    selector: &Selector,
+    limits: Limits,
+) {
+    for finding in test_mirroring::findings(scans, limits.mirror_min_tests, limits.mirror_max_ratio)
+    {
+        let result_index = scan_result[finding.scan_index];
+        // Emission is gated on the *test* file's path (not the production files we scanned).
+        if !selector.is_enabled("SLP160", &results[result_index].path) {
+            continue;
+        }
+        results[result_index].diagnostics.push(Diagnostic::new(
+            "SLP160",
+            format!(
+                "test module mechanically mirrors production: {} of {} tests are assertion-free \
+                 `test_<symbol>` mirrors — test behavior, not structure",
+                finding.mirrors, finding.total
+            ),
+            finding.range,
             Severity::Warning,
         ));
     }

@@ -30,7 +30,9 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060`) are preview — enable with `--preview`.
+(`SLP001/002/040/060`, plus the whole-project `SLP160`) are preview — enable with
+`--preview`. `SLP160` flags a test module that mechanically mirrors production 1:1
+(`test_foo` per `foo`) when those mirrored tests are also assertion-free (shallow).
 
 ## GitHub Action
 

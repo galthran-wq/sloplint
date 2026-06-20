@@ -54,6 +54,12 @@ pub struct Limits {
     pub max_identifier_words: usize,
     /// SLP090: maximum `.py` modules directly in one directory before it's "flat fanout".
     pub dir_max_modules: usize,
+    /// SLP160: minimum `test_*` functions a test module must have before its mirror ratio is
+    /// judged — small suites are too noisy.
+    pub mirror_min_tests: usize,
+    /// SLP160: fraction of a test module's tests that are assertion-free `test_<symbol>`
+    /// mirrors (0.0–1.0) at/above which the suite is flagged as a mechanical mirror.
+    pub mirror_max_ratio: f64,
 }
 
 impl Default for Limits {
@@ -63,6 +69,8 @@ impl Default for Limits {
             nesting_max_depth: 4,
             max_identifier_words: 4,
             dir_max_modules: 15,
+            mirror_min_tests: 3,
+            mirror_max_ratio: 0.7,
         }
     }
 }
