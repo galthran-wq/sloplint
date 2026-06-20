@@ -109,6 +109,38 @@ pub struct PackageRow {
     pub imports: Vec<String>,
     /// Distinct first-party packages that import this one (afferent), sorted.
     pub imported_by: Vec<String>,
+    /// Whether any module in this package participates in a module-level dependency cycle
+    /// (a non-trivial SCC of the full import graph, see [`ImportGraph::cycles`]).
+    pub in_cycle: bool,
+}
+
+/// Cyclic-dependency tangles found by running Tarjan's SCC over the module import graph
+/// (issue #66) — being inside a large cycle is one of the best-validated module-level defect
+/// predictors. Each tangle is a strongly-connected component of size > 1 (a 2-module mutual
+/// import is the minimal cycle); a lone module is not a tangle.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CycleReport {
+    /// The tangles. Each is a sorted list of member module names; the list as a whole is sorted
+    /// by size (largest first) then by first member, for deterministic output.
+    pub tangles: Vec<Vec<String>>,
+}
+
+impl CycleReport {
+    /// Number of non-trivial cycles.
+    pub fn tangle_count(&self) -> usize {
+        self.tangles.len()
+    }
+
+    /// Size of the largest tangle (0 when there are no cycles).
+    pub fn largest_tangle(&self) -> usize {
+        self.tangles.iter().map(Vec::len).max().unwrap_or(0)
+    }
+
+    /// Total number of modules participating in any cycle. SCCs are disjoint, so this is just
+    /// the sum of the tangle sizes.
+    pub fn modules_in_cycles(&self) -> usize {
+        self.tangles.iter().map(Vec::len).sum()
+    }
 }
 
 /// Per-project rollup placed in `metrics --format json` — the foundation figures. Cycles,
@@ -205,13 +237,24 @@ impl ImportGraph {
     /// One row per package, sorted by package name. Every package with ≥1 module gets a row,
     /// even one with no first-party imports (so the feed mirrors the module set).
     pub fn package_rows(&self) -> Vec<PackageRow> {
+        // A package is "in a cycle" if any of its modules is in a non-trivial SCC.
+        let report = self.cycles();
+        let cycle_modules: HashSet<&str> = report
+            .tangles
+            .iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
+
         let mut module_count: BTreeMap<String, usize> = BTreeMap::new();
+        let mut in_cycle: BTreeMap<String, bool> = BTreeMap::new();
         let mut efferent: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut afferent: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
         for name in self.index.keys() {
             let pkg = self.package_of_node(name);
             *module_count.entry(pkg.clone()).or_default() += 1;
+            *in_cycle.entry(pkg.clone()).or_default() |= cycle_modules.contains(name.as_str());
             efferent.entry(pkg.clone()).or_default();
             afferent.entry(pkg).or_default();
         }
@@ -230,6 +273,7 @@ impl ImportGraph {
             .map(|(package, modules)| PackageRow {
                 imports: efferent[&package].iter().cloned().collect(),
                 imported_by: afferent[&package].iter().cloned().collect(),
+                in_cycle: in_cycle[&package],
                 package,
                 modules,
             })
@@ -238,13 +282,58 @@ impl ImportGraph {
 
     /// The per-project rollup for the JSON feed.
     pub fn summary(&self) -> ProjectImportSummary {
-        let rows = self.package_rows();
+        let mut packages: BTreeSet<String> = BTreeSet::new();
+        for name in self.index.keys() {
+            packages.insert(self.package_of_node(name));
+        }
+        let mut package_edges: BTreeSet<(String, String)> = BTreeSet::new();
+        for edge in self.graph.edge_references() {
+            let from_pkg = self.package_of_node(&self.graph[edge.source()]);
+            let to_pkg = self.package_of_node(&self.graph[edge.target()]);
+            if from_pkg != to_pkg {
+                package_edges.insert((from_pkg, to_pkg));
+            }
+        }
         ProjectImportSummary {
             modules: self.graph.node_count(),
-            packages: rows.len(),
+            packages: packages.len(),
             module_edges: self.graph.edge_count(),
-            package_edges: rows.iter().map(|r| r.imports.len()).sum(),
+            package_edges: package_edges.len(),
         }
+    }
+
+    /// Cyclic-dependency tangles over the **full** module graph (every resolved import,
+    /// including `if TYPE_CHECKING:`-only and function-local edges).
+    pub fn cycles(&self) -> CycleReport {
+        self.scc(|_| true)
+    }
+
+    /// Cyclic-dependency tangles over the **runtime** graph — edges that exist only under an
+    /// `if TYPE_CHECKING:` guard are dropped, since they never execute at runtime. A tangle that
+    /// survives this is a real circular dependency; one that disappears was benign type-checking
+    /// coupling. (Function-local imports are kept: they are deferred but do run.)
+    pub fn runtime_cycles(&self) -> CycleReport {
+        self.scc(|kind| kind.runtime || kind.local)
+    }
+
+    /// Run Tarjan SCC over the subgraph whose edges satisfy `keep`, returning the non-trivial
+    /// components as a deterministic [`CycleReport`].
+    fn scc(&self, keep: impl Fn(&EdgeKind) -> bool) -> CycleReport {
+        let filtered =
+            petgraph::visit::EdgeFiltered::from_fn(&self.graph, |edge| keep(edge.weight()));
+        let mut tangles: Vec<Vec<String>> = petgraph::algo::tarjan_scc(&filtered)
+            .into_iter()
+            .filter(|component| component.len() > 1)
+            .map(|component| {
+                let mut names: Vec<String> =
+                    component.iter().map(|&n| self.graph[n].clone()).collect();
+                names.sort();
+                names
+            })
+            .collect();
+        // Largest first, then by first member — stable, reproducible ordering.
+        tangles.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a[0].cmp(&b[0])));
+        CycleReport { tangles }
     }
 }
 
@@ -759,5 +848,105 @@ from pkg import *
         assert_eq!(summary.module_edges, 2);
         // package edges: pkg -> pkg.sub (the intra-pkg a->b edge is not cross-package).
         assert_eq!(summary.package_edges, 1);
+    }
+
+    #[test]
+    fn no_cycles_in_an_acyclic_graph() {
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", ""),
+        ]);
+        let report = g.cycles();
+        assert_eq!(report.tangle_count(), 0);
+        assert_eq!(report.largest_tangle(), 0);
+        assert_eq!(report.modules_in_cycles(), 0);
+        assert!(g.package_rows().iter().all(|r| !r.in_cycle));
+    }
+
+    #[test]
+    fn detects_a_two_module_mutual_import() {
+        // The minimal cycle: a <-> b.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", "from pkg import a\n"),
+        ]);
+        let report = g.cycles();
+        assert_eq!(
+            report.tangles,
+            vec![vec!["pkg.a".to_string(), "pkg.b".to_string()]]
+        );
+        assert_eq!(report.largest_tangle(), 2);
+        assert_eq!(report.modules_in_cycles(), 2);
+    }
+
+    #[test]
+    fn larger_tangles_sort_first_and_members_are_sorted() {
+        // One 3-cycle (x<->y<->z) and one 2-cycle (p<->q); the 3-cycle must come first.
+        let g = graph_of(&[
+            ("p.py", "import q\n"),
+            ("q.py", "import p\n"),
+            ("x.py", "import y\n"),
+            ("y.py", "import z\n"),
+            ("z.py", "import x\n"),
+        ]);
+        let report = g.cycles();
+        assert_eq!(
+            report.tangles,
+            vec![
+                vec!["x".to_string(), "y".to_string(), "z".to_string()],
+                vec!["p".to_string(), "q".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn type_checking_only_cycle_is_runtime_benign() {
+        // a imports b normally; b imports a only under TYPE_CHECKING. The cycle exists in the
+        // full graph but vanishes at runtime.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            (
+                "pkg/b.py",
+                "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from pkg import a\n",
+            ),
+        ]);
+        assert_eq!(g.cycles().tangle_count(), 1, "full graph has the cycle");
+        assert_eq!(
+            g.runtime_cycles().tangle_count(),
+            0,
+            "the cycle only closes via a TYPE_CHECKING edge"
+        );
+    }
+
+    #[test]
+    fn function_local_back_edge_still_closes_a_runtime_cycle() {
+        // A function-local import is deferred but does execute, so it keeps the runtime cycle.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            (
+                "pkg/b.py",
+                "def f():\n    from pkg import a\n    return a\n",
+            ),
+        ]);
+        assert_eq!(g.runtime_cycles().tangle_count(), 1);
+    }
+
+    #[test]
+    fn package_row_in_cycle_flags_cycle_members() {
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", "from pkg import a\n"),
+            ("solo.py", ""),
+        ]);
+        let rows = g.package_rows();
+        let pkg = rows.iter().find(|r| r.package == "pkg").unwrap();
+        let root = rows.iter().find(|r| r.package == ".").unwrap();
+        assert!(pkg.in_cycle, "pkg.a <-> pkg.b is a cycle");
+        assert!(!root.in_cycle, "the standalone top-level module is not");
     }
 }
