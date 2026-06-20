@@ -6,8 +6,8 @@
 //! want comments (migrations, some tests) opt back in via `allow_comments` in config; the
 //! CLI passes that through by simply not selecting SLP010 for those files.
 
-use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_python::{Ranged, TokenKind};
+use sloplint_diagnostics::{Diagnostic, Edit, Fix, Severity};
+use sloplint_python::{Ranged, TextRange, TextSize, TokenKind};
 
 use crate::lint::{FileContext, Rule};
 
@@ -27,13 +27,57 @@ impl Rule for CommentPolicy {
             if is_directive(body) || is_ticketed_todo(body) {
                 continue;
             }
-            diagnostics.push(Diagnostic::new(
-                "SLP010",
-                "comment is not allowed (comments are banned by default; allow specific paths in config)",
-                token.range(),
-                Severity::Warning,
-            ));
+            diagnostics.push(
+                Diagnostic::new(
+                    "SLP010",
+                    "comment is not allowed (comments are banned by default; allow specific paths in config)",
+                    token.range(),
+                    Severity::Warning,
+                )
+                // Deleting a prose comment never changes runtime behavior, so the fix is Safe.
+                .with_fix(Fix::safe_edit(deletion_edit(ctx.source, token.range()))),
+            );
         }
+    }
+}
+
+/// Build the edit that removes a banned comment.
+///
+/// An *own-line* comment (nothing but whitespace before the `#`) takes its whole physical line —
+/// indentation and the trailing line terminator — so no blank, indented stub is left behind. A
+/// *trailing* comment (code precedes the `#`) deletes only the run of whitespace before the `#`
+/// and the comment itself, preserving the code and the newline (`x = 1  # c` -> `x = 1`).
+fn deletion_edit(source: &str, comment: TextRange) -> Edit {
+    let bytes = source.as_bytes();
+    let start = usize::from(comment.start());
+    let end = usize::from(comment.end());
+
+    let line_start = source[..start].rfind('\n').map_or(0, |i| i + 1);
+    let own_line = source[line_start..start].trim().is_empty();
+
+    if own_line {
+        // Extend past the line terminator (handles "\n", "\r\n", and a lone "\r"; EOF has none).
+        let mut del_end = end;
+        if del_end < source.len() && bytes[del_end] == b'\r' {
+            del_end += 1;
+        }
+        if del_end < source.len() && bytes[del_end] == b'\n' {
+            del_end += 1;
+        }
+        Edit::deletion(TextRange::new(
+            TextSize::from(line_start as u32),
+            TextSize::from(del_end as u32),
+        ))
+    } else {
+        // Trailing comment: also remove the whitespace separating it from the code.
+        let mut ws_start = start;
+        while ws_start > line_start && matches!(bytes[ws_start - 1], b' ' | b'\t') {
+            ws_start -= 1;
+        }
+        Edit::deletion(TextRange::new(
+            TextSize::from(ws_start as u32),
+            TextSize::from(end as u32),
+        ))
     }
 }
 
@@ -138,6 +182,47 @@ mod tests {
         assert!(!is_directive("noqaX should still be banned"));
         assert!(!is_directive("nosecret handling here"));
         assert!(!is_directive("type annotations are great")); // no colon
+    }
+
+    /// Apply SLP010's deletion edit to the first comment in `source` and return the result.
+    fn fix_first_comment(source: &str) -> String {
+        use sloplint_python::{parse, Ranged, TokenKind};
+        let parsed = parse(source).expect("test source parses");
+        let token = parsed
+            .tokens()
+            .iter()
+            .find(|t| t.kind() == TokenKind::Comment)
+            .expect("source has a comment");
+        let edit = deletion_edit(source, token.range());
+        let mut out = source.to_string();
+        out.replace_range(
+            usize::from(edit.range.start())..usize::from(edit.range.end()),
+            &edit.content,
+        );
+        out
+    }
+
+    #[test]
+    fn own_line_comment_deletes_whole_line() {
+        assert_eq!(fix_first_comment("a = 1\n# c\nb = 2\n"), "a = 1\nb = 2\n");
+    }
+
+    #[test]
+    fn indented_own_line_comment_deletes_indentation_too() {
+        assert_eq!(
+            fix_first_comment("def f():\n    # c\n    return 1\n"),
+            "def f():\n    return 1\n"
+        );
+    }
+
+    #[test]
+    fn trailing_comment_keeps_code_and_newline() {
+        assert_eq!(fix_first_comment("x = 1  # c\n"), "x = 1\n");
+    }
+
+    #[test]
+    fn own_line_comment_at_eof_without_newline() {
+        assert_eq!(fix_first_comment("x = 1\n# c"), "x = 1\n");
     }
 
     #[test]
