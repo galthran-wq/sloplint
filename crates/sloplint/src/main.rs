@@ -494,21 +494,30 @@ fn run_metrics(
     Ok(!over_cyclomatic && !over_cognitive)
 }
 
-/// Read `[badges]` from the config file (explicit path or discovered `sloplint.toml`).
+/// Read `[badges]` from the config. An explicit `--config` is strict (a parse error fails the
+/// run), but *discovery* is best-effort: an unrelated or malformed ancestor `sloplint.toml`
+/// must not break `metrics --badges`, so we fall back to defaults with a warning.
 fn load_badge_settings(config_path: Option<&str>) -> anyhow::Result<BadgeSettings> {
-    let config = match config_path {
+    match config_path {
         Some(path) => {
             let text =
                 fs::read_to_string(path).map_err(|e| anyhow!("reading config {path}: {e}"))?;
-            Config::from_toml_str(&text).map_err(|e| anyhow!("parsing config {path}: {e}"))?
+            let config =
+                Config::from_toml_str(&text).map_err(|e| anyhow!("parsing config {path}: {e}"))?;
+            Ok(config.badges)
         }
         None => {
             let cwd =
                 env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
-            Config::discover(&cwd)?
+            match Config::discover(&cwd) {
+                Ok(config) => Ok(config.badges),
+                Err(err) => {
+                    eprintln!("sloplint: ignoring discovered config for badges ({err})");
+                    Ok(BadgeSettings::default())
+                }
+            }
         }
-    };
-    Ok(config.badges)
+    }
 }
 
 /// One complexity gate: report every function whose `metric` exceeds `ceiling` and return
@@ -695,8 +704,12 @@ fn write_badges(dir: &str, repo: &RepoMetrics, settings: &BadgeSettings) -> anyh
     }
     // One combined badge over the `summary` metrics, colored by the worst tier among them.
     if !settings.summary.is_empty() {
-        write_badge_files(dir, "summary", &summary_badge(&all, &settings.summary))?;
-        written += 1;
+        let badge = summary_badge(&all, &settings.summary);
+        // Skip if no slug resolved (e.g. all unknown) — an empty badge is meaningless.
+        if !badge.message.is_empty() {
+            write_badge_files(dir, "summary", &badge)?;
+            written += 1;
+        }
     }
     eprintln!("sloplint: wrote {written} badge(s) to {dir}");
     Ok(())
@@ -811,6 +824,13 @@ mod tests {
             &["max-cyclomatic".to_string(), "nope".to_string()],
         );
         assert_eq!(badge.message, "CC 8");
+    }
+
+    #[test]
+    fn summary_badge_all_unknown_is_empty() {
+        // All-unknown slugs -> empty message; write_badges skips emitting it.
+        let badge = summary_badge(&sample_badges(), &["nope".to_string()]);
+        assert!(badge.message.is_empty());
     }
 
     #[test]

@@ -1,7 +1,6 @@
 //! End-to-end tests for the metrics polish: the `--max-cognitive` CI gate and configurable
 //! `[badges]` output, exercised against the real built binary on real Python.
 
-use std::path::Path;
 use std::process::Command;
 
 /// Write `src` + optional `sloplint.toml` into a fresh temp dir and run `sloplint metrics`
@@ -62,6 +61,9 @@ fn badges_default_to_all_individual() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("m.py"), TANGLED).unwrap();
+    // Pin config discovery to this dir (empty = defaults) so it can't walk up to a stray
+    // ancestor `sloplint.toml` and change the result.
+    std::fs::write(dir.join("sloplint.toml"), "").unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_sloplint"))
         .args(["metrics", "m.py", "--badges", "b"])
         .current_dir(&dir)
@@ -74,6 +76,27 @@ fn badges_default_to_all_individual() {
     assert!(b.join("max-cognitive.json").exists());
     assert!(b.join("comment-density.json").exists());
     assert!(!b.join("summary.json").exists());
+}
+
+#[test]
+fn malformed_discovered_config_is_non_fatal_for_badges() {
+    // A broken sloplint.toml found via *discovery* must not fail `metrics --badges`; it falls
+    // back to default badge settings (only an explicit --config is strict).
+    let (_o, err, code) = run(
+        "bad_cfg",
+        TANGLED,
+        Some("not = valid [[[ toml"),
+        &["--badges", "b"],
+    );
+    assert_eq!(code, 0, "discovery error must be non-fatal; stderr: {err}");
+    assert!(err.contains("ignoring discovered config"), "warned: {err}");
+    let b = std::env::temp_dir()
+        .join(format!("sloplint_mb_{}_bad_cfg", std::process::id()))
+        .join("b");
+    assert!(
+        b.join("max-cyclomatic.json").exists(),
+        "default badges still written"
+    );
 }
 
 #[test]
@@ -96,5 +119,4 @@ fn badges_only_summary_when_include_empty() {
         json.contains("CC ") && json.contains("· CoCo ") && json.contains("· density "),
         "combined message: {json}"
     );
-    let _ = Path::new(".");
 }

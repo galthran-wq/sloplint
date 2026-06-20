@@ -102,6 +102,10 @@ lcom4_min_methods = 3         # SLP120 — skip classes smaller than this
 min_statements = 3            # ignore tiny functions
 similarity = 0.85             # Jaccard similarity at/above which a pair is reported
 
+[badges]                      # which `metrics --badges` files to emit (see Metrics & badges)
+# include = ["cyclomatic-risk"]   # per-metric badges; omit = all, [] = none
+summary = []                  # metrics to fold into one combined `sloplint` badge
+
 [[overrides]]                 # relax rules for matching paths (gitignore-style globs)
 path = "tests/**"
 ignore = ["SLP010"]
@@ -113,10 +117,11 @@ allow_comments = true         # permit comments here (otherwise banned)
 Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
 cognitive complexity (with McCabe risk tiers), average function length, max nesting, and comment
 density. These are **measured, not linted**, so they never duplicate Ruff. Gate them in CI by
-exit code:
+exit code (each names the offending functions and exits 1):
 
 ```bash
-sloplint metrics src --max-cyclomatic 10   # exit 1 if any function's cyclomatic complexity > 10
+sloplint metrics src --max-cyclomatic 10   # fail if any function's cyclomatic complexity > 10
+sloplint metrics src --max-cognitive 15    # ditto for SonarSource cognitive complexity
 ```
 
 `--badges badges/` writes an SVG + a shields.io [endpoint](https://shields.io/endpoint) JSON for
@@ -126,6 +131,12 @@ each metric (`cyclomatic-risk`, `max-cognitive`, `avg-function-loc`, `max-nestin
 ![cyclomatic-risk](https://img.shields.io/badge/cyclomatic--risk-moderate-yellow)
 ![max cognitive](https://img.shields.io/badge/max%20cognitive-14-yellow)
 ![avg function loc](https://img.shields.io/badge/avg%20function%20loc-22-brightgreen)
+
+Choose which badges via `[badges]` in `sloplint.toml`: `include` picks the per-metric badges
+(omit the key for all, `[]` for none), and `summary` folds a list of metrics into one combined
+`sloplint` badge colored by the worst tier — e.g. `include = []` + `summary = [...]` emits *only*:
+
+![sloplint](https://img.shields.io/badge/sloplint-CC%208%20·%20CoCo%2014%20·%20density%2018%25-yellow)
 
 Commit the SVGs, or host the `*.json` and point a shields URL at it for a badge that updates
 itself. The GitHub Action writes them when you set its `badges-dir` input.
