@@ -1090,6 +1090,29 @@ mod tests {
     }
 
     #[test]
+    fn class_row_has_size_and_cohesion_fields() {
+        let source = "\
+class Counter:
+    def __init__(self):
+        self.total = 0
+    def add(self, n):
+        self.total += n
+    def show(self):
+        return self.total
+";
+        let parsed = parse(source).unwrap();
+        let metrics = file_metrics(source, &parsed);
+        let row = class_row("pkg/m.py", &metrics.classes[0]);
+
+        assert_eq!(row["file"], "pkg/m.py");
+        assert_eq!(row["class"], "Counter");
+        assert_eq!(row["methods"], 3);
+        assert_eq!(row["attributes"], 1); // self.total
+        assert_eq!(row["lcom4"], 1, "add/show share self.total");
+        assert!(row["loc"].as_u64().unwrap() >= 7);
+    }
+
+    #[test]
     fn fanout_flags_over_full_directory_once() {
         let config = Config::default();
         let selector = config.prepare().unwrap();

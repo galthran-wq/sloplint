@@ -115,12 +115,17 @@ pub struct FunctionMetrics {
     pub max_nesting: usize,
     /// Number of declared parameters.
     pub params: usize,
-    /// Non-Commenting Source Statements: count of logical statement nodes in the body
-    /// (recursive, includes nested defs/classes). A code-size measure that ignores comments,
-    /// blank lines, and pure-syntax lines — unlike `loc`.
+    /// Non-Commenting Source Statements: count of logical statement nodes in the function's
+    /// **own** body. A nested def/class counts as one statement (its declaration) but its body
+    /// is excluded — those statements belong to the nested unit's own row — so `ncss` shares
+    /// the own-body scope of [`Self::exits`]/[`Self::cognitive`]/[`Self::cyclomatic`]. A
+    /// code-size measure that ignores comments, blank lines, and pure-syntax lines, unlike the
+    /// physical (nested-inclusive) `loc`.
     pub ncss: usize,
     /// Number of explicit exit points in the function's own body: `return`, `raise`, and
-    /// `yield`/`yield from`. Excludes nested defs/lambdas. Multi-exit sprawl is a smell.
+    /// `yield`/`yield from`. Excludes nested defs/lambdas. Multi-exit sprawl is a smell. Note a
+    /// `raise` inside an `except` (error translation) is a counted exit — by design, this is the
+    /// syntactic count of exit points, not a judgment about which are idiomatic.
     pub exits: usize,
 }
 
@@ -371,9 +376,12 @@ fn exit_count(body: &[Stmt]) -> usize {
     counter.n
 }
 
-/// Non-Commenting Source Statements: count every statement node in the body (recursively,
-/// including nested defs/classes). Comments and blank lines are not statements, so they are
-/// naturally excluded — this is a logical code-size measure, distinct from physical `loc`.
+/// Non-Commenting Source Statements: count every statement node in the function's own body.
+/// A nested def/class counts as a single statement (its declaration) but we don't descend into
+/// it — its statements belong to that nested unit's own row, so `ncss` stays own-body like
+/// `exit_count`/`cognitive`, never double-counting a helper's body into its parent. Comments
+/// and blank lines are not statements, so they're naturally excluded — a logical code-size
+/// measure distinct from physical `loc`.
 fn ncss(body: &[Stmt]) -> usize {
     struct Counter {
         n: usize,
@@ -381,7 +389,11 @@ fn ncss(body: &[Stmt]) -> usize {
     impl Visitor<'_> for Counter {
         fn visit_stmt(&mut self, stmt: &Stmt) {
             self.n += 1;
-            visitor::walk_stmt(self, stmt);
+            match stmt {
+                // The nested def/class declaration counts (above); its body is a separate unit.
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+                _ => visitor::walk_stmt(self, stmt),
+            }
         }
     }
     let mut counter = Counter { n: 0 };
@@ -1059,6 +1071,28 @@ def add(self, n):
         .functions[0];
         assert_eq!(f.ncss, 4);
         assert!(f.loc > f.ncss, "physical loc exceeds logical ncss");
+    }
+
+    #[test]
+    fn ncss_is_own_body_excluding_nested_def_bodies() {
+        // outer's own body: `def helper` (1, the declaration) + `return` (1) = 2. helper's two
+        // statements (a = 1; return a) belong to helper's own row, not outer's.
+        let file = metrics(
+            "\
+def outer():
+    def helper():
+        a = 1
+        return a
+    return helper()
+",
+        );
+        let outer = file.functions.iter().find(|f| f.name == "outer").unwrap();
+        let helper = file.functions.iter().find(|f| f.name == "helper").unwrap();
+        assert_eq!(
+            outer.ncss, 2,
+            "nested helper body excluded from outer's ncss"
+        );
+        assert_eq!(helper.ncss, 2);
     }
 
     #[test]
