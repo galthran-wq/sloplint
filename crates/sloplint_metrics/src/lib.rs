@@ -145,6 +145,41 @@ impl WmcTier {
     }
 }
 
+/// NOC (Number of Children) breadth bands for fragile-base-class risk (#113) — how many direct
+/// first-party subclasses a class has. No canonical CK threshold, so **descriptive** bands
+/// calibrated against the cohort, never a pass/fail standard. Boundaries (inclusive): **≤1 low**
+/// (a leaf or lightly-extended class), **2–5 moderate**, **6–20 high** (a well-used base),
+/// **>20 very high** (a high-leverage hub — every change ripples widely; review carefully).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NocTier {
+    Low,
+    Moderate,
+    High,
+    VeryHigh,
+}
+
+impl NocTier {
+    /// Classify a class's NOC into its breadth band.
+    pub fn from_noc(noc: usize) -> Self {
+        match noc {
+            0..=1 => NocTier::Low,
+            2..=5 => NocTier::Moderate,
+            6..=20 => NocTier::High,
+            _ => NocTier::VeryHigh,
+        }
+    }
+
+    /// Short, stable label used in tables and JSON.
+    pub fn label(self) -> &'static str {
+        match self {
+            NocTier::Low => "low",
+            NocTier::Moderate => "moderate",
+            NocTier::High => "high",
+            NocTier::VeryHigh => "very high",
+        }
+    }
+}
+
 /// Module (file) NLOC size bands for god-module prevalence (#107). Like [`WmcTier`], file size has
 /// **no** canonical hard threshold, so these are **descriptive** bands calibrated against the
 /// cohort (SonarQube's ~750–1000-line guidance is the starting point), never a pass/fail standard.
@@ -257,6 +292,16 @@ impl RiskHistogram {
             WmcTier::Moderate => self.moderate += 1,
             WmcTier::High => self.high += 1,
             WmcTier::VeryHigh => self.very_high += 1,
+        }
+    }
+
+    /// Record a class by its NOC band (#113) — inheritance breadth (fragile-base-class risk).
+    fn record_noc(&mut self, noc: usize) {
+        match NocTier::from_noc(noc) {
+            NocTier::Low => self.low += 1,
+            NocTier::Moderate => self.moderate += 1,
+            NocTier::High => self.high += 1,
+            NocTier::VeryHigh => self.very_high += 1,
         }
     }
 
@@ -394,13 +439,19 @@ pub struct ClassMetrics {
     pub wmc: usize,
     /// DIT — Depth of Inheritance Tree (Chidamber & Kemerer 1994): the longest path from this
     /// class to a root through its bases, counting **first-party** bases only. Resolved
-    /// project-wide by [`resolve_inheritance_depth`] (0 until that pass runs). Bases that resolve
+    /// project-wide by [`resolve_inheritance`] (0 until that pass runs). Bases that resolve
     /// to `object`, the stdlib, or a third party are invisible and terminate the chain, so this
     /// is a conservative under-count of the true Python MRO depth (#84).
     pub dit: usize,
+    /// NOC — Number of Children (Chidamber & Kemerer 1994): how many **direct** subclasses this
+    /// class has within first-party code — the inheritance *breadth* that pairs with [`Self::dit`]
+    /// depth. The in-degree of the same class graph, resolved project-wide by
+    /// [`resolve_inheritance`] (0 until that pass runs). A high-NOC base is a change-amplifier
+    /// (fragile-base-class risk); often it's a well-used abstraction (#113).
+    pub noc: usize,
     /// Trailing identifiers of this class's base expressions (`Base` from `pkg.mod.Base`), in
-    /// source order — the raw input to [`resolve_inheritance_depth`]. Unresolved here; whether a
-    /// base is first-party is decided project-wide against the full class set.
+    /// source order — the raw input to [`resolve_inheritance`]. Unresolved here; whether a base is
+    /// first-party is decided project-wide against the full class set.
     pub bases: Vec<String>,
     /// Whether this class counts as "abstract" for Martin's package abstractness ratio (#70).
     /// A documented heuristic ([`class_is_abstract`]), since Python has no interface keyword.
@@ -495,11 +546,22 @@ pub struct RepoMetrics {
     /// alone hide: the same `max_wmc` can come from one justified hub or many. Descriptive bands
     /// ([`WmcTier`]), never a gate.
     pub wmc_risk: RiskHistogram,
-    /// Deepest first-party inheritance chain (DIT). Requires [`resolve_inheritance_depth`] to
-    /// have run over the file set first; otherwise every `dit` is 0.
+    /// Deepest first-party inheritance chain (DIT). Requires [`resolve_inheritance`] to have run
+    /// over the file set first; otherwise every `dit` is 0.
     pub max_dit: usize,
     /// Mean DIT across all classes.
     pub avg_dit: f64,
+    /// Most direct first-party subclasses any class has (NOC) — the worst fragile-base-class
+    /// blast radius. Requires [`resolve_inheritance`] to have run (#113).
+    pub max_noc: usize,
+    /// Mean NOC across all classes.
+    pub avg_noc: f64,
+    /// 95th-percentile class NOC (nearest-rank) — the breadth tail; most classes are leaves
+    /// (NOC 0), so p95 surfaces the hubs the mean buries.
+    pub p95_noc: usize,
+    /// Count of classes in each NOC breadth band (#113) — fragile-base-class *prevalence*.
+    /// Descriptive bands ([`NocTier`]), never a gate.
+    pub noc_risk: RiskHistogram,
     /// Docstring coverage: public defs/classes carrying a docstring, as a fraction of all public
     /// defs/classes (0.0–1.0). "Public" = a name not `_`-prefixed. Distinct from
     /// `comment_density` (which counts `#`-comments, not docstrings) — low coverage flags an
@@ -627,6 +689,26 @@ impl RepoMetrics {
         )
     }
 
+    /// The inheritance-breadth counterpart to [`Self::cyclomatic_markdown`] (#113): mean/p95/max
+    /// NOC plus the fragile-base-class histogram. Descriptive bands ([`NocTier`]) — high
+    /// `high`/`very high` counts flag *bases to review before changing*, never defects.
+    pub fn noc_markdown(&self) -> String {
+        let risk = self.noc_risk;
+        format!(
+            "**Inheritance breadth (NOC)** — mean {:.1}, p95 {}, max {}.\n\n\
+             | NOC band | Classes |\n| --- | ---: |\n\
+             | low (≤1) | {} |\n| moderate (2–5) | {} |\n\
+             | high (6–20) | {} |\n| very high (>20) | {} |\n",
+            self.avg_noc,
+            self.p95_noc,
+            self.max_noc,
+            risk.low,
+            risk.moderate,
+            risk.high,
+            risk.very_high,
+        )
+    }
+
     /// The module-size counterpart to [`Self::cyclomatic_markdown`] (#107): mean/p95/max NLOC plus
     /// the god-module-prevalence histogram. Descriptive NLOC bands ([`ModuleSizeTier`]) — high
     /// `high`/`very high` counts flag *files to read*, never defects.
@@ -738,6 +820,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut wmc_sum = 0usize;
     let mut wmc_values: Vec<usize> = Vec::new();
     let mut dit_sum = 0usize;
+    let mut noc_sum = 0usize;
+    let mut noc_values: Vec<usize> = Vec::new();
     let mut module_nloc_sum = 0usize;
     let mut module_nloc_values: Vec<usize> = Vec::new();
     // Docstring coverage (#83): every public def/class (functions *and* classes) is in the
@@ -794,8 +878,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             wmc_values.push(class.wmc);
             repo.wmc_risk.record_wmc(class.wmc);
             dit_sum += class.dit;
+            noc_sum += class.noc;
+            noc_values.push(class.noc);
+            repo.noc_risk.record_noc(class.noc);
             repo.max_wmc = repo.max_wmc.max(class.wmc);
             repo.max_dit = repo.max_dit.max(class.dit);
+            repo.max_noc = repo.max_noc.max(class.noc);
             if is_public(&class.name) {
                 public_units += 1;
                 public_documented += usize::from(class.has_docstring);
@@ -858,6 +946,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     } else {
         dit_sum as f64 / repo.classes as f64
     };
+    repo.avg_noc = if repo.classes == 0 {
+        0.0
+    } else {
+        noc_sum as f64 / repo.classes as f64
+    };
+    repo.p95_noc = percentile(&mut noc_values, 0.95);
     repo.docstring_coverage = if public_units == 0 {
         0.0
     } else {
@@ -928,8 +1022,8 @@ fn docstring_lines(source: &str, body: &[Stmt]) -> usize {
 }
 
 /// Per-class metrics: size (methods, distinct instance attributes), LCOM4 cohesion, and WMC.
-/// `dit` is left at 0 here — depth of inheritance is a project-wide property filled in later by
-/// [`resolve_inheritance_depth`], once every file's classes are known.
+/// `dit`/`noc` are left at 0 here — inheritance depth and breadth are project-wide properties
+/// filled in later by [`resolve_inheritance`], once every file's classes are known.
 fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef) -> ClassMetrics {
     let methods = class
         .body
@@ -946,6 +1040,7 @@ fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef)
         lcom4: cohesion::class_cohesion(class).components,
         wmc: class_wmc(parsed, class),
         dit: 0,
+        noc: 0,
         bases: class
             .bases()
             .iter()
@@ -978,19 +1073,23 @@ fn class_wmc(parsed: &Parsed<ModModule>, class: &StmtClassDef) -> usize {
         .sum()
 }
 
-/// Fill in [`ClassMetrics::dit`] for every class across the project. DIT (Chidamber & Kemerer
-/// 1994) is the longest path from a class up to a root via its bases. Bases are resolved by
-/// **trailing class name** against the set of first-party classes in `files`; a base that
-/// doesn't resolve — `object`, the stdlib, a third party, or any name no first-party class
-/// claims — is treated as a root and terminates the chain. External inheritance depth is
-/// therefore invisible (a deliberate, conservative under-count, #84), and a class with no
-/// first-party base has DIT 0.
+/// Fill in [`ClassMetrics::dit`] and [`ClassMetrics::noc`] for every class across the project —
+/// the CK inheritance pair (#84 depth, #113 breadth). Both resolve bases by **trailing class
+/// name** against the set of first-party classes in `files`; a base that doesn't resolve —
+/// `object`, the stdlib, a third party, or any name no first-party class claims — is invisible.
 ///
-/// When a class name is defined more than once in the project, the first definition wins (names
-/// are sorted first, so the result is deterministic regardless of file iteration order). Real
-/// Python inheritance is acyclic, but name collisions could synthesize a cycle; a name already
-/// on the current resolution path terminates it, so the pass always halts.
-pub fn resolve_inheritance_depth(files: &mut [&mut FileMetrics]) {
+/// - **DIT** (depth): the longest path from a class up to a root via its bases. An external base
+///   terminates the chain, so this is a conservative under-count; a class with no first-party base
+///   has DIT 0.
+/// - **NOC** (breadth): the number of **direct** subclass *definitions* that name this class as a
+///   base — the in-degree of the same graph. A class no first-party class extends has NOC 0.
+///
+/// When a class name is defined more than once, depth uses the first definition's bases and both
+/// figures are assigned by name (every class of that name gets the same DIT/NOC); names are sorted
+/// so the result is deterministic. Real Python inheritance is acyclic, but name collisions could
+/// synthesize a cycle; a name already on the current resolution path terminates it, so the pass
+/// always halts.
+pub fn resolve_inheritance(files: &mut [&mut FileMetrics]) {
     use std::collections::HashMap;
 
     let mut bases_of: HashMap<&str, &[String]> = HashMap::new();
@@ -1008,12 +1107,28 @@ pub fn resolve_inheritance_depth(files: &mut [&mut FileMetrics]) {
     for name in names {
         dit_of(name, &bases_of, &mut cache, &mut Vec::new());
     }
-    // Detach the depths from `bases_of`'s borrow of `files` so we can write them back.
+    // NOC (breadth): the in-degree of the inheritance graph. Count, per first-party class name,
+    // every class *definition* that lists it as a direct base (so two subclasses of the same base
+    // count twice, even if the base is defined once).
+    let mut children: HashMap<&str, usize> = HashMap::new();
+    for file in files.iter() {
+        for class in &file.classes {
+            for base in &class.bases {
+                if bases_of.contains_key(base.as_str()) {
+                    *children.entry(base.as_str()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    // Detach both maps from `bases_of`'s borrow of `files` so we can write them back.
     let depths: HashMap<String, usize> = cache.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+    let noc: HashMap<String, usize> = children.iter().map(|(k, v)| (k.to_string(), *v)).collect();
 
     for file in files.iter_mut() {
         for class in &mut file.classes {
             class.dit = depths.get(&class.name).copied().unwrap_or(0);
+            class.noc = noc.get(&class.name).copied().unwrap_or(0);
         }
     }
 }
@@ -1821,6 +1936,18 @@ def outer(xs):
     }
 
     #[test]
+    fn noc_tier_boundaries() {
+        // Descriptive breadth bands (#113): ≤1 low, 2–5 moderate, 6–20 high, >20 very high.
+        assert_eq!(NocTier::from_noc(0), NocTier::Low);
+        assert_eq!(NocTier::from_noc(1), NocTier::Low);
+        assert_eq!(NocTier::from_noc(2), NocTier::Moderate);
+        assert_eq!(NocTier::from_noc(5), NocTier::Moderate);
+        assert_eq!(NocTier::from_noc(6), NocTier::High);
+        assert_eq!(NocTier::from_noc(20), NocTier::High);
+        assert_eq!(NocTier::from_noc(21), NocTier::VeryHigh);
+    }
+
+    #[test]
     fn module_size_tier_boundaries() {
         // Descriptive NLOC bands (#107): ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
         assert_eq!(ModuleSizeTier::from_nloc(0), ModuleSizeTier::Low);
@@ -2298,7 +2425,7 @@ class External(Plugin):
     pass
 ",
         );
-        resolve_inheritance_depth(&mut [&mut base, &mut derived]);
+        resolve_inheritance(&mut [&mut base, &mut derived]);
 
         let dit = |file: &FileMetrics, name: &str| {
             file.classes.iter().find(|c| c.name == name).unwrap().dit
@@ -2311,6 +2438,79 @@ class External(Plugin):
             0,
             "Plugin is third-party → invisible"
         );
+    }
+
+    #[test]
+    fn noc_counts_direct_first_party_children_across_files() {
+        let mut base = metrics(
+            "\
+from third_party import Plugin
+
+
+class Base:
+    pass
+
+class A(Base):
+    pass
+
+class B(Base):
+    pass
+
+class Ext(Plugin):
+    pass
+",
+        );
+        // A third child of Base, defined in another file — NOC must see across the project.
+        let mut more = metrics("from base import Base\n\nclass C(Base):\n    pass\n");
+        resolve_inheritance(&mut [&mut base, &mut more]);
+
+        let noc = |file: &FileMetrics, name: &str| {
+            file.classes.iter().find(|c| c.name == name).unwrap().noc
+        };
+        assert_eq!(noc(&base, "Base"), 3, "A, B (same file) + C (cross-file)");
+        assert_eq!(noc(&base, "A"), 0, "a leaf has no children");
+        assert_eq!(
+            noc(&base, "Ext"),
+            0,
+            "Ext has no children; its third-party base doesn't make it one"
+        );
+        // A grandchild does not count toward the grandparent's NOC — breadth is one level only.
+        let mut chain = metrics(
+            "class Root:\n    pass\n\nclass Mid(Root):\n    pass\n\nclass Leaf(Mid):\n    pass\n",
+        );
+        resolve_inheritance(&mut [&mut chain]);
+        let n = |name: &str| chain.classes.iter().find(|c| c.name == name).unwrap().noc;
+        assert_eq!(n("Root"), 1, "only Mid is a direct child, not Leaf");
+        assert_eq!(n("Mid"), 1);
+        assert_eq!(n("Leaf"), 0);
+    }
+
+    #[test]
+    fn aggregate_reports_noc_distribution() {
+        // Hub with 3 children (moderate band) + the 3 leaves (low). max 3, p95 3.
+        let mut file = metrics(
+            "\
+class Hub:
+    pass
+
+class A(Hub):
+    pass
+
+class B(Hub):
+    pass
+
+class C(Hub):
+    pass
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let repo = aggregate(&[file]);
+        assert_eq!(repo.classes, 4);
+        assert_eq!(repo.max_noc, 3, "Hub");
+        assert_eq!(repo.noc_risk.low, 3, "the three leaves (NOC 0)");
+        assert_eq!(repo.noc_risk.moderate, 1, "Hub (NOC 3)");
+        assert_eq!(repo.noc_risk.high, 0);
+        assert_eq!(repo.p95_noc, 3);
     }
 
     #[test]
@@ -2331,14 +2531,14 @@ class D(B, C):
     pass
 ",
         );
-        resolve_inheritance_depth(&mut [&mut multi]);
+        resolve_inheritance(&mut [&mut multi]);
         let dit = |name: &str| multi.classes.iter().find(|c| c.name == name).unwrap().dit;
         assert_eq!(dit("D"), 2, "longest path to a root is two hops");
 
         // A name collision can synthesize a cycle (X(Y), Y(X)); resolution must still halt
         // rather than recurse forever.
         let mut cyclic = metrics("class X(Y):\n    pass\n\nclass Y(X):\n    pass\n");
-        resolve_inheritance_depth(&mut [&mut cyclic]);
+        resolve_inheritance(&mut [&mut cyclic]);
         // No assertion on the (ill-defined) depth — the contract is that the pass terminates.
     }
 

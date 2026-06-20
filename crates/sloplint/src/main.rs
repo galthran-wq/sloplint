@@ -4,6 +4,10 @@
 //! - `check` — discover config, run the shipped per-file rules over Python files, then
 //!   run cross-file clone detection (SLP020), and report all findings.
 
+// The `metrics --format json` panel is one large `serde_json::json!` literal; as it has grown
+// (the per-unit metric distributions) it exceeds the default macro recursion limit.
+#![recursion_limit = "256"]
+
 mod imports;
 mod stdlib;
 
@@ -1035,13 +1039,15 @@ fn run_metrics(
         });
     }
 
-    // DIT is a whole-project property: a class's inheritance depth depends on bases defined in
-    // *other* files (a class in one profile may extend a base in another), so resolve it across
-    // the FULL set — before any per-profile split — so every panel sees the real depth.
-    if matches!(format, MetricsFormat::Classes | MetricsFormat::Json) {
+    // DIT/NOC are whole-project properties: a class's inheritance depth and breadth depend on
+    // bases/children defined in *other* files (a class in one profile may extend a base in
+    // another), so resolve them across the FULL set — before any per-profile split — so every
+    // panel/feed that surfaces them (the class feed, the JSON/text/github DIT-NOC figures) sees the
+    // real values. Skip only the formats that show neither (the per-function and per-package feeds).
+    if !matches!(format, MetricsFormat::Functions | MetricsFormat::Packages) {
         let mut metrics: Vec<&mut FileMetrics> =
             per_file.iter_mut().map(|f| &mut f.metrics).collect();
-        sloplint_metrics::resolve_inheritance_depth(&mut metrics);
+        sloplint_metrics::resolve_inheritance(&mut metrics);
     }
 
     // The aggregate panel for one profile: the files that profile claims.
@@ -1268,6 +1274,8 @@ fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::
         "lcom4": class.lcom4,
         "wmc": class.wmc,
         "dit": class.dit,
+        // NOC (#113): direct first-party subclasses — inheritance breadth / fragile-base risk.
+        "noc": class.noc,
         "is_abstract": class.is_abstract,
         "has_docstring": class.has_docstring,
         "docstring_lines": class.docstring_lines,
@@ -1397,6 +1405,16 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
     println!(
         "  WMC bands           low {} / moderate {} / high {} / very high {}",
         wmc.low, wmc.moderate, wmc.high, wmc.very_high
+    );
+    // Inheritance breadth (NOC) distribution (#113): fragile-base-class prevalence.
+    println!(
+        "  avg/p95/max NOC     {:.1} / {} / {}",
+        repo.avg_noc, repo.p95_noc, repo.max_noc
+    );
+    let noc = repo.noc_risk;
+    println!(
+        "  NOC bands           low {} / moderate {} / high {} / very high {}",
+        noc.low, noc.moderate, noc.high, noc.very_high
     );
     // Module size (NLOC) distribution (#107): god-module prevalence — the third size leg.
     println!(
@@ -1582,6 +1600,18 @@ fn panel_json(
         },
         "max_dit": repo.max_dit,
         "avg_dit": repo.avg_dit,
+        // NOC (#113): inheritance breadth — direct first-party subclasses per class. The
+        // fragile-base-class signal DIT (depth) can't see; band counts flag high-leverage bases.
+        // Descriptive bands (≤1 / 2–5 / 6–20 / >20), never a gate.
+        "max_noc": repo.max_noc,
+        "avg_noc": repo.avg_noc,
+        "p95_noc": repo.p95_noc,
+        "noc_risk": {
+            "low": repo.noc_risk.low,
+            "moderate": repo.noc_risk.moderate,
+            "high": repo.noc_risk.high,
+            "very_high": repo.noc_risk.very_high,
+        },
         // Documentation coverage (#83) — distinct from comment_density (docstrings, not
         // `#`-comments). Low coverage = under-documented public API; a high docstring/code ratio
         // = AI over-documentation of trivia.
@@ -1687,11 +1717,12 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics)], proxies: &TestProxies) -> St
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
             repo.cognitive_markdown(),
             repo.params_markdown(),
             repo.wmc_markdown(),
+            repo.noc_markdown(),
             repo.module_size_markdown()
         ));
     }
