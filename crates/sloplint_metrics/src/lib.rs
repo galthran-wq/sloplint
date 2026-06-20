@@ -129,6 +129,14 @@ pub struct FunctionMetrics {
     /// `raise` inside an `except` (error translation) is a counted exit — by design, this is the
     /// syntactic count of exit points, not a judgment about which are idiomatic.
     pub exits: usize,
+    /// Type-hint coverage (#85): parameters carrying an annotation, out of [`Self::annotatable_params`].
+    pub typed_params: usize,
+    /// Parameters eligible for an annotation — positional and keyword params, excluding the
+    /// `self`/`cls` receiver and `*args`/`**kwargs`. The denominator for parameter annotation
+    /// coverage; `0` for a function with no annotatable params (e.g. `def f(self): ...`).
+    pub annotatable_params: usize,
+    /// Whether the function declares a return-type annotation (`-> T`).
+    pub has_return_annotation: bool,
 }
 
 /// Metrics for a single class.
@@ -182,6 +190,12 @@ pub struct RepoMetrics {
     pub max_nesting: usize,
     /// Comment lines as a fraction of total lines (0.0–1.0).
     pub comment_density: f64,
+    /// Type-hint coverage (#85): annotated params / annotatable params across all functions
+    /// (0.0–1.0). Low coverage flags under-annotation; high coverage is neutral, never a smell.
+    pub param_annotation_coverage: f64,
+    /// Fraction of functions that are fully annotated — every annotatable param plus the return
+    /// type (0.0–1.0).
+    pub fully_annotated_function_rate: f64,
 }
 
 impl RepoMetrics {
@@ -273,6 +287,9 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut function_loc_sum = 0usize;
     let mut cyclomatic_sum = 0usize;
     let mut cyclomatic_values: Vec<usize> = Vec::new();
+    let mut typed_params_sum = 0usize;
+    let mut annotatable_params_sum = 0usize;
+    let mut fully_annotated = 0usize;
     for file in files {
         repo.total_loc += file.loc;
         for function in &file.functions {
@@ -285,6 +302,15 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             repo.max_cyclomatic = repo.max_cyclomatic.max(function.cyclomatic);
             repo.max_cognitive = repo.max_cognitive.max(function.cognitive);
             repo.max_nesting = repo.max_nesting.max(function.max_nesting);
+            typed_params_sum += function.typed_params;
+            annotatable_params_sum += function.annotatable_params;
+            // Fully annotated = every annotatable param typed *and* a return type. A function with
+            // no annotatable params still needs its return annotated to count.
+            if function.has_return_annotation
+                && function.typed_params == function.annotatable_params
+            {
+                fully_annotated += 1;
+            }
         }
     }
     repo.avg_function_loc = if repo.functions == 0 {
@@ -304,6 +330,16 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     } else {
         comment_lines as f64 / repo.total_loc as f64
     };
+    repo.param_annotation_coverage = if annotatable_params_sum == 0 {
+        0.0
+    } else {
+        typed_params_sum as f64 / annotatable_params_sum as f64
+    };
+    repo.fully_annotated_function_rate = if repo.functions == 0 {
+        0.0
+    } else {
+        fully_annotated as f64 / repo.functions as f64
+    };
     repo
 }
 
@@ -313,6 +349,7 @@ fn function_metrics(
     function: &StmtFunctionDef,
     nested: &[TextRange],
 ) -> FunctionMetrics {
+    let (typed_params, annotatable_params, has_return_annotation) = type_hint_coverage(function);
     FunctionMetrics {
         name: function.name.to_string(),
         range: function.range(),
@@ -324,6 +361,9 @@ fn function_metrics(
         params: param_count(&function.parameters),
         ncss: ncss(&function.body),
         exits: exit_count(&function.body),
+        typed_params,
+        annotatable_params,
+        has_return_annotation,
     }
 }
 
@@ -491,6 +531,60 @@ fn param_count(parameters: &Parameters) -> usize {
         + parameters.kwonlyargs.len()
         + usize::from(parameters.vararg.is_some())
         + usize::from(parameters.kwarg.is_some())
+}
+
+/// Whether a function carries `@staticmethod` — so its first parameter is a genuine argument, not
+/// a `self`/`cls` receiver.
+fn is_staticmethod(function: &StmtFunctionDef) -> bool {
+    function
+        .decorator_list
+        .iter()
+        .filter_map(|decorator| expr_trailing_name(&decorator.expression))
+        .any(|name| name == "staticmethod")
+}
+
+/// Type-hint coverage for one function signature (#85): `(typed_params, annotatable_params,
+/// has_return_annotation)`.
+///
+/// *Annotatable* params are the positional and keyword params (positional-only + regular +
+/// keyword-only). The `self`/`cls` receiver of a non-static method is excluded — it is
+/// conventionally unannotated and not a quality signal — as are `*args`/`**kwargs`, which are
+/// variadic collectors that are rarely annotated and would only dilute the ratio. A function with
+/// no annotatable params yields `0/0`: it contributes nothing to coverage rather than being
+/// penalized.
+///
+/// This measures *under*-annotation as a quality concern (missing types are harder to read and
+/// refactor and weaken tooling). The "bad" direction is **low** coverage only — fully-typed code
+/// is neutral-to-good and is never itself a slop signal (slop is badness, not provenance).
+fn type_hint_coverage(function: &StmtFunctionDef) -> (usize, usize, bool) {
+    let params = &function.parameters;
+    // The receiver, when present, is the first positional parameter (positional-only first,
+    // otherwise the first regular arg). Drop exactly one leading positional for a non-static
+    // method whose first parameter is named `self`/`cls`.
+    let skip_receiver = usize::from(
+        !is_staticmethod(function)
+            && params
+                .posonlyargs
+                .first()
+                .or_else(|| params.args.first())
+                .is_some_and(|param| matches!(param.parameter.name.as_str(), "self" | "cls")),
+    );
+
+    let mut annotatable = 0usize;
+    let mut typed = 0usize;
+    for param in params
+        .posonlyargs
+        .iter()
+        .chain(&params.args)
+        .chain(&params.kwonlyargs)
+        .skip(skip_receiver)
+    {
+        annotatable += 1;
+        if param.parameter.annotation.is_some() {
+            typed += 1;
+        }
+    }
+    (typed, annotatable, function.returns.is_some())
 }
 
 /// Cyclomatic complexity, McCabe (1976): `CC = decisions + 1`.
@@ -1291,5 +1385,75 @@ class BaseTransport(ABC):
             vec!["BaseTransport"],
             "only the genuine ABC is abstract; exception subclasses and the sentinel are concrete"
         );
+    }
+
+    /// #85: type-hint coverage on a single signature — the receiver is excluded, `*args`/`**kwargs`
+    /// don't count, and the return annotation is reported separately.
+    #[test]
+    fn type_hint_coverage_counts_annotatable_params() {
+        let f = |src: &str| {
+            let m = &metrics(src).functions[0];
+            (m.typed_params, m.annotatable_params, m.has_return_annotation)
+        };
+
+        assert_eq!(f("def g(a, b): ...\n"), (0, 2, false), "no hints");
+        assert_eq!(f("def g(a: int, b) -> str: ...\n"), (1, 2, true), "partial + return");
+        assert_eq!(f("def g(a: int, b: str) -> None: ...\n"), (2, 2, true), "full");
+        // `self` is excluded from the denominator; `cls` likewise.
+        assert_eq!(f("class C:\n    def m(self, a: int): ...\n"), (1, 1, false), "self excluded");
+        assert_eq!(
+            f("class C:\n    @classmethod\n    def m(cls, a): ...\n"),
+            (0, 1, false),
+            "cls excluded"
+        );
+        // A staticmethod has no receiver — its first param counts.
+        assert_eq!(
+            f("class C:\n    @staticmethod\n    def m(a: int): ...\n"),
+            (1, 1, false),
+            "staticmethod first param counts"
+        );
+        // *args/**kwargs are not annotatable params.
+        assert_eq!(f("def g(a: int, *args, **kwargs): ...\n"), (1, 1, false), "variadics ignored");
+        // A positional-only receiver (`self, /`) is still the receiver and is excluded.
+        assert_eq!(
+            f("class C:\n    def m(self, /, a: int): ...\n"),
+            (1, 1, false),
+            "positional-only self excluded"
+        );
+        // Keyword-only params (after a bare `*`) count toward the denominator.
+        assert_eq!(f("def g(*, a: int, b): ...\n"), (1, 2, false), "keyword-only counted");
+        // `async def` is a function definition too — same treatment.
+        assert_eq!(f("async def g(a: int) -> str: ...\n"), (1, 1, true), "async");
+        // No annotatable params: a zero denominator, return type tracked independently.
+        assert_eq!(f("def g() -> int: ...\n"), (0, 0, true), "nullary with return");
+    }
+
+    /// #85: project aggregates — coverage is over the param pool, and the fully-annotated rate
+    /// requires every annotatable param *and* a return type.
+    #[test]
+    fn type_hint_aggregates_over_the_project() {
+        // 4 annotatable params total (1 + 2 + 1), 2 typed → 1/2 coverage. Only `full` is fully
+        // annotated (all params typed + return), so 1/3 of functions.
+        let src = "\
+def full(a: int) -> int: ...
+def partial(a: int, b) -> int: ...
+def bare(a): ...
+";
+        let repo = aggregate(&[metrics(src)]);
+        assert_eq!(repo.functions, 3);
+        assert!(
+            (repo.param_annotation_coverage - 0.5).abs() < 1e-9,
+            "2 of 4 params typed, got {}",
+            repo.param_annotation_coverage
+        );
+        assert!(
+            (repo.fully_annotated_function_rate - 1.0 / 3.0).abs() < 1e-9,
+            "1 of 3 functions fully annotated, got {}",
+            repo.fully_annotated_function_rate
+        );
+
+        // No annotatable params anywhere → coverage is a neutral 0.0, not a div-by-zero.
+        let none = aggregate(&[metrics("def f(): ...\n")]);
+        assert_eq!(none.param_annotation_coverage, 0.0);
     }
 }
