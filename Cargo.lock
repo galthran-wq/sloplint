@@ -976,7 +976,7 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "sloplint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -992,25 +992,25 @@ dependencies = [
 
 [[package]]
 name = "sloplint_clone"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sloplint_python",
 ]
 
 [[package]]
 name = "sloplint_dev"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "sloplint_diagnostics"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ruff_text_size",
 ]
 
 [[package]]
 name = "sloplint_linter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "globset",
  "insta",
@@ -1023,14 +1023,14 @@ dependencies = [
 
 [[package]]
 name = "sloplint_metrics"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sloplint_python",
 ]
 
 [[package]]
 name = "sloplint_python"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "ruff_python_ast",
@@ -1040,7 +1040,7 @@ dependencies = [
 
 [[package]]
 name = "sloplint_report"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
  "sloplint_diagnostics",
