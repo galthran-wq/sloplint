@@ -63,7 +63,45 @@ impl RiskTier {
     }
 }
 
-/// How many functions fall into each McCabe risk tier across the repo.
+/// WMC (Weighted Methods per Class) size bands for god-class prevalence (#104). Unlike the
+/// cyclomatic [`RiskTier`], WMC has **no** McCabe-equivalent canonical threshold, so these are
+/// **descriptive** bands calibrated against the cohort, never a pass/fail standard. Boundaries
+/// (inclusive): **≤20 low** (ordinary class), **21–50 moderate** (large but fine), **51–200
+/// high** (god-class candidate), **>200 very high** (god-class). WMC is the sum of the cyclomatic
+/// complexity of a class's methods, so these run higher than the per-function CC bands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WmcTier {
+    Low,
+    Moderate,
+    High,
+    VeryHigh,
+}
+
+impl WmcTier {
+    /// Classify a class's WMC into its size band.
+    pub fn from_wmc(wmc: usize) -> Self {
+        match wmc {
+            0..=20 => WmcTier::Low,
+            21..=50 => WmcTier::Moderate,
+            51..=200 => WmcTier::High,
+            _ => WmcTier::VeryHigh,
+        }
+    }
+
+    /// Short, stable label used in tables and JSON.
+    pub fn label(self) -> &'static str {
+        match self {
+            WmcTier::Low => "low",
+            WmcTier::Moderate => "moderate",
+            WmcTier::High => "high",
+            WmcTier::VeryHigh => "very high",
+        }
+    }
+}
+
+/// A four-band tier histogram: how many units fall into each `{low, moderate, high, very_high}`
+/// band. Shared by the function cyclomatic tiers (#10) and the class WMC tiers (#104) — the bands
+/// differ per metric (see [`RiskTier`] / [`WmcTier`]); the bucket shape does not.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RiskHistogram {
     pub low: usize,
@@ -79,6 +117,16 @@ impl RiskHistogram {
             RiskTier::Moderate => self.moderate += 1,
             RiskTier::High => self.high += 1,
             RiskTier::VeryHigh => self.very_high += 1,
+        }
+    }
+
+    /// Record a class by its WMC band (#104) — the class-side counterpart to [`Self::record`].
+    fn record_wmc(&mut self, wmc: usize) {
+        match WmcTier::from_wmc(wmc) {
+            WmcTier::Low => self.low += 1,
+            WmcTier::Moderate => self.moderate += 1,
+            WmcTier::High => self.high += 1,
+            WmcTier::VeryHigh => self.very_high += 1,
         }
     }
 
@@ -231,6 +279,13 @@ pub struct RepoMetrics {
     pub max_wmc: usize,
     /// Mean WMC across all classes.
     pub avg_wmc: f64,
+    /// 95th-percentile class WMC (nearest-rank). Surfaces the heavy tail even when the mean is
+    /// pulled down by many tiny classes — the WMC counterpart to [`Self::p95_cyclomatic`] (#104).
+    pub p95_wmc: usize,
+    /// Count of classes in each WMC size band (#104) — god-class *prevalence*, which `avg`/`max`
+    /// alone hide: the same `max_wmc` can come from one justified hub or many. Descriptive bands
+    /// ([`WmcTier`]), never a gate.
+    pub wmc_risk: RiskHistogram,
     /// Deepest first-party inheritance chain (DIT). Requires [`resolve_inheritance_depth`] to
     /// have run over the file set first; otherwise every `dit` is 0.
     pub max_dit: usize,
@@ -277,6 +332,26 @@ impl RepoMetrics {
             self.p95_cyclomatic,
             self.max_cyclomatic,
             risk.worst_tier().map(RiskTier::label).unwrap_or("n/a"),
+            risk.low,
+            risk.moderate,
+            risk.high,
+            risk.very_high,
+        )
+    }
+
+    /// The class-size counterpart to [`Self::cyclomatic_markdown`] (#104): mean/p95/max WMC plus
+    /// the god-class-prevalence histogram. Descriptive bands ([`WmcTier`]) — high `high`/`very
+    /// high` counts flag *candidates to read*, never defects.
+    pub fn wmc_markdown(&self) -> String {
+        let risk = self.wmc_risk;
+        format!(
+            "**Class weight (WMC)** — mean {:.1}, p95 {}, max {}.\n\n\
+             | WMC band | Classes |\n| --- | ---: |\n\
+             | low (≤20) | {} |\n| moderate (21–50) | {} |\n\
+             | high (51–200) | {} |\n| very high (>200) | {} |\n",
+            self.avg_wmc,
+            self.p95_wmc,
+            self.max_wmc,
             risk.low,
             risk.moderate,
             risk.high,
@@ -342,6 +417,7 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut annotatable_params_sum = 0usize;
     let mut fully_annotated = 0usize;
     let mut wmc_sum = 0usize;
+    let mut wmc_values: Vec<usize> = Vec::new();
     let mut dit_sum = 0usize;
     // Docstring coverage (#83): every public def/class (functions *and* classes) is in the
     // denominator, those carrying a docstring in the numerator. The docstring/code ratio is
@@ -383,6 +459,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         for class in &file.classes {
             repo.classes += 1;
             wmc_sum += class.wmc;
+            wmc_values.push(class.wmc);
+            repo.wmc_risk.record_wmc(class.wmc);
             dit_sum += class.dit;
             repo.max_wmc = repo.max_wmc.max(class.wmc);
             repo.max_dit = repo.max_dit.max(class.dit);
@@ -424,6 +502,7 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     } else {
         wmc_sum as f64 / repo.classes as f64
     };
+    repo.p95_wmc = percentile(&mut wmc_values, 0.95);
     repo.avg_dit = if repo.classes == 0 {
         0.0
     } else {
@@ -1364,6 +1443,18 @@ def outer(xs):
     }
 
     #[test]
+    fn wmc_tier_boundaries() {
+        // Descriptive bands (#104): ≤20 low, 21–50 moderate, 51–200 high, >200 very high.
+        assert_eq!(WmcTier::from_wmc(0), WmcTier::Low);
+        assert_eq!(WmcTier::from_wmc(20), WmcTier::Low);
+        assert_eq!(WmcTier::from_wmc(21), WmcTier::Moderate);
+        assert_eq!(WmcTier::from_wmc(50), WmcTier::Moderate);
+        assert_eq!(WmcTier::from_wmc(51), WmcTier::High);
+        assert_eq!(WmcTier::from_wmc(200), WmcTier::High);
+        assert_eq!(WmcTier::from_wmc(201), WmcTier::VeryHigh);
+    }
+
+    #[test]
     fn percentile_nearest_rank() {
         // Empty -> 0.
         assert_eq!(percentile(&mut [], 0.95), 0);
@@ -1560,6 +1651,42 @@ class Empty:
         let c = &file.classes[0];
         assert_eq!(c.wmc, 4, "1 (calc) + 3 (check: if + and)");
         assert_eq!(file.classes[1].wmc, 0, "no methods → no weight");
+    }
+
+    #[test]
+    fn aggregate_reports_wmc_distribution_not_just_max() {
+        // Three classes WMC 0 (low), 21 (moderate — 21 trivial methods), and 51 (high — 51
+        // trivial methods). The histogram must show the spread; max alone would hide the two
+        // smaller classes. Bands: ≤20 low, 21–50 moderate, 51–200 high, >200 very high.
+        let body = |name: &str, methods: usize| {
+            let mut s = format!("class {name}:\n");
+            if methods == 0 {
+                s.push_str("    pass\n");
+            }
+            for i in 0..methods {
+                s.push_str(&format!("    def m{i}(self):\n        return {i}\n"));
+            }
+            s
+        };
+        let source = format!("{}{}{}", body("Low", 0), body("Mid", 21), body("Big", 51));
+        let repo = aggregate(&[metrics(&source)]);
+
+        assert_eq!(repo.classes, 3);
+        assert_eq!(repo.max_wmc, 51);
+        assert_eq!(repo.wmc_risk.low, 1, "Low (wmc 0)");
+        assert_eq!(repo.wmc_risk.moderate, 1, "Mid (wmc 21)");
+        assert_eq!(repo.wmc_risk.high, 1, "Big (wmc 51)");
+        assert_eq!(repo.wmc_risk.very_high, 0);
+        // p95 (nearest-rank over [0, 21, 51]) lands on the heaviest class.
+        assert_eq!(repo.p95_wmc, 51);
+    }
+
+    #[test]
+    fn wmc_distribution_is_empty_without_classes() {
+        let repo = aggregate(&[metrics("def f():\n    return 1\n")]);
+        assert_eq!(repo.classes, 0);
+        assert_eq!(repo.wmc_risk, RiskHistogram::default());
+        assert_eq!(repo.p95_wmc, 0);
     }
 
     #[test]

@@ -1267,6 +1267,17 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         repo.docstring_coverage * 100.0
     );
     println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
+    // Class weight (WMC) distribution (#104): god-class prevalence, not just the worst class.
+    println!("  classes             {}", repo.classes);
+    println!(
+        "  avg/p95/max WMC     {:.1} / {} / {}",
+        repo.avg_wmc, repo.p95_wmc, repo.max_wmc
+    );
+    let wmc = repo.wmc_risk;
+    println!(
+        "  WMC bands           low {} / moderate {} / high {} / very high {}",
+        wmc.low, wmc.moderate, wmc.high, wmc.very_high
+    );
 }
 
 /// Print the static test proxies block (#86) once, beneath the panel(s). Always the full
@@ -1349,6 +1360,15 @@ fn panel_json(
         "classes": repo.classes,
         "max_wmc": repo.max_wmc,
         "avg_wmc": repo.avg_wmc,
+        // WMC size-band counts (#104): god-class *prevalence*, which avg/max collapse. Descriptive
+        // bands (≤20 / 21–50 / 51–200 / >200), never a gate. p95 surfaces the heavy tail.
+        "p95_wmc": repo.p95_wmc,
+        "wmc_risk": {
+            "low": repo.wmc_risk.low,
+            "moderate": repo.wmc_risk.moderate,
+            "high": repo.wmc_risk.high,
+            "very_high": repo.wmc_risk.very_high,
+        },
         "max_dit": repo.max_dit,
         "avg_dit": repo.avg_dit,
         // Documentation coverage (#83) — distinct from comment_density (docstrings, not
@@ -1437,7 +1457,11 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
 fn metrics_markdown(panels: &[(&str, RepoMetrics)], proxies: &TestProxies) -> String {
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo) in panels {
-        out.push_str(&format!("#### {name}\n\n{}\n", repo.cyclomatic_markdown()));
+        out.push_str(&format!(
+            "#### {name}\n\n{}\n{}\n",
+            repo.cyclomatic_markdown(),
+            repo.wmc_markdown()
+        ));
     }
     out.push_str(&test_proxies_markdown(proxies));
     out

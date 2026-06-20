@@ -286,8 +286,20 @@ metrics ([Chidamber & Kemerer 1994][ck]):
   chain, so `dit` is a deliberate, conservative under-count of the true Python MRO depth.
 
 `--format json` adds the matching aggregates next to the complexity figures: `classes`,
-`max_wmc`, `avg_wmc`, `max_dit`, `avg_dit`. Like the rest, these are descriptive distributions for
-tracking a repo over time, not pass/fail gates.
+`max_wmc`, `avg_wmc`, `p95_wmc`, `max_dit`, `avg_dit`, and **`wmc_risk`** — class counts per WMC
+size band, mirroring the function `cyclomatic_risk` tiers:
+
+```jsonc
+"wmc_risk": { "low": 451, "moderate": 23, "high": 15, "very_high": 5 }
+// bands by WMC:  low ≤20   moderate 21–50   high 51–200   very_high >200
+```
+
+This is the point of the histogram (#104): `avg`/`max` collapse the distribution, so the same
+`max_wmc` could be **one** justified hub (e.g. a wide-API dataframe class) or **fifty** god-classes
+— very different maintainability stories that `wmc_risk` tells apart. WMC has no McCabe-equivalent
+canonical threshold, so the bands are **descriptive, calibrated against the cohort, never a gate** —
+high `high`/`very_high` counts flag *candidates to read*, not defects. Like the rest, these are
+descriptive distributions for tracking a repo over time.
 
 [ck]: https://doi.org/10.1109/32.295895
 
