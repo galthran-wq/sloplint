@@ -20,6 +20,7 @@ use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use ignore::WalkBuilder;
 use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
+use sloplint_diagnostics::fix;
 use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::{BadgeSettings, Config, Selector};
@@ -70,6 +71,16 @@ enum Command {
         /// self-correct. A clean file exits 0 silently. Wire it up with `sloplint init`.
         #[arg(long)]
         hook: bool,
+        /// Automatically fix findings that have a safe fix, rewriting files in place (e.g. SLP010
+        /// deletes banned comments). Honors per-path rule selection and inline `# noqa` suppression,
+        /// so opted-out paths and suppressed findings are never touched. Remaining (unfixable)
+        /// findings are still reported.
+        #[arg(long)]
+        fix: bool,
+        /// With `--fix`, also apply fixes marked unsafe (may change behavior or intent). No effect
+        /// on its own.
+        #[arg(long)]
+        unsafe_fixes: bool,
     },
     /// Wire sloplint into AI coding tools (Claude Code, Cursor, Aider) so `check` runs on
     /// every edit and findings reach the agent before the code lands.
@@ -223,11 +234,14 @@ fn main() -> ExitCode {
             preview,
             format,
             hook: true,
+            fix,
+            unsafe_fixes,
         } => {
             // Agent-loop mode: file path comes from stdin, output goes to stderr, and the exit
-            // code (2) is what an editor's PostToolUse / afterFileEdit hook reads. The `paths`
-            // and `format` args are ignored here — the contract is fixed.
-            let _ = (paths, format);
+            // code (2) is what an editor's PostToolUse / afterFileEdit hook reads. The `paths`,
+            // `format`, and `--fix` args are ignored here — the contract is fixed (report, don't
+            // rewrite, so the agent stays in control of the edit).
+            let _ = (paths, format, fix, unsafe_fixes);
             match run_hook(config.as_deref(), preview) {
                 Ok(HookOutcome::Clean) => ExitCode::SUCCESS,
                 Ok(HookOutcome::Findings(text)) => {
@@ -250,7 +264,15 @@ fn main() -> ExitCode {
             preview,
             format,
             hook: false,
-        } => match run_check(&paths, config.as_deref(), preview, format) {
+            fix,
+            unsafe_fixes,
+        } => match run_check(
+            &paths,
+            config.as_deref(),
+            preview,
+            format,
+            FixMode::new(fix, unsafe_fixes),
+        ) {
             Ok(true) => ExitCode::SUCCESS,  // clean
             Ok(false) => ExitCode::from(1), // findings or read/parse errors
             Err(err) => tool_error(err),    // could not run at all
@@ -456,6 +478,24 @@ fn run_init(tools: &[InitTool], dry_run: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `--fix` / `--unsafe-fixes` state for a `check` run.
+#[derive(Clone, Copy)]
+struct FixMode {
+    /// Whether to apply fixes at all (`--fix`). `--unsafe-fixes` alone is a no-op.
+    enabled: bool,
+    /// Whether to also apply `Unsafe` fixes (`--unsafe-fixes`).
+    allow_unsafe: bool,
+}
+
+impl FixMode {
+    fn new(fix: bool, unsafe_fixes: bool) -> Self {
+        Self {
+            enabled: fix,
+            allow_unsafe: unsafe_fixes,
+        }
+    }
+}
+
 /// Returns `Ok(true)` when the run is clean, `Ok(false)` when there are findings or
 /// per-file read/parse errors, and `Err` only when the run could not start (bad config).
 fn run_check(
@@ -463,6 +503,7 @@ fn run_check(
     config_path: Option<&str>,
     preview: bool,
     format: Format,
+    fix_mode: FixMode,
 ) -> anyhow::Result<bool> {
     let config = load_config(config_path, preview)?;
     let selector = config
@@ -562,6 +603,17 @@ fn run_check(
         result.suppressions.filter(&mut result.diagnostics);
     }
 
+    // Autofix (`--fix`) runs *after* selection and suppression, so opted-out paths and
+    // `# noqa`-suppressed findings are never rewritten. Fixed findings are dropped from
+    // `diagnostics`; what remains is reported (against the original source) as usual.
+    let fixed = if fix_mode.enabled {
+        let (count, write_failed) = apply_fixes(&mut results, fix_mode.allow_unsafe);
+        had_error |= write_failed;
+        count
+    } else {
+        0
+    };
+
     let findings: usize = results.iter().map(|r| r.diagnostics.len()).sum();
     let entries: Vec<ReportEntry> = results
         .iter()
@@ -595,7 +647,51 @@ fn run_check(
         Format::Agent => print!("{}", sloplint_report::to_agent(&entries)),
     }
 
+    // The fix tally goes to stderr (like the issue summary) so it never pollutes the machine
+    // formats on stdout. Printed whenever `--fix` was requested, even if nothing matched.
+    if fix_mode.enabled {
+        eprintln!("sloplint: fixed {fixed} issue(s)");
+        // Remaining findings were located in the pre-fix source, so once we've actually rewritten
+        // files their reported line:col can be stale. Say so, rather than print misleading numbers.
+        if fixed > 0 && findings > 0 {
+            eprintln!("sloplint: note: positions above predate --fix; re-run to refresh them");
+        }
+    }
+
     Ok(findings == 0 && !had_error)
+}
+
+/// Apply each file's available fixes, rewrite changed files in place, and drop the fixed findings
+/// from the report. Returns the total number of findings fixed across all files, and whether any
+/// file failed to write.
+///
+/// A write failure is reported and recorded (so the run exits non-zero) but does **not** abort the
+/// batch — later files are still fixed, mirroring how `run_check` handles per-file read/parse
+/// errors. The remaining diagnostics keep their original ranges and are still rendered against the
+/// original `source`, so a re-run is the way to see refreshed positions.
+fn apply_fixes(results: &mut [FileResult], allow_unsafe: bool) -> (usize, bool) {
+    let mut total = 0;
+    let mut write_failed = false;
+    for result in results.iter_mut() {
+        let applied = fix::apply(&result.source, &result.diagnostics, allow_unsafe);
+        if !applied.changed() {
+            continue;
+        }
+        if let Err(err) = fs::write(&result.path, &applied.output) {
+            eprintln!("error: writing fixes to {}: {err}", result.path);
+            write_failed = true;
+            continue; // leave this file's findings in the report; keep fixing the rest.
+        }
+        let fixed: std::collections::HashSet<usize> = applied.fixed.into_iter().collect();
+        let mut index = 0;
+        result.diagnostics.retain(|_| {
+            let keep = !fixed.contains(&index);
+            index += 1;
+            keep
+        });
+        total += fixed.len();
+    }
+    (total, write_failed)
 }
 
 /// One file's parsed source and accumulated diagnostics.

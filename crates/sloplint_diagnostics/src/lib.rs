@@ -5,7 +5,10 @@
 //! severity policy, suppression — is fleshed out in the diagnostics/registry PR. This is
 //! the seam crate so downstream crates can already depend on it.
 
+pub mod fix;
 pub mod render;
+
+pub use fix::{Applicability, Applied, Edit, Fix};
 
 use ruff_text_size::TextRange;
 
@@ -29,6 +32,9 @@ pub struct Diagnostic {
     pub range: TextRange,
     /// Severity of this finding.
     pub severity: Severity,
+    /// An optional autofix. `None` when the rule can't mechanically fix the finding; rules that
+    /// can attach one via [`Diagnostic::with_fix`]. Applied by the CLI's `--fix` mode.
+    pub fix: Option<Fix>,
 }
 
 impl Diagnostic {
@@ -43,6 +49,14 @@ impl Diagnostic {
             message: message.into(),
             range,
             severity,
+            fix: None,
         }
+    }
+
+    /// Attach an autofix to this diagnostic (builder style).
+    #[must_use]
+    pub fn with_fix(mut self, fix: Fix) -> Self {
+        self.fix = Some(fix);
+        self
     }
 }

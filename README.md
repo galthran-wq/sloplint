@@ -67,6 +67,7 @@ Once installed, `sloplint` is a native binary on your `PATH`:
 
 ```bash
 sloplint check path/to/code              # lint (exit 1 on findings)
+sloplint check src --fix                 # auto-fix findings that have a safe fix (e.g. delete banned comments)
 sloplint check src --format sarif        # SARIF / json / github / text
 sloplint metrics src                     # software-quality metrics table (production code)
 sloplint metrics src --scope all         # a panel for every profile (default: production only)
@@ -83,6 +84,24 @@ build a wheel locally with [maturin](https://www.maturin.rs/) (`maturin build --
 
 Comments are banned by default; relax per-path (see [Configuration](#configuration)). Preview
 rules need `--preview`.
+
+### Autofix
+
+Like Ruff, `sloplint check --fix` automatically resolves findings that have a mechanical fix,
+rewriting files in place. Not every rule is fixable — near-duplicate functions (SLP020) or a
+low-cohesion god class (SLP120) need human judgment — but several are. The flagship example is
+**SLP010**: where comments are banned, `--fix` simply deletes them (own-line comments take their
+whole line; inline `code  # …` comments lose just the trailing comment).
+
+```bash
+sloplint check src --fix            # apply safe fixes, rewrite files, report what remains
+sloplint check src --fix --unsafe-fixes   # also apply fixes that might change behavior/intent
+```
+
+Fixes run **after** per-path rule selection and inline `# noqa` suppression, so a path that opts
+back into comments (a profile that ignores `SLP010`) and any `# noqa`-suppressed finding are never
+touched. Only `Safe` fixes apply by default; `--unsafe-fixes` opts into the rest. Findings without
+a fix are still reported.
 
 ## Agent-loop integration
 
