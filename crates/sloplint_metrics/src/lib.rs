@@ -1108,13 +1108,16 @@ pub fn resolve_inheritance(files: &mut [&mut FileMetrics]) {
         dit_of(name, &bases_of, &mut cache, &mut Vec::new());
     }
     // NOC (breadth): the in-degree of the inheritance graph. Count, per first-party class name,
-    // every class *definition* that lists it as a direct base (so two subclasses of the same base
-    // count twice, even if the base is defined once).
+    // every class *definition* that lists it as a direct base (so two distinct subclasses of the
+    // same base count twice, even if the base is defined once). A single child's bases are deduped
+    // by name first, so a class is counted once per base even if it names that base twice (e.g.
+    // `class X(a.Base, b.Base)` where both trail to `Base`) — it's still one child of `Base`.
     let mut children: HashMap<&str, usize> = HashMap::new();
     for file in files.iter() {
         for class in &file.classes {
+            let mut counted: std::collections::HashSet<&str> = std::collections::HashSet::new();
             for base in &class.bases {
-                if bases_of.contains_key(base.as_str()) {
+                if bases_of.contains_key(base.as_str()) && counted.insert(base.as_str()) {
                     *children.entry(base.as_str()).or_insert(0) += 1;
                 }
             }
