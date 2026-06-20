@@ -225,8 +225,10 @@ like `# noqa: E501`.
 ## Metrics & badges
 
 Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
-cognitive complexity (with McCabe risk tiers), average function length, max nesting, comment
-density, type-hint coverage, and **docstring coverage**. These are **measured, not linted**, so
+cognitive complexity (each with mean / p95 / max and risk-tier histograms; cognitive's bands are
+anchored on SonarSource's 15/function guidance and are the better *readability* signal), average
+function length, max nesting, comment density, type-hint coverage, and **docstring coverage**.
+These are **measured, not linted**, so
 they never duplicate Ruff. Gate them in CI by exit code (each names the offending functions and
 exits 1):
 
@@ -265,8 +267,8 @@ verbose docstring stacked onto a one-line body. The `--format functions` / `--fo
 `has_docstring` + `docstring_lines` per unit.
 
 `--badges badges/` writes an SVG + a shields.io [endpoint](https://shields.io/endpoint) JSON for
-each metric (`cyclomatic-risk`, `max-cognitive`, `avg-function-loc`, `max-nesting`,
-`comment-density`, `docstring-coverage`, …) — for example:
+each metric (`cyclomatic-risk`, `max-cognitive`, `cognitive-risk`, `avg-function-loc`,
+`max-nesting`, `comment-density`, `docstring-coverage`, …) — for example:
 
 ![cyclomatic-risk](https://img.shields.io/badge/cyclomatic--risk-moderate-yellow)
 ![max cognitive](https://img.shields.io/badge/max%20cognitive-14-yellow)
