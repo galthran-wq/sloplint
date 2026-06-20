@@ -7,19 +7,30 @@ judgments Ruff intentionally won't ship, and **never re-checks anything Ruff alr
 
 Written in Rust, reusing Ruff's own parser crates for a full-fidelity AST + token stream.
 
-## What it targets
+## Features
 
-Patterns that no mainstream linter flags today:
+Rules that flag slop patterns no mainstream linter covers today. **Stable** rules run by
+default; **preview** rules are heuristic — enable them with `--preview`.
 
-- Redundant "what" comments & docstrings that just restate the code (default: comments are
-  **banned**, configurable per-path).
-- **Cross-file duplicated / near-duplicate functions** — copy-paste *and* "same logic,
-  slightly different" (the flagship clone engine).
-- Redundant type hints, overly defensive `try/except`, verbose mechanical naming.
-- ASCII-only enforcement (no emoji), deep-nesting caps, oversized files, flat-directory fanout.
-- **Deeply nested data-structure literals** — a dict-of-lists-of-dicts inline blob past a
-  configurable depth, distinct from control-flow nesting (model it with a named type).
-- Software-quality-metric **badges** + a per-PR summary, via a GitHub Action.
+| Rule | Stability | What it flags |
+| --- | --- | --- |
+| `SLP010` | stable | Comments — **banned by default** (relax per-path in `sloplint.toml`) |
+| `SLP020` | stable | Cross-file duplicate / near-duplicate functions — copy-paste *and* "same logic, slightly different" |
+| `SLP030` | stable | Overly defensive `try`/`except` |
+| `SLP050` | stable | Non-ASCII source (e.g. emoji) |
+| `SLP080` | stable | Oversized files (default: > 400 lines, configurable via `file_max_lines`) |
+| `SLP082` | stable | Deep control-flow nesting inside a function (default: > 4 levels, via `nesting_max_depth`) |
+| `SLP090` | stable | Flat-directory fanout — too many `.py` modules in one directory (default: > 15, via `dir_max_modules`) |
+| `SLP001` | preview | Redundant "what" comments that just restate the code |
+| `SLP002` | preview | Redundant docstrings that just restate the code |
+| `SLP040` | preview | Redundant type hints |
+| `SLP060` | preview | Verbose, mechanical identifier naming |
+| `SLP084` | preview | Deeply nested data-structure literals (a dict-of-lists-of-dicts blob past a depth — model it with a named type) |
+| `SLP120` | preview | Low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups) |
+
+Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
+McCabe risk tiers, shields **badges**, and a per-PR summary — via the `metrics` command and the
+GitHub Action.
 
 ## Installation
 
@@ -65,10 +76,59 @@ sloplint parse file.py                   # dump AST + tokens (debug aid)
 From a clone, run it through cargo instead (`cargo run -p sloplint -- check path/to/code`), or
 build a wheel locally with [maturin](https://www.maturin.rs/) (`maturin build --release`).
 
-Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060/084/120`) are preview — enable with `--preview`. `SLP120` flags
-low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups;
-thresholds `lcom4_max_components` / `lcom4_min_methods` under `[limits]`).
+Comments are banned by default; relax per-path (see [Configuration](#configuration)). Preview
+rules need `--preview`.
+
+## Configuration
+
+sloplint reads `sloplint.toml`, discovered from the working directory upward (or pass
+`--config <path>`). Every key is optional — the defaults are shown below.
+
+```toml
+ignore = ["SLP040"]           # turn specific rules/prefixes off
+select = []                   # force-enable rules/prefixes
+preview = false               # enable preview rules (same as --preview)
+
+[limits]                      # thresholds for the size/structure rules
+file_max_lines = 400          # SLP080
+nesting_max_depth = 4         # SLP082
+data_nesting_max_depth = 3    # SLP084
+max_identifier_words = 4      # SLP060
+dir_max_modules = 15          # SLP090
+lcom4_max_components = 1       # SLP120 — flag a class that splits into > 1 cohesion group
+lcom4_min_methods = 3         # SLP120 — skip classes smaller than this
+
+[clone]                       # SLP020 near-duplicate detection
+min_statements = 3            # ignore tiny functions
+similarity = 0.85             # Jaccard similarity at/above which a pair is reported
+
+[[overrides]]                 # relax rules for matching paths (gitignore-style globs)
+path = "tests/**"
+ignore = ["SLP010"]
+allow_comments = true         # permit comments here (otherwise banned)
+```
+
+## Metrics & badges
+
+Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
+cognitive complexity (with McCabe risk tiers), average function length, max nesting, and comment
+density. These are **measured, not linted**, so they never duplicate Ruff. Gate them in CI by
+exit code:
+
+```bash
+sloplint metrics src --max-cyclomatic 10   # exit 1 if any function's cyclomatic complexity > 10
+```
+
+`--badges badges/` writes an SVG + a shields.io [endpoint](https://shields.io/endpoint) JSON for
+each metric (`cyclomatic-risk`, `max-cognitive`, `avg-function-loc`, `max-nesting`,
+`comment-density`, …) — for example:
+
+![cyclomatic-risk](https://img.shields.io/badge/cyclomatic--risk-moderate-yellow)
+![max cognitive](https://img.shields.io/badge/max%20cognitive-14-yellow)
+![avg function loc](https://img.shields.io/badge/avg%20function%20loc-22-brightgreen)
+
+Commit the SVGs, or host the `*.json` and point a shields URL at it for a badge that updates
+itself. The GitHub Action writes them when you set its `badges-dir` input.
 
 ## GitHub Action
 
@@ -98,11 +158,11 @@ Required permissions: `security-events: write` (SARIF upload) and `pull-requests
 rather than failing).
 
 By default the action downloads a **prebuilt binary** for the runner (set `version:` to a
-release tag like `v0.1.0`, or `latest`); if none is available it builds from source. Cut a
+release tag like `v0.2.0`, or `latest`); if none is available it builds from source. Cut a
 release to publish binaries:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0   # triggers .github/workflows/release.yml
+git tag v0.2.0 && git push origin v0.2.0   # triggers .github/workflows/release.yml
 ```
 
 ## Layout

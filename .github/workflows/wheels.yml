@@ -1,13 +1,19 @@
 name: Wheels
 
-# Build PyPI wheels that bundle the sloplint binary (issue #47). On every PR/push we build a
-# Linux wheel and smoke-test that it installs a working `sloplint`; on a `v*` tag we build the
-# full platform matrix and publish to PyPI.
+# Build PyPI wheels that bundle the sloplint binary (issue #47). Builds the full platform matrix
+# on push to main and `v*` tags (and publishes to PyPI on a tag). On PRs it runs *only* when
+# packaging/build config changes — a normal code change can't break the wheel if it already
+# compiles in the main CI, so we don't rebuild wheels for it (and docs PRs never trigger it).
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    paths:
+      - "pyproject.toml"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/wheels.yml"
 
 jobs:
   build:
