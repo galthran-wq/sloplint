@@ -248,10 +248,15 @@ impl ImportGraph {
     }
 }
 
-/// Derive a module's dotted name from its (display) file path, mirroring the SLP180 first-party
-/// resolver: a leading `src/` (the src-layout convention) is stripped, an `__init__.py` collapses
-/// to the package itself, and the remaining path becomes a dotted name. Returns `None` for paths
-/// that don't name an importable module (e.g. a bare `__init__.py` at the root).
+/// Derive a module's dotted name from a file path *relative to its source root*: an
+/// `__init__.py` collapses to the package itself, and the remaining path becomes a dotted name.
+/// Returns `None` for paths that don't name an importable module (e.g. a bare `__init__.py` at
+/// the root).
+///
+/// The CLI feeds this a source-root-relative path (computed by an `__init__.py` walk-up that
+/// already handles `src/` layout). The leading-`src/` strip below is a belt-and-suspenders
+/// fallback for direct callers that pass a full path without doing that walk-up — it never
+/// fires on the CLI path, so the two layers don't double-strip.
 pub fn module_from_path(path: &str) -> Option<ModuleName> {
     let mut segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     if segs.first() == Some(&"src") && segs.len() > 1 {
