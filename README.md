@@ -69,7 +69,7 @@ sloplint check path/to/code              # lint (exit 1 on findings)
 sloplint check src --format sarif        # SARIF / json / github / text
 sloplint metrics src                     # software-quality metrics table
 sloplint metrics src --format github     # PR-summary markdown (CC risk tiers)
-sloplint metrics src --format packages   # per-package import-graph feed (JSONL)
+sloplint metrics src --format packages   # per-package coupling feed: ce/ca/instability (JSONL)
 sloplint metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
 sloplint metrics src --badges badges/    # emit SVG + shields-endpoint badges
 sloplint init                            # wire sloplint into your AI coding tool (see below)

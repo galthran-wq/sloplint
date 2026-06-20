@@ -46,27 +46,38 @@ fn packages_feed_aggregates_modules_and_first_party_coupling() {
 
     // `proj` holds __init__, a, b, c and imports the `proj.sub` package; the cross-package edge
     // from proj.sub.helper back into proj.b makes it a dependency cycle, visible on both rows.
+    // The cycle puts both packages at instability 0.5 (Ce = Ca = 1).
     let proj = &rows["proj"];
     assert_eq!(proj["modules"], 4);
     assert_eq!(proj["imports"], serde_json::json!(["proj.sub"]));
     assert_eq!(proj["imported_by"], serde_json::json!(["proj.sub"]));
-    assert_eq!(proj["efferent"], 1);
-    assert_eq!(proj["afferent"], 1);
+    assert_eq!(proj["ce"], 1);
+    assert_eq!(proj["ca"], 1);
+    assert_eq!(proj["instability"], 0.5);
+    // loc is the summed physical line count of __init__/a/b/c — non-zero for a package with code.
+    assert!(proj["loc"].as_u64().unwrap() > 0, "proj has source lines");
 
     let sub = &rows["proj.sub"];
     assert_eq!(sub["modules"], 2); // __init__ + helper
     assert_eq!(sub["imports"], serde_json::json!(["proj"]));
     assert_eq!(sub["imported_by"], serde_json::json!(["proj"]));
+    assert_eq!(sub["ce"], 1);
+    assert_eq!(sub["ca"], 1);
+    assert_eq!(sub["instability"], 0.5);
 
     // Both real packages have a module in the cycle (see the cycle test below); the root does not.
     assert_eq!(proj["in_cycle"], true);
     assert_eq!(sub["in_cycle"], true);
 
-    // The top-level module lands in the root package with no first-party coupling.
+    // The top-level module lands in the root package with no first-party coupling, so Ce+Ca=0
+    // and instability is defined as 0.0 rather than NaN.
     let root = &rows["."];
     assert_eq!(root["modules"], 1);
     assert_eq!(root["imports"], serde_json::json!([]));
     assert_eq!(root["imported_by"], serde_json::json!([]));
+    assert_eq!(root["ce"], 0);
+    assert_eq!(root["ca"], 0);
+    assert_eq!(root["instability"], 0.0);
     assert_eq!(root["in_cycle"], false);
 }
 

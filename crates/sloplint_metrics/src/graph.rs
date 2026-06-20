@@ -72,6 +72,8 @@ pub struct RawImport {
 pub struct ModuleInput {
     pub name: ModuleName,
     pub imports: Vec<RawImport>,
+    /// Physical lines of code in the module file, summed into the owning package's `loc` (#67).
+    pub loc: usize,
 }
 
 /// Merged flags on a resolved module→module edge. An edge can be produced by several import
@@ -98,20 +100,40 @@ impl EdgeKind {
 
 /// One row of the `metrics --format packages` feed: a package (directory) and its first-party
 /// coupling. `imports`/`imported_by` are the distinct *packages* this one depends on / is
-/// depended on by — the raw material for afferent/efferent coupling and instability (#67).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// depended on by; their sizes are the efferent/afferent coupling that drive `instability` (#67).
+///
+/// Counting *distinct packages* (not individual module-to-module dependencies) for Ce/Ca mirrors
+/// JDepend's `efferentCoupling()`/`afferentCoupling()` (`efferents.size()`/`afferents.size()`),
+/// the reference implementation of Martin's package metrics.
+#[derive(Debug, Clone, PartialEq)]
 pub struct PackageRow {
     /// Dotted package name, or `.` for the project root (top-level modules).
     pub package: String,
     /// Number of modules (`.py` files) directly in this package.
     pub modules: usize,
-    /// Distinct first-party packages this package imports (efferent), sorted.
+    /// Physical lines of code summed across this package's modules.
+    pub loc: usize,
+    /// Distinct first-party packages this package imports (efferent), sorted. `len()` is Ce.
     pub imports: Vec<String>,
-    /// Distinct first-party packages that import this one (afferent), sorted.
+    /// Distinct first-party packages that import this one (afferent), sorted. `len()` is Ca.
     pub imported_by: Vec<String>,
     /// Whether any module in this package participates in a module-level dependency cycle
     /// (a non-trivial SCC of the full import graph, see [`ImportGraph::cycles`]).
     pub in_cycle: bool,
+    /// Martin's instability `I = Ce / (Ce + Ca)` ∈ [0, 1], or `0.0` when `Ce + Ca == 0`
+    /// (a package with no first-party coupling is treated as maximally stable, as in JDepend).
+    pub instability: f64,
+}
+
+/// Martin's instability `I = Ce / (Ce + Ca)`, defined as `0.0` when `Ce + Ca == 0` (matching
+/// JDepend, which returns `0` for an uncoupled package rather than dividing by zero).
+pub fn instability(ce: usize, ca: usize) -> f64 {
+    let total = ce + ca;
+    if total == 0 {
+        0.0
+    } else {
+        ce as f64 / total as f64
+    }
 }
 
 /// Cyclic-dependency tangles found by running Tarjan's SCC over the module import graph
@@ -164,6 +186,8 @@ pub struct ImportGraph {
     /// `dotted name -> node index`, and the package flag for each module.
     index: HashMap<String, NodeIndex>,
     is_package: HashMap<String, bool>,
+    /// `dotted name -> physical lines of code`, summed per package for `PackageRow::loc`.
+    loc: HashMap<String, usize>,
 }
 
 impl ImportGraph {
@@ -176,10 +200,12 @@ impl ImportGraph {
         let mut graph = DiGraph::new();
         let mut index = HashMap::new();
         let mut is_package = HashMap::new();
+        let mut loc = HashMap::new();
         for module in &modules {
             let node = graph.add_node(module.name.dotted.clone());
             index.insert(module.name.dotted.clone(), node);
             is_package.insert(module.name.dotted.clone(), module.name.is_package);
+            loc.insert(module.name.dotted.clone(), module.loc);
         }
 
         for module in &modules {
@@ -205,6 +231,7 @@ impl ImportGraph {
             graph,
             index,
             is_package,
+            loc,
         }
     }
 
@@ -248,6 +275,7 @@ impl ImportGraph {
 
         let mut module_count: BTreeMap<String, usize> = BTreeMap::new();
         let mut in_cycle: BTreeMap<String, bool> = BTreeMap::new();
+        let mut loc: BTreeMap<String, usize> = BTreeMap::new();
         let mut efferent: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut afferent: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
@@ -255,6 +283,7 @@ impl ImportGraph {
             let pkg = self.package_of_node(name);
             *module_count.entry(pkg.clone()).or_default() += 1;
             *in_cycle.entry(pkg.clone()).or_default() |= cycle_modules.contains(name.as_str());
+            *loc.entry(pkg.clone()).or_default() += self.loc.get(name).copied().unwrap_or(0);
             efferent.entry(pkg.clone()).or_default();
             afferent.entry(pkg).or_default();
         }
@@ -270,12 +299,18 @@ impl ImportGraph {
 
         module_count
             .into_iter()
-            .map(|(package, modules)| PackageRow {
-                imports: efferent[&package].iter().cloned().collect(),
-                imported_by: afferent[&package].iter().cloned().collect(),
-                in_cycle: in_cycle[&package],
-                package,
-                modules,
+            .map(|(package, modules)| {
+                let imports: Vec<String> = efferent[&package].iter().cloned().collect();
+                let imported_by: Vec<String> = afferent[&package].iter().cloned().collect();
+                PackageRow {
+                    instability: instability(imports.len(), imported_by.len()),
+                    loc: loc[&package],
+                    in_cycle: in_cycle[&package],
+                    imports,
+                    imported_by,
+                    package,
+                    modules,
+                }
             })
             .collect()
     }
@@ -580,6 +615,7 @@ mod tests {
                 Some(ModuleInput {
                     name,
                     imports: scan_module_imports(&parsed),
+                    loc: src.lines().count(),
                 })
             })
             .collect();
@@ -814,21 +850,84 @@ from pkg import *
         let rows = g.package_rows();
         let row = |name: &str| rows.iter().find(|r| r.package == name).unwrap();
 
-        // pkg has __init__ + a = 2 modules and imports the pkg.sub package.
+        // pkg has __init__ + a = 2 modules and imports the pkg.sub package. Ce=1, Ca=0 so it is
+        // purely unstable (I=1): it depends on something but nothing depends on it.
         let pkg = row("pkg");
         assert_eq!(pkg.modules, 2);
         assert_eq!(pkg.imports, vec!["pkg.sub".to_string()]);
         assert!(pkg.imported_by.is_empty());
+        assert_eq!(pkg.instability, 1.0);
 
-        // pkg.sub has __init__ + helper = 2 modules, imported by pkg.
+        // pkg.sub has __init__ + helper = 2 modules, imported by pkg. Ce=0, Ca=1 → purely stable.
         let sub = row("pkg.sub");
         assert_eq!(sub.modules, 2);
         assert_eq!(sub.imported_by, vec!["pkg".to_string()]);
+        assert_eq!(sub.instability, 0.0);
 
-        // a top-level module lands in the root package `.`, with no first-party coupling.
+        // a top-level module lands in the root package `.`, with no first-party coupling. With
+        // Ce+Ca=0 instability is defined as 0.0 (not NaN from a 0/0 division).
         let root = row(".");
         assert_eq!(root.modules, 1);
         assert!(root.imports.is_empty());
+        assert_eq!(root.instability, 0.0);
+    }
+
+    #[test]
+    fn package_rows_sum_module_loc_per_package() {
+        // loc per package is the sum of its modules' physical line counts.
+        let g = graph_of(&[
+            ("pkg/__init__.py", "x = 1\n"),          // 1 line
+            ("pkg/a.py", "import os\n\n\nx = 2\n"),  // 4 lines
+            ("pkg/sub/__init__.py", ""),             // 0 lines
+            ("pkg/sub/helper.py", "y = 3\ny = 4\n"), // 2 lines
+        ]);
+        let rows = g.package_rows();
+        let row = |name: &str| rows.iter().find(|r| r.package == name).unwrap();
+        assert_eq!(row("pkg").loc, 5); // 1 + 4
+        assert_eq!(row("pkg.sub").loc, 2); // 0 + 2
+    }
+
+    #[test]
+    fn instability_mid_range_for_a_cycle() {
+        // A 2-package cycle: each imports the other, so Ce=Ca=1 and I=0.5 on both — the "neither
+        // stable nor cleanly unstable" middle the issue calls out as a tangle signal.
+        let g = graph_of(&[
+            ("a/__init__.py", ""),
+            ("a/m.py", "from b import n\n"),
+            ("b/__init__.py", ""),
+            ("b/n.py", "from a import m\n"),
+        ]);
+        let rows = g.package_rows();
+        let row = |name: &str| rows.iter().find(|r| r.package == name).unwrap();
+        assert_eq!(row("a").instability, 0.5);
+        assert_eq!(row("b").instability, 0.5);
+    }
+
+    #[test]
+    fn instability_is_asymmetric_through_real_aggregation() {
+        // `a` imports both `b` and `c`, and `b` imports `a` back: a has Ce=2 (b, c) and Ca=1 (b),
+        // so I = 2/3 — an asymmetric value computed from the actual graph, not a hand-built row.
+        let g = graph_of(&[
+            ("a/__init__.py", ""),
+            ("a/m.py", "from b import n\nfrom c import p\n"),
+            ("b/__init__.py", ""),
+            ("b/n.py", "from a import m\n"),
+            ("c/__init__.py", ""),
+            ("c/p.py", ""),
+        ]);
+        let rows = g.package_rows();
+        let a = rows.iter().find(|r| r.package == "a").unwrap();
+        assert_eq!(a.imports, vec!["b".to_string(), "c".to_string()]);
+        assert_eq!(a.imported_by, vec!["b".to_string()]);
+        assert_eq!(a.instability, 2.0 / 3.0);
+    }
+
+    #[test]
+    fn instability_formula_edge_cases() {
+        assert_eq!(instability(0, 0), 0.0); // uncoupled → stable, no divide-by-zero
+        assert_eq!(instability(3, 0), 1.0); // depends on others, depended on by none
+        assert_eq!(instability(0, 3), 0.0); // depended on by others, depends on none
+        assert_eq!(instability(1, 3), 0.25);
     }
 
     #[test]
