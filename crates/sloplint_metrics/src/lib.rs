@@ -148,6 +148,9 @@ pub struct ClassMetrics {
     /// LCOM4 cohesion: connected components among non-constructor methods. >1 = low cohesion
     /// ("god class" that should be split). See [`cohesion`].
     pub lcom4: usize,
+    /// Whether this class counts as "abstract" for Martin's package abstractness ratio (#70).
+    /// A documented heuristic ([`class_is_abstract`]), since Python has no interface keyword.
+    pub is_abstract: bool,
 }
 
 /// Metrics for a single file.
@@ -339,6 +342,73 @@ fn class_metrics(source: &str, class: &StmtClassDef) -> ClassMetrics {
         methods,
         attributes: cohesion::class_attribute_count(class),
         lcom4: cohesion::class_cohesion(class).components,
+        is_abstract: class_is_abstract(class),
+    }
+}
+
+/// Heuristic for whether a class is "abstract" for Martin's package abstractness ratio (#70).
+/// Python has no interface keyword, so this approximates — a class counts as abstract if it:
+///
+/// - subclasses `ABC` / `abc.ABC` or `Protocol` / `typing.Protocol` (incl. subscripted
+///   `Protocol[T]`),
+/// - declares `metaclass=ABCMeta`,
+/// - has any method decorated with `@abstractmethod` (or the `abstractproperty` /
+///   `abstractclassmethod` / `abstractstaticmethod` family), or
+/// - is a stub: its body, ignoring a leading docstring, is empty or only `pass` / `...`.
+///
+/// This is deliberately an approximation — abstractness is fuzzy in Python, and #70 ships the
+/// derived metric clearly labeled as heuristic. False positives (e.g. a concrete placeholder
+/// stub) are accepted in exchange for catching the common abstract-base / protocol idioms.
+fn class_is_abstract(class: &StmtClassDef) -> bool {
+    let abstract_base = class
+        .bases()
+        .iter()
+        .filter_map(expr_trailing_name)
+        .any(|name| name == "ABC" || name == "Protocol");
+
+    let abc_metaclass = class.keywords().iter().any(|keyword| {
+        keyword
+            .arg
+            .as_ref()
+            .is_some_and(|arg| arg.as_str() == "metaclass")
+            && expr_trailing_name(&keyword.value) == Some("ABCMeta")
+    });
+
+    let has_abstractmethod = class.body.iter().any(|stmt| match stmt {
+        Stmt::FunctionDef(func) => func
+            .decorator_list
+            .iter()
+            .filter_map(|decorator| expr_trailing_name(&decorator.expression))
+            .any(|name| name.starts_with("abstract")),
+        _ => false,
+    });
+
+    abstract_base || abc_metaclass || has_abstractmethod || is_stub_body(&class.body)
+}
+
+/// A class body that, ignoring a leading docstring, is empty or contains only `pass` / `...`
+/// statements — a placeholder with no real implementation.
+fn is_stub_body(body: &[Stmt]) -> bool {
+    body.iter().enumerate().all(|(i, stmt)| match stmt {
+        Stmt::Pass(_) => true,
+        Stmt::Expr(expr) => {
+            // A bare `...`, or a docstring (string literal) but only as the first statement.
+            matches!(expr.value.as_ref(), Expr::EllipsisLiteral(_))
+                || (i == 0 && matches!(expr.value.as_ref(), Expr::StringLiteral(_)))
+        }
+        _ => false,
+    })
+}
+
+/// Trailing identifier of a (possibly dotted or subscripted) name expression — `ABC` from
+/// `abc.ABC`, `Protocol` from `typing.Protocol[T]` — or `None` for anything that doesn't name a
+/// class (a call, a literal, …).
+fn expr_trailing_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
+        Expr::Subscript(subscript) => expr_trailing_name(&subscript.value),
+        _ => None,
     }
 }
 
@@ -1146,5 +1216,53 @@ class Utils:
         let utils = &file.classes[1];
         assert_eq!(utils.methods, 2);
         assert_eq!(utils.lcom4, 2, "parse/render touch disjoint attributes");
+    }
+
+    /// Every documented abstractness signal (#70) is recognized, and a plain concrete class is
+    /// not. One class per source so `file.classes[0]` is unambiguous.
+    #[test]
+    fn class_is_abstract_recognizes_each_signal() {
+        let abstract_cases = [
+            ("abc.ABC base", "import abc\nclass A(abc.ABC):\n    def f(self): return 1\n"),
+            ("bare ABC base", "from abc import ABC\nclass A(ABC):\n    def f(self): return 1\n"),
+            ("Protocol base", "from typing import Protocol\nclass A(Protocol):\n    def f(self): ...\n"),
+            ("subscripted Protocol", "from typing import Protocol\nclass A(Protocol[int]):\n    def f(self): ...\n"),
+            ("ABCMeta metaclass", "import abc\nclass A(metaclass=abc.ABCMeta):\n    def f(self): return 1\n"),
+            ("@abstractmethod", "from abc import abstractmethod\nclass A:\n    @abstractmethod\n    def f(self): ...\n"),
+            ("@abstractproperty family", "import abc\nclass A:\n    @abc.abstractproperty\n    def f(self): ...\n"),
+            ("ellipsis stub body", "class A:\n    ...\n"),
+            ("pass stub body", "class A:\n    pass\n"),
+            ("docstring-only stub", "class A:\n    \"\"\"just a marker\"\"\"\n"),
+        ];
+        for (label, src) in abstract_cases {
+            assert!(
+                metrics(src).classes[0].is_abstract,
+                "expected abstract: {label}"
+            );
+        }
+
+        let concrete_cases = [
+            ("plain class", "class A:\n    def f(self): return 1\n"),
+            (
+                "non-abstract base",
+                "class B: pass\nclass A(B):\n    def f(self): return 1\n",
+            ),
+            (
+                "docstring + real method",
+                "class A:\n    \"\"\"doc\"\"\"\n    def f(self): return 1\n",
+            ),
+            (
+                "non-metaclass keyword",
+                "class A(foo=1):\n    def f(self): return 1\n",
+            ),
+        ];
+        for (label, src) in concrete_cases {
+            let classes = &metrics(src).classes;
+            // The class under test is the last one defined (a helper base may precede it).
+            assert!(
+                !classes.last().unwrap().is_abstract,
+                "expected concrete: {label}"
+            );
+        }
     }
 }
