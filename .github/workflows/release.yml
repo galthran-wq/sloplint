@@ -1,6 +1,6 @@
 # Builds prebuilt sloplint binaries for each platform and attaches them to the GitHub
 # Release when a `v*` tag is pushed. The action downloads these instead of building from
-# source. Cut a release with: `git tag v0.1.0 && git push origin v0.1.0`.
+# source. Cut a release with: `git tag v0.2.0 && git push origin v0.2.0`.
 name: release
 
 on:

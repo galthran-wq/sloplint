@@ -98,11 +98,11 @@ Required permissions: `security-events: write` (SARIF upload) and `pull-requests
 rather than failing).
 
 By default the action downloads a **prebuilt binary** for the runner (set `version:` to a
-release tag like `v0.1.0`, or `latest`); if none is available it builds from source. Cut a
+release tag like `v0.2.0`, or `latest`); if none is available it builds from source. Cut a
 release to publish binaries:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0   # triggers .github/workflows/release.yml
+git tag v0.2.0 && git push origin v0.2.0   # triggers .github/workflows/release.yml
 ```
 
 ## Layout

@@ -34,7 +34,7 @@ inputs:
     default: "true"
     required: false
   version:
-    description: "Release tag of a prebuilt binary to download (e.g. v0.1.0), or 'latest'. Falls back to building from source if unavailable."
+    description: "Release tag of a prebuilt binary to download (e.g. v0.2.0), or 'latest'. Falls back to building from source if unavailable."
     default: "latest"
     required: false
 
