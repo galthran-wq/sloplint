@@ -127,6 +127,9 @@ mod tests {
         assert!(is_directive("type: ignore"));
         assert!(is_directive("!/usr/bin/env python")); // shebang body
         assert!(is_directive("-*- coding: utf-8 -*-"));
+        // A `# noqa` inline suppression (#94) is a tool directive, so the comment carrying it is
+        // never itself banned by SLP010.
+        assert!(is_directive("noqa: SLP020"));
     }
 
     #[test]
