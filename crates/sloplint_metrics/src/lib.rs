@@ -503,8 +503,12 @@ pub fn resolve_inheritance_depth(files: &mut [&mut FileMetrics]) {
 }
 
 /// Longest first-party base chain above `name`, memoized in `cache`. `path` holds the names on
-/// the current DFS branch; revisiting one means a (collision-induced) cycle, which terminates at
-/// 0 without caching — the rest of the tree still memoizes normally.
+/// the current DFS branch; revisiting one means a (collision-induced) cycle, severed by
+/// returning 0 there without caching. Depths *on or just above* such a cycle are then
+/// ill-defined — they reflect where the back-edge happened to be cut — but the cut point is
+/// fixed (names are resolved in sorted order), so the result is at least deterministic, and the
+/// only contract for the cyclic case is that the pass halts. Acyclic inheritance (i.e. all real
+/// Python) memoizes exactly.
 fn dit_of<'a>(
     name: &'a str,
     bases_of: &std::collections::HashMap<&'a str, &'a [String]>,
