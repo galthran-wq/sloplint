@@ -5,9 +5,9 @@
 //! rule deltas (ignores, comment allowance, threshold overrides) *and* defining a metrics panel.
 //! Defaults are deliberately strict-but-safe: every stable `SLP` rule is enabled, nothing is
 //! ignored, preview rules are off. A code is "enabled" for a file when a `select` prefix matches
-//! it, no `ignore` prefix matches, and no profile matching that file ignores it. Thresholds
-//! resolve the same way: the global [`Limits`]/[`CloneSettings`] with each matching profile's
-//! deltas applied in declaration order (last writer wins).
+//! it, no `ignore` prefix matches, and no profile matching that file ignores it. Per-file
+//! thresholds resolve the same way: the global [`Limits`] with each matching profile's deltas
+//! applied in declaration order (last writer wins).
 
 use std::path::{Path, PathBuf};
 
@@ -165,12 +165,11 @@ pub struct Profile {
     #[serde(default)]
     pub allow_comments: bool,
     /// Threshold overrides for files in this profile, applied as deltas over the global
-    /// [`Limits`] (only the keys set here change).
+    /// [`Limits`] (only the keys set here change). Note: SLP020 (clones) and SLP090 (fanout) are
+    /// cross-file/directory analyses whose unit spans profiles, so they always use the *global*
+    /// thresholds — only per-file rules honor a profile's `limits`.
     #[serde(default)]
     pub limits: LimitsPatch,
-    /// Clone-detection threshold overrides, as deltas over the global [`CloneSettings`].
-    #[serde(default)]
-    pub clone: ClonePatch,
 }
 
 /// The built-in profiles when none are configured: `tests` (path heuristic mirroring
@@ -203,7 +202,6 @@ pub fn default_profiles() -> Vec<Profile> {
             ignore: Vec::new(),
             allow_comments: false,
             limits: LimitsPatch::default(),
-            clone: ClonePatch::default(),
         },
         Profile {
             name: "production".to_string(),
@@ -213,7 +211,6 @@ pub fn default_profiles() -> Vec<Profile> {
             ignore: Vec::new(),
             allow_comments: false,
             limits: LimitsPatch::default(),
-            clone: ClonePatch::default(),
         },
     ]
 }
@@ -255,26 +252,6 @@ impl LimitsPatch {
         }
         if let Some(v) = self.lcom4_min_methods {
             base.lcom4_min_methods = v;
-        }
-        base
-    }
-}
-
-/// Per-field overrides for [`CloneSettings`]; `None` leaves the global value untouched.
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ClonePatch {
-    pub min_statements: Option<usize>,
-    pub similarity: Option<f64>,
-}
-
-impl ClonePatch {
-    fn apply(&self, mut base: CloneSettings) -> CloneSettings {
-        if let Some(v) = self.min_statements {
-            base.min_statements = v;
-        }
-        if let Some(v) = self.similarity {
-            base.similarity = v;
         }
         base
     }
@@ -444,15 +421,6 @@ impl<'a> Selector<'a> {
             limits = self.profiles[i].profile.limits.apply(limits);
         }
         limits
-    }
-
-    /// The effective clone-detection settings for the file at `path`, resolved like [`limits`].
-    pub fn clone_settings(&self, path: &str) -> CloneSettings {
-        let mut clone = self.config.clone;
-        for i in self.matching_indices(path) {
-            clone = self.profiles[i].profile.clone.apply(clone);
-        }
-        clone
     }
 
     /// Whether preview-group rules are enabled.

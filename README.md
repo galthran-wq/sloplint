@@ -145,8 +145,9 @@ summary = []                  # metrics to fold into one combined `sloplint` bad
 
 # Profiles (#96): named, path-matched slices of the tree. Each carries its own rule deltas over
 # the global config AND defines a metrics panel. Omit the section entirely to get the built-in
-# `tests` + `production` pair. The values above ([limits]/[clone]) are the global defaults a
-# profile inherits; a profile overrides only the keys it sets.
+# `tests` + `production` pair. The `[limits]` above are the global defaults a profile inherits; a
+# profile's `limits` overrides only the per-file thresholds it sets (the cross-file SLP020/SLP090
+# thresholds and `[clone]` stay global). The name `all` is reserved (it's the every-profile scope).
 [[profiles]]
 name = "tests"                # matched first; a file belongs to every profile whose globs hit it
 match = ["tests/**", "test_*.py", "*_test.py", "conftest.py"]
@@ -201,13 +202,6 @@ external = ["SLP"]
 
 Symmetrically, sloplint only ever acts on its own `SLP*` codes and never reports on Ruff directives
 like `# noqa: E501`.
-=======
-Profiles replace the old `[[overrides]]`. For a file in more than one profile, rule `ignore`s
-accumulate and threshold overrides resolve in declaration order (last writer wins). `metrics`
-reports a panel per profile (see below); `check` lints each file with its profile's effective
-config. Cross-file/directory rules (SLP020 clones, SLP090 fanout) use the global thresholds, since
-their unit of analysis spans profiles.
->>>>>>> 690a946 (metrics+config: generalize the prod/test split into configurable profiles (#96))
 
 ## Metrics & badges
 
