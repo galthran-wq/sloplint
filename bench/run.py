@@ -116,7 +116,10 @@ def measure(binary: Path, repo: dict, checkout: Path) -> dict:
     targets = [str(checkout / p) for p in repo.get("paths", ["."])]
     name = repo["name"]
 
-    check = run_sloplint(binary, ["check", *targets, "--preview", "--format", "json"])
+    # Pin the rule set via the benchmark config so cloned repos' own sloplint.toml (if any)
+    # is ignored and noise rules (SLP010 comment-ban, SLP050 ASCII) are excluded.
+    cfg = str(BENCH / "sloplint.bench.toml")
+    check = run_sloplint(binary, ["check", *targets, "--preview", "--config", cfg, "--format", "json"])
     metrics = run_sloplint(binary, ["metrics", *targets, "--format", "json"])
     functions = run_sloplint(binary, ["metrics", *targets, "--format", "functions"])
 
