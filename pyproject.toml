@@ -1,13 +1,14 @@
-# PyPI packaging for sloplint (issue #47). maturin's `bin` bindings compile the
-# `crates/sloplint` binary and package it into a platform wheel, so `pip install sloplint`
-# (or uvx / uv tool / pipx) puts the native `sloplint` executable on PATH — no Rust toolchain
-# needed to *use* it. This is distribution metadata only; the tool itself stays pure Rust.
+# PyPI packaging (issue #47). maturin's `bin` bindings compile the `crates/sloplint` binary and
+# package it into a platform wheel, so `pip install sloplintpy` (or uvx / uv tool / pipx) puts
+# the native `sloplint` executable on PATH — no Rust toolchain needed to *use* it. The PyPI
+# distribution is `sloplintpy` (the plain `sloplint` name is taken by an unrelated project); the
+# installed command stays `sloplint`. Distribution metadata only; the tool itself stays pure Rust.
 [build-system]
 requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "sloplint"
+name = "sloplintpy"
 description = "Fast, deterministic linter for AI 'slop' in Python — runs right after Ruff."
 readme = "README.md"
 requires-python = ">=3.8"

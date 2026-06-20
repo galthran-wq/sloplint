@@ -23,28 +23,29 @@ Patterns that no mainstream linter flags today:
 
 ## Installation
 
-sloplint is available as `sloplint` on PyPI (the wheel bundles the native binary — no Rust
-toolchain needed).
+sloplint ships on PyPI as **`sloplintpy`** (the wheel bundles the native binary — no Rust
+toolchain needed). The installed command is **`sloplint`**.
 
-Invoke sloplint directly with [uvx](https://docs.astral.sh/uv/):
+Run it directly with [uvx](https://docs.astral.sh/uv/) (the package and command differ, so use
+`--from`):
 
 ```bash
-uvx sloplint check    # Lint all files in the current directory.
-uvx sloplint metrics  # Report software-quality metrics.
+uvx --from sloplintpy sloplint check    # Lint all files in the current directory.
+uvx --from sloplintpy sloplint metrics  # Report software-quality metrics.
 ```
 
-Or install sloplint with uv (recommended), pip, or pipx:
+Or install `sloplintpy` with uv (recommended), pip, or pipx — then run `sloplint`:
 
 ```bash
 # With uv.
-uv tool install sloplint@latest   # Install sloplint globally.
-uv add --dev sloplint             # Or add sloplint to your project.
+uv tool install sloplintpy@latest   # Install the `sloplint` command globally.
+uv add --dev sloplintpy             # Or add it to your project.
 
 # With pip.
-pip install sloplint
+pip install sloplintpy
 
 # With pipx.
-pipx install sloplint
+pipx install sloplintpy
 ```
 
 ## Usage

@@ -46,8 +46,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv /tmp/v
-          # Install only from the freshly-built wheel — no PyPI, no source build.
-          /tmp/v/bin/pip install --no-index --find-links dist sloplint
+          # Install only from the freshly-built wheel — no PyPI, no source build. The
+          # distribution is `sloplintpy`; the installed command is `sloplint`.
+          /tmp/v/bin/pip install --no-index --find-links dist sloplintpy
           /tmp/v/bin/sloplint --version
           printf 'def f():\n    # a banned comment\n    return 1\n' > /tmp/smoke.py
           # `check` exits non-zero on findings, so a clean exit here means it failed to flag.
