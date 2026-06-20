@@ -42,7 +42,11 @@ fn run(project: &Path, args: &[&str]) -> (String, String, i32) {
 fn write_god_package(project: &Path) {
     write(project, "extractor/__init__.py", "");
     for i in 0..9 {
-        write(project, &format!("extractor/site{i}.py"), &format!("x = {i}\n"));
+        write(
+            project,
+            &format!("extractor/site{i}.py"),
+            &format!("x = {i}\n"),
+        );
     }
     write(project, "core/__init__.py", "");
     write(project, "core/util.py", "y = 1\n");
@@ -103,11 +107,16 @@ fn text_and_json_agree_when_a_file_collides_with_a_package() {
     assert_eq!(jc, 0);
     let value: Value = serde_json::from_str(&json).expect("valid JSON");
     let c = &value["profiles"]["production"]["packages"]["concentration"];
-    // Distinct dotted names: `a` (package, from __init__ and a.py — counted once), `a.sub`, `main`.
-    // Packages: `a` (2: itself + sub) and `.` (1: main) → 3 modules, share 2/3.
+    // Distinct dotted names: `a` (from `a/__init__.py` and `a.py` — counted once), `a.sub`, `main`.
+    // 3 modules over 2 packages, with one package holding 2 of them → share 2/3. (Which package
+    // wins depends on discovery-order last-writer-wins, identically in both views — that agreement
+    // is the point here, not the specific winner.)
     assert_eq!(c["total_modules"], 3);
     let json_share = c["max_package_share"].as_f64().unwrap();
-    assert!((json_share - 2.0 / 3.0).abs() < 1e-9, "json share {json_share}");
+    assert!(
+        (json_share - 2.0 / 3.0).abs() < 1e-9,
+        "json share {json_share}"
+    );
 
     let (text, _, tc) = run(&project, &["metrics", "."]);
     assert_eq!(tc, 0);
@@ -127,7 +136,11 @@ fn concentration_is_scoped_to_the_production_profile() {
     write(&project, "app/core.py", "x = 1\n");
     write(&project, "main.py", "z = 1\n");
     for i in 0..8 {
-        write(&project, &format!("tests/test_{i}.py"), &format!("def test_{i}():\n    assert True\n"));
+        write(
+            &project,
+            &format!("tests/test_{i}.py"),
+            &format!("def test_{i}():\n    assert True\n"),
+        );
     }
 
     let (stdout, _stderr, code) = run(&project, &["metrics", ".", "--format", "json"]);

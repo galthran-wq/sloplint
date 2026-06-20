@@ -1305,7 +1305,10 @@ fn print_concentration(c: &graph::Concentration) {
         Some((name, modules)) => format!("{name}, {modules}/{} modules", c.total_modules),
         None => "n/a".to_string(),
     };
-    println!("  max package share   {:.2}  ({largest})", c.max_package_share);
+    println!(
+        "  max package share   {:.2}  ({largest})",
+        c.max_package_share
+    );
     println!(
         "  module-count gini   {:.2}  (over {} packages)",
         c.module_count_gini, c.packages

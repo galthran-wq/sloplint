@@ -1045,11 +1045,7 @@ from pkg import *
     #[test]
     fn concentration_pure_gini_and_share() {
         // Three packages of equal size: no inequality, share 1/3.
-        let equal = concentration(&[
-            "a".into(),
-            "b".into(),
-            "c".into(),
-        ]);
+        let equal = concentration(&["a".into(), "b".into(), "c".into()]);
         assert_eq!(equal.total_modules, 3);
         assert_eq!(equal.packages, 3);
         assert!((equal.max_package_share - 1.0 / 3.0).abs() < 1e-9);
@@ -1058,12 +1054,7 @@ from pkg import *
         assert_eq!(equal.largest_package, Some(("a".into(), 1)));
 
         // One dominant package (3 of 4 modules): high share, positive Gini.
-        let skewed = concentration(&[
-            "big".into(),
-            "big".into(),
-            "big".into(),
-            "small".into(),
-        ]);
+        let skewed = concentration(&["big".into(), "big".into(), "big".into(), "small".into()]);
         assert!((skewed.max_package_share - 0.75).abs() < 1e-9);
         // Population Gini of [1, 3] is 0.25.
         assert!((skewed.module_count_gini - 0.25).abs() < 1e-9);
