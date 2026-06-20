@@ -1099,7 +1099,7 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
             "packages": summary.packages,
             "module_edges": summary.module_edges,
             "package_edges": summary.package_edges,
-            "cycles": cycles_json(graph),
+            "cycles": cycles_json(graph, summary.modules),
         },
     }))
     .unwrap()
@@ -1108,9 +1108,8 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
 /// The cyclic-dependency (SCC) rollup for the JSON feed (issue #66): tangle counts over the
 /// full graph, the same count over the runtime graph (TYPE_CHECKING-only edges dropped), the
 /// share of modules in cycles, and the member modules of each tangle.
-fn cycles_json(graph: &ImportGraph) -> serde_json::Value {
+fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
     let report = graph.cycles();
-    let modules = graph.summary().modules;
     let in_cycles = report.modules_in_cycles();
     let pct = if modules == 0 {
         0.0
