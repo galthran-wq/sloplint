@@ -17,7 +17,7 @@ use sloplint_python::ast::{
     Comprehension, ExceptHandler, Expr, ModModule, Parameters, Stmt, StmtClassDef, StmtFunctionDef,
 };
 use sloplint_python::parser::Parsed;
-use sloplint_python::{Ranged, TextRange, TokenKind};
+use sloplint_python::{LineIndex, Ranged, TextRange, TextSize, TokenKind};
 
 /// McCabe's cyclomatic-complexity risk tiers — the canonical interpretation from McCabe
 /// (1976): the higher the decision count, the harder a function is to test and reason about.
@@ -99,9 +99,46 @@ impl WmcTier {
     }
 }
 
+/// Module (file) NLOC size bands for god-module prevalence (#107). Like [`WmcTier`], file size has
+/// **no** canonical hard threshold, so these are **descriptive** bands calibrated against the
+/// cohort (SonarQube's ~750–1000-line guidance is the starting point), never a pass/fail standard.
+/// Boundaries (inclusive), in NLOC (non-comment, non-blank lines): **≤250 low** (ordinary module),
+/// **251–500 moderate**, **501–1000 high** (god-module candidate), **>1000 very high**
+/// (god-module — a dumping-ground smell).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModuleSizeTier {
+    Low,
+    Moderate,
+    High,
+    VeryHigh,
+}
+
+impl ModuleSizeTier {
+    /// Classify a module's NLOC into its size band.
+    pub fn from_nloc(nloc: usize) -> Self {
+        match nloc {
+            0..=250 => ModuleSizeTier::Low,
+            251..=500 => ModuleSizeTier::Moderate,
+            501..=1000 => ModuleSizeTier::High,
+            _ => ModuleSizeTier::VeryHigh,
+        }
+    }
+
+    /// Short, stable label used in tables and JSON.
+    pub fn label(self) -> &'static str {
+        match self {
+            ModuleSizeTier::Low => "low",
+            ModuleSizeTier::Moderate => "moderate",
+            ModuleSizeTier::High => "high",
+            ModuleSizeTier::VeryHigh => "very high",
+        }
+    }
+}
+
 /// A four-band tier histogram: how many units fall into each `{low, moderate, high, very_high}`
-/// band. Shared by the function cyclomatic tiers (#10) and the class WMC tiers (#104) — the bands
-/// differ per metric (see [`RiskTier`] / [`WmcTier`]); the bucket shape does not.
+/// band. Shared by the function cyclomatic tiers (#10), the class WMC tiers (#104), and the module
+/// NLOC tiers (#107) — the bands differ per metric (see [`RiskTier`] / [`WmcTier`] /
+/// [`ModuleSizeTier`]); the bucket shape does not.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RiskHistogram {
     pub low: usize,
@@ -127,6 +164,16 @@ impl RiskHistogram {
             WmcTier::Moderate => self.moderate += 1,
             WmcTier::High => self.high += 1,
             WmcTier::VeryHigh => self.very_high += 1,
+        }
+    }
+
+    /// Record a module by its NLOC band (#107) — the file-side counterpart to [`Self::record`].
+    fn record_module_size(&mut self, nloc: usize) {
+        match ModuleSizeTier::from_nloc(nloc) {
+            ModuleSizeTier::Low => self.low += 1,
+            ModuleSizeTier::Moderate => self.moderate += 1,
+            ModuleSizeTier::High => self.high += 1,
+            ModuleSizeTier::VeryHigh => self.very_high += 1,
         }
     }
 
@@ -245,6 +292,10 @@ pub struct FileMetrics {
     pub classes: Vec<ClassMetrics>,
     pub loc: usize,
     pub comment_lines: usize,
+    /// NLOC — physical lines bearing a non-comment, non-trivia token (code or string-literal
+    /// content), i.e. excluding blank and comment-only lines (#107). The module-size measure;
+    /// distinct from the comment-inclusive physical [`Self::loc`].
+    pub nloc: usize,
 }
 
 /// Aggregated metrics across many files — what the badges and PR summary report.
@@ -273,6 +324,17 @@ pub struct RepoMetrics {
     /// Fraction of functions that are fully annotated — every annotatable param plus the return
     /// type (0.0–1.0).
     pub fully_annotated_function_rate: f64,
+    /// Mean module NLOC across all files — the size triad's third leg (#107).
+    pub avg_module_nloc: f64,
+    /// Largest module by NLOC. The single god-module the repo sum/`avg` would otherwise hide.
+    pub max_module_nloc: usize,
+    /// 95th-percentile module NLOC (nearest-rank) — the heavy tail, mirroring
+    /// [`Self::p95_cyclomatic`]/[`Self::p95_wmc`].
+    pub p95_module_nloc: usize,
+    /// Count of files in each module-size band (#107) — god-module *prevalence*, which the repo
+    /// `total_loc` sum and the `avg` collapse. Descriptive bands ([`ModuleSizeTier`]), never a
+    /// gate.
+    pub module_size_risk: RiskHistogram,
     /// Number of classes across all files — the denominator for the WMC/DIT averages.
     pub classes: usize,
     /// Heaviest class by WMC (sum of its methods' cyclomatic complexity).
@@ -358,6 +420,26 @@ impl RepoMetrics {
             risk.very_high,
         )
     }
+
+    /// The module-size counterpart to [`Self::cyclomatic_markdown`] (#107): mean/p95/max NLOC plus
+    /// the god-module-prevalence histogram. Descriptive NLOC bands ([`ModuleSizeTier`]) — high
+    /// `high`/`very high` counts flag *files to read*, never defects.
+    pub fn module_size_markdown(&self) -> String {
+        let risk = self.module_size_risk;
+        format!(
+            "**Module size (NLOC)** — mean {:.1}, p95 {}, max {}.\n\n\
+             | NLOC band | Files |\n| --- | ---: |\n\
+             | low (≤250) | {} |\n| moderate (251–500) | {} |\n\
+             | high (501–1000) | {} |\n| very high (>1000) | {} |\n",
+            self.avg_module_nloc,
+            self.p95_module_nloc,
+            self.max_module_nloc,
+            risk.low,
+            risk.moderate,
+            risk.high,
+            risk.very_high,
+        )
+    }
 }
 
 /// Compute metrics for one parsed file.
@@ -401,7 +483,34 @@ pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {
         classes: class_metrics,
         loc: source.lines().count(),
         comment_lines,
+        nloc: file_nloc(source, parsed),
     }
+}
+
+/// NLOC for a file (#107): the count of physical lines that carry at least one non-comment,
+/// non-trivia token. A line is counted if it bears code or string-literal content; blank lines
+/// (no token) and comment-only lines (only a `Comment` token, which `is_trivia`) are not. Lines
+/// spanned by a multi-line string literal count as code — consistent with "non-comment,
+/// non-blank" — so a blank line *inside* a docstring counts; that's a deliberate, deterministic
+/// simplification, immaterial at the god-module scale this metric targets.
+fn file_nloc(source: &str, parsed: &Parsed<ModModule>) -> usize {
+    let line_index = LineIndex::from_source_text(source);
+    let mut code_lines: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for token in parsed.tokens() {
+        // `is_trivia` covers comments and the newline/indent/dedent layout tokens; zero-width
+        // tokens (e.g. the synthetic EOF) carry no line content.
+        if token.kind().is_trivia() || token.range().is_empty() {
+            continue;
+        }
+        let first = line_index.line_index(token.range().start());
+        // The end offset is exclusive, so map the last *content* byte to find the closing line.
+        let last_byte = token.range().end().checked_sub(TextSize::from(1)).unwrap();
+        let last = line_index.line_index(last_byte);
+        for line in first.to_zero_indexed()..=last.to_zero_indexed() {
+            code_lines.insert(line);
+        }
+    }
+    code_lines.len()
 }
 
 /// Aggregate per-file metrics into repo-level figures.
@@ -419,6 +528,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut wmc_sum = 0usize;
     let mut wmc_values: Vec<usize> = Vec::new();
     let mut dit_sum = 0usize;
+    let mut module_nloc_sum = 0usize;
+    let mut module_nloc_values: Vec<usize> = Vec::new();
     // Docstring coverage (#83): every public def/class (functions *and* classes) is in the
     // denominator, those carrying a docstring in the numerator. The docstring/code ratio is
     // kept strictly function-scoped — function docstring lines over function NCSS — so its two
@@ -430,6 +541,10 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut ncss_sum = 0usize;
     for file in files {
         repo.total_loc += file.loc;
+        module_nloc_sum += file.nloc;
+        module_nloc_values.push(file.nloc);
+        repo.max_module_nloc = repo.max_module_nloc.max(file.nloc);
+        repo.module_size_risk.record_module_size(file.nloc);
         for function in &file.functions {
             repo.functions += 1;
             function_loc_sum += function.loc;
@@ -503,6 +618,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         wmc_sum as f64 / repo.classes as f64
     };
     repo.p95_wmc = percentile(&mut wmc_values, 0.95);
+    repo.avg_module_nloc = if repo.files == 0 {
+        0.0
+    } else {
+        module_nloc_sum as f64 / repo.files as f64
+    };
+    repo.p95_module_nloc = percentile(&mut module_nloc_values, 0.95);
     repo.avg_dit = if repo.classes == 0 {
         0.0
     } else {
@@ -1452,6 +1573,65 @@ def outer(xs):
         assert_eq!(WmcTier::from_wmc(51), WmcTier::High);
         assert_eq!(WmcTier::from_wmc(200), WmcTier::High);
         assert_eq!(WmcTier::from_wmc(201), WmcTier::VeryHigh);
+    }
+
+    #[test]
+    fn module_size_tier_boundaries() {
+        // Descriptive NLOC bands (#107): ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
+        assert_eq!(ModuleSizeTier::from_nloc(0), ModuleSizeTier::Low);
+        assert_eq!(ModuleSizeTier::from_nloc(250), ModuleSizeTier::Low);
+        assert_eq!(ModuleSizeTier::from_nloc(251), ModuleSizeTier::Moderate);
+        assert_eq!(ModuleSizeTier::from_nloc(500), ModuleSizeTier::Moderate);
+        assert_eq!(ModuleSizeTier::from_nloc(501), ModuleSizeTier::High);
+        assert_eq!(ModuleSizeTier::from_nloc(1000), ModuleSizeTier::High);
+        assert_eq!(ModuleSizeTier::from_nloc(1001), ModuleSizeTier::VeryHigh);
+    }
+
+    #[test]
+    fn nloc_excludes_blank_and_comment_lines_but_counts_docstrings() {
+        // import(1) + def(1) + 4 docstring lines (incl. its internal blank) + return(1) = 7.
+        // The leading comment line and the two blank separators do not count.
+        let file = metrics(
+            "\
+# module comment
+
+import os
+
+
+def f():
+    \"\"\"Doc.
+
+    More.
+    \"\"\"
+    return os.getpid()
+",
+        );
+        assert_eq!(
+            file.nloc, 7,
+            "code + docstring lines only; blanks/comments excluded"
+        );
+        assert!(
+            file.loc > file.nloc,
+            "physical loc includes the excluded lines"
+        );
+    }
+
+    #[test]
+    fn aggregate_reports_module_size_distribution() {
+        // Two modules: a tiny one (low) and one padded past 250 NLOC (moderate). The histogram
+        // must show the spread; total_loc/avg would hide the big file among the small.
+        let small = "x = 1\ny = 2\n";
+        let big: String = (0..260).map(|i| format!("v{i} = {i}\n")).collect();
+        let repo = aggregate(&[metrics(small), metrics(&big)]);
+
+        assert_eq!(repo.files, 2);
+        assert_eq!(repo.max_module_nloc, 260);
+        assert_eq!(repo.module_size_risk.low, 1, "the 2-line module");
+        assert_eq!(repo.module_size_risk.moderate, 1, "the 260-line module");
+        assert_eq!(repo.module_size_risk.high, 0);
+        assert_eq!(repo.module_size_risk.very_high, 0);
+        // p95 (nearest-rank over [2, 260]) is the bigger module.
+        assert_eq!(repo.p95_module_nloc, 260);
     }
 
     #[test]

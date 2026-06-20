@@ -1377,6 +1377,16 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  WMC bands           low {} / moderate {} / high {} / very high {}",
         wmc.low, wmc.moderate, wmc.high, wmc.very_high
     );
+    // Module size (NLOC) distribution (#107): god-module prevalence — the third size leg.
+    println!(
+        "  avg/p95/max module  {:.1} / {} / {}  NLOC",
+        repo.avg_module_nloc, repo.p95_module_nloc, repo.max_module_nloc
+    );
+    let module = repo.module_size_risk;
+    println!(
+        "  module NLOC bands   low {} / moderate {} / high {} / very high {}",
+        module.low, module.moderate, module.high, module.very_high
+    );
 }
 
 /// The package module-count concentration (#103) for one profile's files. Edge-free — it needs
@@ -1496,6 +1506,20 @@ fn panel_json(
         // smell; high coverage is neutral (fully-typed code is not slop).
         "param_annotation_coverage": repo.param_annotation_coverage,
         "fully_annotated_function_rate": repo.fully_annotated_function_rate,
+        // Module size distribution (#107): the third size leg. NLOC = non-comment, non-blank
+        // lines per file; the band counts surface god-module *prevalence*, which `total_loc` and
+        // `avg` collapse. Bands (≤250 / 251–500 / 501–1000 / >1000), descriptive, never a gate.
+        "module_nloc": {
+            "avg": repo.avg_module_nloc,
+            "max": repo.max_module_nloc,
+            "p95": repo.p95_module_nloc,
+        },
+        "module_size_risk": {
+            "low": repo.module_size_risk.low,
+            "moderate": repo.module_size_risk.moderate,
+            "high": repo.module_size_risk.high,
+            "very_high": repo.module_size_risk.very_high,
+        },
         // CK class metrics (#84): WMC weight and first-party DIT depth, aggregated over all
         // classes. DIT is a conservative under-count — external (stdlib/third-party) ancestry is
         // invisible. Per-class rows live in `metrics --format classes`.
@@ -1618,9 +1642,10 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics)], proxies: &TestProxies) -> St
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
-            repo.wmc_markdown()
+            repo.wmc_markdown(),
+            repo.module_size_markdown()
         ));
     }
     out.push_str(&test_proxies_markdown(proxies));
