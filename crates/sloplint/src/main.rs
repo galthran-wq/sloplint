@@ -1015,6 +1015,8 @@ fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::
         "wmc": class.wmc,
         "dit": class.dit,
         "is_abstract": class.is_abstract,
+        "has_docstring": class.has_docstring,
+        "docstring_lines": class.docstring_lines,
     })
 }
 
@@ -1078,6 +1080,8 @@ fn function_row(
         "typed_params": function.typed_params,
         "annotatable_params": function.annotatable_params,
         "has_return_annotation": function.has_return_annotation,
+        "has_docstring": function.has_docstring,
+        "docstring_lines": function.docstring_lines,
         "file_loc": file.loc,
         "file_comment_density": comment_density,
     })
@@ -1101,6 +1105,11 @@ fn print_metrics_table(repo: &RepoMetrics) {
     println!("  max cognitive       {}", repo.max_cognitive);
     println!("  max nesting         {}", repo.max_nesting);
     println!("  comment density     {:.1}%", repo.comment_density * 100.0);
+    println!(
+        "  docstring coverage  {:.1}%",
+        repo.docstring_coverage * 100.0
+    );
+    println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
 }
 
 fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
@@ -1135,6 +1144,11 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
         "avg_wmc": repo.avg_wmc,
         "max_dit": repo.max_dit,
         "avg_dit": repo.avg_dit,
+        // Documentation coverage (#83) — distinct from comment_density (docstrings, not
+        // `#`-comments). Low coverage = under-documented public API; a high docstring/code ratio
+        // = AI over-documentation of trivia.
+        "docstring_coverage": repo.docstring_coverage,
+        "docstring_code_ratio": repo.docstring_code_ratio,
         // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles +
         // propagation cost + modularity).
         "packages": {
@@ -1238,6 +1252,15 @@ fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
                 Color::for_value(repo.comment_density * 100.0, 20.0, 40.0),
             ),
         ),
+        // Documentation coverage (#83): higher is better, so green at high coverage.
+        (
+            "docstring-coverage",
+            Badge::new(
+                "docstring coverage",
+                format!("{:.0}%", repo.docstring_coverage * 100.0),
+                Color::for_value_high(repo.docstring_coverage * 100.0, 50.0, 80.0),
+            ),
+        ),
     ]
 }
 
@@ -1318,6 +1341,7 @@ fn badge_short_label(slug: &str) -> &str {
         "avg-function-loc" => "loc",
         "max-nesting" => "nesting",
         "comment-density" => "density",
+        "docstring-coverage" => "docs",
         other => other,
     }
 }
@@ -1470,6 +1494,19 @@ mod tests {
         // 1 comment line over the file's physical lines.
         let density = row["file_comment_density"].as_f64().unwrap();
         assert!(density > 0.0 && density < 1.0, "got {density}");
+        // `f` has no docstring (a `#`-comment is not a docstring).
+        assert_eq!(row["has_docstring"], false);
+        assert_eq!(row["docstring_lines"], 0);
+    }
+
+    #[test]
+    fn function_row_reports_docstring_size() {
+        let source = "def f():\n    \"\"\"Two\n    lines.\"\"\"\n    return 1\n";
+        let parsed = parse(source).unwrap();
+        let metrics = file_metrics(source, &parsed);
+        let row = function_row("pkg/m.py", &metrics, &metrics.functions[0]);
+        assert_eq!(row["has_docstring"], true);
+        assert_eq!(row["docstring_lines"], 2);
     }
 
     #[test]
@@ -1494,6 +1531,9 @@ class Counter:
         assert_eq!(row["lcom4"], 1, "add/show share self.total");
         assert!(row["loc"].as_u64().unwrap() >= 7);
         assert_eq!(row["is_abstract"], false, "a plain concrete class");
+        // No leading string literal in the class body, so no docstring.
+        assert_eq!(row["has_docstring"], false);
+        assert_eq!(row["docstring_lines"], 0);
     }
 
     #[test]

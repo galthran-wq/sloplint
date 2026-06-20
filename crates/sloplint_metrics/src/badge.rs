@@ -38,6 +38,18 @@ impl Color {
             Color::Green
         }
     }
+
+    /// Color for a "higher is better" metric (e.g. docstring coverage): green at or above
+    /// `good`, yellow down to `warn`, red below `warn`. The mirror of [`Self::for_value`].
+    pub fn for_value_high(value: f64, warn: f64, good: f64) -> Color {
+        if value >= good {
+            Color::Green
+        } else if value >= warn {
+            Color::Yellow
+        } else {
+            Color::Red
+        }
+    }
 }
 
 /// A label/message/color badge.
@@ -117,6 +129,15 @@ mod tests {
         assert_eq!(Color::for_value(5.0, 10.0, 20.0), Color::Green);
         assert_eq!(Color::for_value(12.0, 10.0, 20.0), Color::Yellow);
         assert_eq!(Color::for_value(25.0, 10.0, 20.0), Color::Red);
+    }
+
+    #[test]
+    fn higher_is_better_thresholds() {
+        // Mirror of `for_value`: green at/above `good`, yellow down to `warn`, red below.
+        assert_eq!(Color::for_value_high(90.0, 50.0, 80.0), Color::Green);
+        assert_eq!(Color::for_value_high(80.0, 50.0, 80.0), Color::Green);
+        assert_eq!(Color::for_value_high(60.0, 50.0, 80.0), Color::Yellow);
+        assert_eq!(Color::for_value_high(40.0, 50.0, 80.0), Color::Red);
     }
 
     #[test]

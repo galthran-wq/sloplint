@@ -137,6 +137,13 @@ pub struct FunctionMetrics {
     pub annotatable_params: usize,
     /// Whether the function declares a return-type annotation (`-> T`).
     pub has_return_annotation: bool,
+    /// Whether the function's first body statement is a bare string literal (a docstring). A
+    /// `StringLiteral` token, not a `Comment`, so this is orthogonal to `comment_density` (#83).
+    pub has_docstring: bool,
+    /// Physical lines spanned by the docstring, or 0 if there is none. A verbose docstring on a
+    /// trivial (low-`ncss`) function is the AI **over-documentation** signal that a bare
+    /// `has_docstring` boolean can't capture.
+    pub docstring_lines: usize,
 }
 
 /// Metrics for a single class.
@@ -175,6 +182,11 @@ pub struct ClassMetrics {
     /// Whether this class counts as "abstract" for Martin's package abstractness ratio (#70).
     /// A documented heuristic ([`class_is_abstract`]), since Python has no interface keyword.
     pub is_abstract: bool,
+    /// Whether the class's first body statement is a bare string literal (a docstring). See
+    /// [`FunctionMetrics::has_docstring`] — same rule, applied to the class body (#83).
+    pub has_docstring: bool,
+    /// Physical lines spanned by the class docstring, or 0 if there is none.
+    pub docstring_lines: usize,
 }
 
 /// Metrics for a single file.
@@ -223,6 +235,17 @@ pub struct RepoMetrics {
     pub max_dit: usize,
     /// Mean DIT across all classes.
     pub avg_dit: f64,
+    /// Docstring coverage: public defs/classes carrying a docstring, as a fraction of all public
+    /// defs/classes (0.0–1.0). "Public" = a name not `_`-prefixed. Distinct from
+    /// `comment_density` (which counts `#`-comments, not docstrings) — low coverage flags an
+    /// under-documented public API. 0.0 when there are no public units (#83).
+    pub docstring_coverage: f64,
+    /// Docstring-to-code ratio: total **function** docstring lines over total **function** NCSS
+    /// (which counts the docstring's own expression statement). Function-scoped on both sides so
+    /// the ratio has one unit — class docstrings count toward [`Self::docstring_coverage`], not
+    /// here. A high ratio flags AI **over-documentation** — verbose docstrings piled onto trivial
+    /// code. 0.0 when there are no functions (#83).
+    pub docstring_code_ratio: f64,
 }
 
 impl RepoMetrics {
@@ -319,6 +342,15 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut fully_annotated = 0usize;
     let mut wmc_sum = 0usize;
     let mut dit_sum = 0usize;
+    // Docstring coverage (#83): every public def/class (functions *and* classes) is in the
+    // denominator, those carrying a docstring in the numerator. The docstring/code ratio is
+    // kept strictly function-scoped — function docstring lines over function NCSS — so its two
+    // sides share one unit (NCSS exists only for functions). Class docstrings drive coverage,
+    // not the ratio.
+    let mut public_units = 0usize;
+    let mut public_documented = 0usize;
+    let mut fn_docstring_lines_sum = 0usize;
+    let mut ncss_sum = 0usize;
     for file in files {
         repo.total_loc += file.loc;
         for function in &file.functions {
@@ -340,6 +372,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             {
                 fully_annotated += 1;
             }
+            ncss_sum += function.ncss;
+            fn_docstring_lines_sum += function.docstring_lines;
+            if is_public(&function.name) {
+                public_units += 1;
+                public_documented += usize::from(function.has_docstring);
+            }
         }
         for class in &file.classes {
             repo.classes += 1;
@@ -347,6 +385,10 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             dit_sum += class.dit;
             repo.max_wmc = repo.max_wmc.max(class.wmc);
             repo.max_dit = repo.max_dit.max(class.dit);
+            if is_public(&class.name) {
+                public_units += 1;
+                public_documented += usize::from(class.has_docstring);
+            }
         }
     }
     repo.avg_function_loc = if repo.functions == 0 {
@@ -386,7 +428,27 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     } else {
         dit_sum as f64 / repo.classes as f64
     };
+    repo.docstring_coverage = if public_units == 0 {
+        0.0
+    } else {
+        public_documented as f64 / public_units as f64
+    };
+    repo.docstring_code_ratio = if ncss_sum == 0 {
+        0.0
+    } else {
+        fn_docstring_lines_sum as f64 / ncss_sum as f64
+    };
     repo
+}
+
+/// Whether a def/class name is "public" for docstring coverage — i.e. not `_`-prefixed (#83).
+/// Dunder methods (`__init__`, `__repr__`) start with `_`, so they are treated as non-public and
+/// excluded from the coverage denominator, matching the convention that documentation effort
+/// targets the public API. The test is purely a name-prefix check applied to *every* collected
+/// def/class regardless of nesting depth — a function-local helper or a setter is still a unit,
+/// matching how the rest of the crate collects functions.
+fn is_public(name: &str) -> bool {
+    !name.starts_with('_')
 }
 
 fn function_metrics(
@@ -410,7 +472,28 @@ fn function_metrics(
         typed_params,
         annotatable_params,
         has_return_annotation,
+        has_docstring: docstring_range(&function.body).is_some(),
+        docstring_lines: docstring_lines(source, &function.body),
     }
+}
+
+/// Range of a body's docstring — the first statement, when it is a bare string-literal
+/// expression (PEP 257). `None` for any other leading statement. Used for both functions and
+/// classes; a docstring is a `StringLiteral`, never a `Comment`, so it is invisible to
+/// `comment_density` and this metric is purely additive (#83).
+fn docstring_range(body: &[Stmt]) -> Option<TextRange> {
+    match body.first() {
+        Some(Stmt::Expr(expr)) => match expr.value.as_ref() {
+            Expr::StringLiteral(literal) => Some(literal.range()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Physical line span of a body's docstring, or 0 if it has none.
+fn docstring_lines(source: &str, body: &[Stmt]) -> usize {
+    docstring_range(body).map_or(0, |range| line_span(source, range))
 }
 
 /// Per-class metrics: size (methods, distinct instance attributes), LCOM4 cohesion, and WMC.
@@ -438,6 +521,8 @@ fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef)
             .filter_map(|base| expr_trailing_name(base).map(str::to_string))
             .collect(),
         is_abstract: class_is_abstract(class),
+        has_docstring: docstring_range(&class.body).is_some(),
+        docstring_lines: docstring_lines(source, &class.body),
     }
 }
 
@@ -1564,6 +1649,136 @@ class D(B, C):
         let mut cyclic = metrics("class X(Y):\n    pass\n\nclass Y(X):\n    pass\n");
         resolve_inheritance_depth(&mut [&mut cyclic]);
         // No assertion on the (ill-defined) depth — the contract is that the pass terminates.
+    }
+
+    #[test]
+    fn docstring_detected_on_functions_and_classes() {
+        // A function and a class, each with a multi-line docstring as the first statement.
+        let file = metrics(
+            "\
+def documented():
+    \"\"\"A docstring
+    spanning three
+    lines.\"\"\"
+    return 1
+
+def bare():
+    return 2
+
+class Doc:
+    \"\"\"One-line class docstring.\"\"\"
+    def m(self):
+        return 1
+",
+        );
+        let documented = file
+            .functions
+            .iter()
+            .find(|f| f.name == "documented")
+            .unwrap();
+        assert!(documented.has_docstring);
+        assert_eq!(documented.docstring_lines, 3);
+
+        let bare = file.functions.iter().find(|f| f.name == "bare").unwrap();
+        assert!(!bare.has_docstring);
+        assert_eq!(bare.docstring_lines, 0);
+
+        let class = &file.classes[0];
+        assert!(class.has_docstring);
+        assert_eq!(class.docstring_lines, 1);
+        // The method `m` has no docstring; the class docstring is not attributed to it.
+        let m = file.functions.iter().find(|f| f.name == "m").unwrap();
+        assert!(!m.has_docstring);
+    }
+
+    #[test]
+    fn first_statement_must_be_a_bare_string_to_count() {
+        // A string literal that is *not* the first statement is not a docstring.
+        let file = metrics("def f():\n    x = 1\n    \"not a docstring\"\n    return x\n");
+        assert!(!file.functions[0].has_docstring);
+        // A string used in an assignment is not a bare expression statement, so not a docstring.
+        let file = metrics("def g():\n    s = \"hi\"\n    return s\n");
+        assert!(!file.functions[0].has_docstring);
+    }
+
+    #[test]
+    fn docstring_coverage_counts_only_public_units() {
+        // Public: `pub_fn` (documented), `Public` (documented). Non-public, excluded from the
+        // denominator: `_private` and `__init__` (both `_`-prefixed), regardless of docstrings.
+        let repo = aggregate(&[metrics(
+            "\
+def pub_fn():
+    \"\"\"documented public function.\"\"\"
+    return 1
+
+def _private():
+    return 2
+
+class Public:
+    \"\"\"documented public class.\"\"\"
+    def __init__(self):
+        \"\"\"dunder, not public.\"\"\"
+        self.x = 1
+",
+        )]);
+        // 2 public units, both documented -> 100%.
+        assert!((repo.docstring_coverage - 1.0).abs() < 1e-9);
+
+        // Now an undocumented public function drags coverage to 2/3.
+        let repo = aggregate(&[metrics(
+            "\
+def a():
+    \"\"\"doc.\"\"\"
+    return 1
+
+def b():
+    \"\"\"doc.\"\"\"
+    return 2
+
+def c():
+    return 3
+",
+        )]);
+        assert!((repo.docstring_coverage - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn class_docstrings_drive_coverage_not_the_ratio() {
+        // A documented class with no methods: it counts as a documented public unit (coverage
+        // 100%), but contributes no function NCSS, so the function-scoped ratio is 0.0 — not a
+        // div-by-zero, and the class docstring is not smuggled into the numerator.
+        let repo = aggregate(&[metrics(
+            "class Doc:\n    \"\"\"A documented class.\"\"\"\n    x = 1\n",
+        )]);
+        assert!((repo.docstring_coverage - 1.0).abs() < 1e-9);
+        assert_eq!(repo.docstring_code_ratio, 0.0);
+    }
+
+    #[test]
+    fn docstring_coverage_is_zero_with_no_public_units() {
+        // Only a `_`-prefixed def: no public units, so coverage is 0.0 (not NaN).
+        let repo = aggregate(&[metrics("def _hidden():\n    return 1\n")]);
+        assert_eq!(repo.docstring_coverage, 0.0);
+        assert_eq!(repo.docstring_code_ratio, 0.0);
+    }
+
+    #[test]
+    fn docstring_code_ratio_flags_over_documentation() {
+        // A trivial getter with a 4-line docstring. NCSS counts every statement, including the
+        // docstring expression statement, so ncss = 2 (docstring + return); ratio = 4 / 2 = 2.0.
+        // Still the over-documentation signal a `has_docstring` boolean can't express: a verbose
+        // docstring stacked onto a one-line body pushes the ratio up.
+        let repo = aggregate(&[metrics(
+            "\
+def getter(self):
+    \"\"\"Return the value.
+    This getter returns the value.
+    It really just returns the value.
+    \"\"\"
+    return self.value
+",
+        )]);
+        assert_eq!(repo.docstring_code_ratio, 2.0);
     }
 
     /// Every documented abstractness signal (#70) is recognized, and a plain concrete class is
