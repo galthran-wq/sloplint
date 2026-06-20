@@ -1099,14 +1099,16 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
         "max_cognitive": repo.max_cognitive,
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
-        // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles;
-        // propagation cost and modularity from issues #68–#69 will extend this block).
+        // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles +
+        // propagation cost; modularity from issue #69 will extend this block).
         "packages": {
             "modules": summary.modules,
             "packages": summary.packages,
             "module_edges": summary.module_edges,
             "package_edges": summary.package_edges,
             "cycles": cycles_json(graph, summary.modules),
+            // Whole-system coupling: density of the module reachability matrix (issue #68).
+            "propagation_cost": graph.propagation_cost(),
         },
     }))
     .unwrap()

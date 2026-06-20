@@ -370,6 +370,38 @@ impl ImportGraph {
         tangles.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a[0].cmp(&b[0])));
         CycleReport { tangles }
     }
+
+    /// Propagation cost (MacCormack, Rusnak & Baldwin 2006, *Exploring the Structure of Complex
+    /// Software Designs*): the **density of the module reachability matrix** — the average
+    /// fraction of the system reachable, directly or transitively, from a module:
+    ///
+    /// ```text
+    /// propagation_cost = |{(a, b) : a can reach b}| / N^2
+    /// ```
+    ///
+    /// `1.0` means every module can reach every other (maximally brittle — a change anywhere can
+    /// ripple everywhere); low values mean changes stay local. Cycles inflate it, so it pairs
+    /// with the SCC metric. The **diagonal is included** (a module reaches itself), following
+    /// MacCormack — so a lone module scores `1.0` and a fully disconnected set of `N` modules
+    /// scores `1/N`.
+    ///
+    /// Computed by a DFS from each node over the full import graph — cheaper than Floyd–Warshall
+    /// on a sparse graph. Returns `0.0` for an empty graph.
+    pub fn propagation_cost(&self) -> f64 {
+        let n = self.graph.node_count();
+        if n == 0 {
+            return 0.0;
+        }
+        let mut reachable_pairs = 0usize;
+        for start in self.graph.node_indices() {
+            // `Dfs` yields `start` first, so the count includes the diagonal entry.
+            let mut dfs = petgraph::visit::Dfs::new(&self.graph, start);
+            while dfs.next(&self.graph).is_some() {
+                reachable_pairs += 1;
+            }
+        }
+        reachable_pairs as f64 / (n as f64 * n as f64)
+    }
 }
 
 /// Derive a module's dotted name from a file path *relative to its source root*: an
@@ -1047,5 +1079,35 @@ from pkg import *
         let root = rows.iter().find(|r| r.package == ".").unwrap();
         assert!(pkg.in_cycle, "pkg.a <-> pkg.b is a cycle");
         assert!(!root.in_cycle, "the standalone top-level module is not");
+    }
+
+    #[test]
+    fn propagation_cost_empty_and_single() {
+        // No modules -> 0.0 (degenerate, defined to avoid NaN).
+        assert_eq!(ImportGraph::build(Vec::new()).propagation_cost(), 0.0);
+        // A lone module reaches only itself: 1/1^2 = 1.0 (the diagonal is counted).
+        let g = graph_of(&[("solo.py", "")]);
+        assert_eq!(g.propagation_cost(), 1.0);
+    }
+
+    #[test]
+    fn propagation_cost_disconnected_is_one_over_n() {
+        // Two modules, no first-party edges: each reaches only itself -> 2/4 = 0.5 = 1/N.
+        let g = graph_of(&[("a.py", "import os\n"), ("b.py", "import sys\n")]);
+        assert!((g.propagation_cost() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn propagation_cost_linear_chain() {
+        // a -> b -> c. Reachable (incl. self): a={a,b,c}=3, b={b,c}=2, c={c}=1 -> 6/9.
+        let g = graph_of(&[("a.py", "import b\n"), ("b.py", "import c\n"), ("c.py", "")]);
+        assert!((g.propagation_cost() - 6.0 / 9.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn propagation_cost_is_one_for_a_full_cycle() {
+        // a <-> b: each reaches both -> 4/4 = 1.0. Cycles maximize propagation cost.
+        let g = graph_of(&[("a.py", "import b\n"), ("b.py", "import a\n")]);
+        assert_eq!(g.propagation_cost(), 1.0);
     }
 }
