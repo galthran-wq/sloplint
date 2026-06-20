@@ -1022,6 +1022,7 @@ fn package_row(row: &PackageRow) -> serde_json::Value {
         "imported_by": row.imported_by,
         "efferent": row.imports.len(),
         "afferent": row.imported_by.len(),
+        "in_cycle": row.in_cycle,
     })
 }
 
@@ -1091,16 +1092,39 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
         "max_cognitive": repo.max_cognitive,
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
-        // Per-project import-graph rollup (the foundation figures; cycles, propagation cost,
-        // and modularity from issues #66–#69 will extend this block).
+        // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles;
+        // propagation cost and modularity from issues #68–#69 will extend this block).
         "packages": {
             "modules": summary.modules,
             "packages": summary.packages,
             "module_edges": summary.module_edges,
             "package_edges": summary.package_edges,
+            "cycles": cycles_json(graph),
         },
     }))
     .unwrap()
+}
+
+/// The cyclic-dependency (SCC) rollup for the JSON feed (issue #66): tangle counts over the
+/// full graph, the same count over the runtime graph (TYPE_CHECKING-only edges dropped), the
+/// share of modules in cycles, and the member modules of each tangle.
+fn cycles_json(graph: &ImportGraph) -> serde_json::Value {
+    let report = graph.cycles();
+    let modules = graph.summary().modules;
+    let in_cycles = report.modules_in_cycles();
+    let pct = if modules == 0 {
+        0.0
+    } else {
+        in_cycles as f64 / modules as f64
+    };
+    serde_json::json!({
+        "tangles": report.tangle_count(),
+        "largest_tangle": report.largest_tangle(),
+        "modules_in_cycles": in_cycles,
+        "pct_modules_in_cycles": pct,
+        "runtime_tangles": graph.runtime_cycles().tangle_count(),
+        "members": report.tangles,
+    })
 }
 
 /// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from
@@ -1413,6 +1437,7 @@ class Counter:
             modules: 2,
             imports: vec!["pkg.sub".to_string()],
             imported_by: vec!["app".to_string(), "cli".to_string()],
+            in_cycle: true,
         };
         let value = package_row(&row);
         assert_eq!(value["package"], "pkg");
@@ -1420,6 +1445,7 @@ class Counter:
         assert_eq!(value["imports"], serde_json::json!(["pkg.sub"]));
         assert_eq!(value["efferent"], 1);
         assert_eq!(value["afferent"], 2);
+        assert_eq!(value["in_cycle"], true);
     }
 
     #[test]

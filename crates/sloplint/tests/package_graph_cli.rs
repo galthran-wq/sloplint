@@ -58,11 +58,16 @@ fn packages_feed_aggregates_modules_and_first_party_coupling() {
     assert_eq!(sub["imports"], serde_json::json!(["proj"]));
     assert_eq!(sub["imported_by"], serde_json::json!(["proj"]));
 
+    // Both real packages have a module in the cycle (see the cycle test below); the root does not.
+    assert_eq!(proj["in_cycle"], true);
+    assert_eq!(sub["in_cycle"], true);
+
     // The top-level module lands in the root package with no first-party coupling.
     let root = &rows["."];
     assert_eq!(root["modules"], 1);
     assert_eq!(root["imports"], serde_json::json!([]));
     assert_eq!(root["imported_by"], serde_json::json!([]));
+    assert_eq!(root["in_cycle"], false);
 }
 
 #[test]
@@ -78,4 +83,26 @@ fn json_rollup_reports_graph_totals() {
     assert_eq!(packages["module_edges"], 5);
     // 2 cross-package edges: proj->proj.sub and proj.sub->proj.
     assert_eq!(packages["package_edges"], 2);
+}
+
+#[test]
+fn json_rollup_reports_cyclic_tangles() {
+    let value: Value = serde_json::from_str(&run("json")).expect("metrics --format json is valid");
+    let cycles = &value["packages"]["cycles"];
+
+    // One tangle: proj.a -> proj.b -> proj.a, with proj.sub.helper joining via
+    // proj.a -> proj.sub.helper -> proj.b. proj.c is reachable only through a TYPE_CHECKING
+    // edge and has no outgoing edge, so it is not in the cycle.
+    assert_eq!(cycles["tangles"], 1);
+    assert_eq!(cycles["largest_tangle"], 3);
+    assert_eq!(cycles["modules_in_cycles"], 3);
+    assert_eq!(
+        cycles["members"],
+        serde_json::json!([["proj.a", "proj.b", "proj.sub.helper"]])
+    );
+    // The cycle is built from runtime edges, so it survives dropping TYPE_CHECKING-only edges.
+    assert_eq!(cycles["runtime_tangles"], 1);
+    // 3 of 7 modules participate.
+    let pct = cycles["pct_modules_in_cycles"].as_f64().unwrap();
+    assert!((pct - 3.0 / 7.0).abs() < 1e-9, "pct = {pct}");
 }
