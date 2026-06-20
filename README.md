@@ -76,10 +76,59 @@ sloplint parse file.py                   # dump AST + tokens (debug aid)
 From a clone, run it through cargo instead (`cargo run -p sloplint -- check path/to/code`), or
 build a wheel locally with [maturin](https://www.maturin.rs/) (`maturin build --release`).
 
-Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060/084/120`) are preview — enable with `--preview`. `SLP120` flags
-low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups;
-thresholds `lcom4_max_components` / `lcom4_min_methods` under `[limits]`).
+Comments are banned by default; relax per-path (see [Configuration](#configuration)). Preview
+rules need `--preview`.
+
+## Configuration
+
+sloplint reads `sloplint.toml`, discovered from the working directory upward (or pass
+`--config <path>`). Every key is optional — the defaults are shown below.
+
+```toml
+ignore = ["SLP040"]           # turn specific rules/prefixes off
+select = []                   # force-enable rules/prefixes
+preview = false               # enable preview rules (same as --preview)
+
+[limits]                      # thresholds for the size/structure rules
+file_max_lines = 400          # SLP080
+nesting_max_depth = 4         # SLP082
+data_nesting_max_depth = 3    # SLP084
+max_identifier_words = 4      # SLP060
+dir_max_modules = 15          # SLP090
+lcom4_max_components = 1       # SLP120 — flag a class that splits into > 1 cohesion group
+lcom4_min_methods = 3         # SLP120 — skip classes smaller than this
+
+[clone]                       # SLP020 near-duplicate detection
+min_statements = 3            # ignore tiny functions
+similarity = 0.85             # Jaccard similarity at/above which a pair is reported
+
+[[overrides]]                 # relax rules for matching paths (gitignore-style globs)
+path = "tests/**"
+ignore = ["SLP010"]
+allow_comments = true         # permit comments here (otherwise banned)
+```
+
+## Metrics & badges
+
+Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
+cognitive complexity (with McCabe risk tiers), average function length, max nesting, and comment
+density. These are **measured, not linted**, so they never duplicate Ruff. Gate them in CI by
+exit code:
+
+```bash
+sloplint metrics src --max-cyclomatic 10   # exit 1 if any function's cyclomatic complexity > 10
+```
+
+`--badges badges/` writes an SVG + a shields.io [endpoint](https://shields.io/endpoint) JSON for
+each metric (`cyclomatic-risk`, `max-cognitive`, `avg-function-loc`, `max-nesting`,
+`comment-density`, …) — for example:
+
+![cyclomatic-risk](https://img.shields.io/badge/cyclomatic--risk-moderate-yellow)
+![max cognitive](https://img.shields.io/badge/max%20cognitive-14-yellow)
+![avg function loc](https://img.shields.io/badge/avg%20function%20loc-22-brightgreen)
+
+Commit the SVGs, or host the `*.json` and point a shields URL at it for a badge that updates
+itself. The GitHub Action writes them when you set its `badges-dir` input.
 
 ## GitHub Action
 
