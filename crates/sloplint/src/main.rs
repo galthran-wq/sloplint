@@ -4,6 +4,8 @@
 //! - `check` — discover config, run the shipped per-file rules over Python files, then
 //!   run cross-file clone detection (SLP020), and report all findings.
 
+mod churn;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -66,6 +68,30 @@ enum Command {
         #[arg(long)]
         badges: Option<String>,
     },
+    /// Report git-history churn signals: repo volatility + per-PR churn-vs-delta anomalies.
+    Churn {
+        /// Path to the git repository (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        repo: String,
+        /// Limit history to the last N commits (defaults to full history).
+        #[arg(long)]
+        window: Option<usize>,
+        /// Also flag churn-vs-delta anomalies for `<base>...HEAD` (e.g. the PR base ref).
+        #[arg(long)]
+        base: Option<String>,
+        /// Minimum churn (added + deleted lines) for a file to be anomaly-eligible.
+        #[arg(long, default_value_t = 20)]
+        min_churn: u64,
+        /// Flag a file when its churn is at least this multiple of its net delta.
+        #[arg(long, default_value_t = 5.0)]
+        anomaly_ratio: f64,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = churn::ChurnFormat::Text)]
+        format: churn::ChurnFormat,
+        /// Write the volatility badge SVG + endpoint JSON into this directory.
+        #[arg(long)]
+        badges: Option<String>,
+    },
 }
 
 /// Output format for `check`.
@@ -110,6 +136,26 @@ fn main() -> ExitCode {
             format,
             badges,
         } => match run_metrics(&paths, format, badges.as_deref()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => tool_error(err),
+        },
+        Command::Churn {
+            repo,
+            window,
+            base,
+            min_churn,
+            anomaly_ratio,
+            format,
+            badges,
+        } => match churn::run(churn::ChurnArgs {
+            repo: &repo,
+            window,
+            base: base.as_deref(),
+            min_churn,
+            anomaly_ratio,
+            format,
+            badges: badges.as_deref(),
+        }) {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => tool_error(err),
         },

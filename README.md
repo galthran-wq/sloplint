@@ -26,11 +26,29 @@ cargo run -p sloplint -- check path/to/code            # lint (exit 1 on finding
 cargo run -p sloplint -- check src --format sarif       # SARIF / json / github / text
 cargo run -p sloplint -- metrics src                    # software-quality metrics table
 cargo run -p sloplint -- metrics src --badges badges/   # emit SVG + shields-endpoint badges
+cargo run -p sloplint -- churn --window 200             # git-history volatility + top-churn files
+cargo run -p sloplint -- churn --base origin/main --format github  # + per-PR churn-vs-delta anomalies
 cargo run -p sloplint -- parse file.py                  # dump AST + tokens (debug aid)
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
 (`SLP001/002/040/060`) are preview — enable with `--preview`.
+
+### Churn (`churn`)
+
+`churn` reads `git log`/`git diff` (deterministic given the commit range) for two history
+signals a single snapshot can't see, over `.py` files:
+
+- **Volatility** — the coefficient of variation of per-file change frequency across the window
+  (`--window N` commits, default full history). Low = churn spread evenly / cohesive; high = a
+  few files regenerated wholesale while the rest lie abandoned. `--badges DIR` writes a
+  `volatility` badge.
+- **Churn-vs-delta anomalies** — with `--base <ref>`, files in `<base>...HEAD` whose churn
+  (`+`/`-` lines) is at least `--anomaly-ratio`× their net delta and at least `--min-churn`
+  lines: code rewritten in place without adding capability.
+
+The [`Churn` workflow](.github/workflows/churn.yml) runs this on PRs, rendering the summary to
+the job summary and uploading the badge.
 
 ## GitHub Action
 

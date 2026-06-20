@@ -1,0 +1,48 @@
+name: Churn
+
+# Git-history churn signals (issue #18): repo Volatility badge + per-PR churn-vs-delta anomaly.
+# Deterministic given the commit range; the volatility window is documented in the output.
+on:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  churn:
+    name: volatility + churn-vs-delta
+    runs-on: ubuntu-latest
+    steps:
+      # Full history is required: volatility reads `git log` and the anomaly check diffs the PR
+      # against its base.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build sloplint
+        run: cargo build --release -p sloplint
+
+      - name: Compute churn signals
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Render the PR summary (volatility + churn-vs-delta anomalies) to the job summary,
+          # and write the volatility badge for hosting.
+          ./target/release/sloplint churn \
+            --repo . \
+            --base "$BASE_SHA" \
+            --format github \
+            --badges badges \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload volatility badge
+        uses: actions/upload-artifact@v4
+        with:
+          name: volatility-badge
+          path: badges/volatility.*
