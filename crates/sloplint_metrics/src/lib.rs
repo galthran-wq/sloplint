@@ -63,6 +63,52 @@ impl RiskTier {
     }
 }
 
+/// Cognitive-complexity bands (#110), anchored on SonarSource's per-function guidance of **15**.
+/// Cognitive complexity is the better *readability* signal than cyclomatic — it adds a nesting
+/// penalty and charges for breaks in linear flow — so these bands track "how hard is this to read".
+/// Boundaries (inclusive): **≤5 low** (trivial), **6–15 moderate** (SonarSource's ceiling), **16–40
+/// high** (hard to follow), **>40 very high** (effectively unreadable). Descriptive bands calibrated
+/// against the cohort, never a pass/fail gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CognitiveTier {
+    Low,
+    Moderate,
+    High,
+    VeryHigh,
+}
+
+impl CognitiveTier {
+    /// Classify a function's cognitive complexity into its readability band.
+    pub fn from_cognitive(cognitive: usize) -> Self {
+        match cognitive {
+            0..=5 => CognitiveTier::Low,
+            6..=15 => CognitiveTier::Moderate,
+            16..=40 => CognitiveTier::High,
+            _ => CognitiveTier::VeryHigh,
+        }
+    }
+
+    /// Short, stable label used in tables, JSON, and badges.
+    pub fn label(self) -> &'static str {
+        match self {
+            CognitiveTier::Low => "low",
+            CognitiveTier::Moderate => "moderate",
+            CognitiveTier::High => "high",
+            CognitiveTier::VeryHigh => "very high",
+        }
+    }
+
+    /// Badge color keyed to the band: low green, moderate yellow, high/very-high red (both exceed
+    /// SonarSource's recommended ceiling of 15).
+    pub fn color(self) -> Color {
+        match self {
+            CognitiveTier::Low => Color::Green,
+            CognitiveTier::Moderate => Color::Yellow,
+            CognitiveTier::High | CognitiveTier::VeryHigh => Color::Red,
+        }
+    }
+}
+
 /// WMC (Weighted Methods per Class) size bands for god-class prevalence (#104). Unlike the
 /// cyclomatic [`RiskTier`], WMC has **no** McCabe-equivalent canonical threshold, so these are
 /// **descriptive** bands calibrated against the cohort, never a pass/fail standard. Boundaries
@@ -193,6 +239,17 @@ impl RiskHistogram {
         }
     }
 
+    /// Record a function by its cognitive band (#110) — the readability counterpart to
+    /// [`Self::record`] (which buckets by cyclomatic).
+    fn record_cognitive(&mut self, cognitive: usize) {
+        match CognitiveTier::from_cognitive(cognitive) {
+            CognitiveTier::Low => self.low += 1,
+            CognitiveTier::Moderate => self.moderate += 1,
+            CognitiveTier::High => self.high += 1,
+            CognitiveTier::VeryHigh => self.very_high += 1,
+        }
+    }
+
     /// Record a class by its WMC band (#104) — the class-side counterpart to [`Self::record`].
     fn record_wmc(&mut self, wmc: usize) {
         match WmcTier::from_wmc(wmc) {
@@ -235,6 +292,22 @@ impl RiskHistogram {
             Some(RiskTier::Moderate)
         } else if self.low > 0 {
             Some(RiskTier::Low)
+        } else {
+            None
+        }
+    }
+
+    /// The worst occupied band as a [`CognitiveTier`] — the cognitive counterpart to
+    /// [`Self::worst_tier`], for the cognitive badge/markdown (#110). `None` only when empty.
+    pub fn worst_cognitive_tier(self) -> Option<CognitiveTier> {
+        if self.very_high > 0 {
+            Some(CognitiveTier::VeryHigh)
+        } else if self.high > 0 {
+            Some(CognitiveTier::High)
+        } else if self.moderate > 0 {
+            Some(CognitiveTier::Moderate)
+        } else if self.low > 0 {
+            Some(CognitiveTier::Low)
         } else {
             None
         }
@@ -380,6 +453,15 @@ pub struct RepoMetrics {
     /// ([`ParamCountTier`]), never a gate.
     pub param_count_risk: RiskHistogram,
     pub max_cognitive: usize,
+    /// Mean cognitive complexity across all functions (#110).
+    pub avg_cognitive: f64,
+    /// 95th-percentile cognitive complexity (nearest-rank) — the "hard-to-read tail", mirroring
+    /// [`Self::p95_cyclomatic`] (#110).
+    pub p95_cognitive: usize,
+    /// Count of functions in each cognitive readability band ([`CognitiveTier`], #110). Brings
+    /// cognitive to parity with cyclomatic, which already has full distribution + tiers; cognitive
+    /// is the better readability signal, so its distribution (not just the max) is the one to watch.
+    pub cognitive_risk: RiskHistogram,
     pub max_nesting: usize,
     /// Comment lines as a fraction of total lines (0.0–1.0).
     pub comment_density: f64,
@@ -480,6 +562,44 @@ impl RepoMetrics {
             self.avg_params,
             self.p95_params,
             self.max_params,
+            risk.low,
+            risk.moderate,
+            risk.high,
+            risk.very_high,
+        )
+    }
+
+    /// A badge summarizing cognitive-complexity risk (#110): the worst occupied band plus the peak
+    /// value, colored by that band (`max cognitive: 145 (very high)`). The cognitive counterpart to
+    /// [`Self::cyclomatic_badge`] — and the more readability-relevant of the two.
+    pub fn cognitive_badge(&self) -> Badge {
+        match self.cognitive_risk.worst_cognitive_tier() {
+            Some(tier) => Badge::new(
+                "max cognitive",
+                format!("{} ({})", self.max_cognitive, tier.label()),
+                tier.color(),
+            ),
+            None => Badge::new("max cognitive", "n/a", Color::Green),
+        }
+    }
+
+    /// The cognitive counterpart to [`Self::cyclomatic_markdown`] (#110): mean/p95/max cognitive plus
+    /// the readability-band histogram, anchored on SonarSource's 15/function guidance. Descriptive
+    /// bands ([`CognitiveTier`]) — high `high`/`very high` counts flag functions to *read*, not
+    /// defects.
+    pub fn cognitive_markdown(&self) -> String {
+        let risk = self.cognitive_risk;
+        format!(
+            "**Cognitive complexity** — mean {:.1}, p95 {}, max {} (worst tier: {}).\n\n\
+             | Risk tier | Functions |\n| --- | ---: |\n\
+             | low (≤5) | {} |\n| moderate (6–15) | {} |\n\
+             | high (16–40) | {} |\n| very high (>40) | {} |\n",
+            self.avg_cognitive,
+            self.p95_cognitive,
+            self.max_cognitive,
+            risk.worst_cognitive_tier()
+                .map(CognitiveTier::label)
+                .unwrap_or("n/a"),
             risk.low,
             risk.moderate,
             risk.high,
@@ -610,6 +730,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut cyclomatic_values: Vec<usize> = Vec::new();
     let mut arity_sum = 0usize;
     let mut arity_values: Vec<usize> = Vec::new();
+    let mut cognitive_sum = 0usize;
+    let mut cognitive_values: Vec<usize> = Vec::new();
     let mut typed_params_sum = 0usize;
     let mut annotatable_params_sum = 0usize;
     let mut fully_annotated = 0usize;
@@ -646,6 +768,9 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             repo.max_function_loc = repo.max_function_loc.max(function.loc);
             repo.max_cyclomatic = repo.max_cyclomatic.max(function.cyclomatic);
             repo.max_cognitive = repo.max_cognitive.max(function.cognitive);
+            cognitive_sum += function.cognitive;
+            cognitive_values.push(function.cognitive);
+            repo.cognitive_risk.record_cognitive(function.cognitive);
             repo.max_nesting = repo.max_nesting.max(function.max_nesting);
             typed_params_sum += function.typed_params;
             annotatable_params_sum += function.annotatable_params;
@@ -694,6 +819,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         arity_sum as f64 / repo.functions as f64
     };
     repo.p95_params = percentile(&mut arity_values, 0.95);
+    repo.avg_cognitive = if repo.functions == 0 {
+        0.0
+    } else {
+        cognitive_sum as f64 / repo.functions as f64
+    };
+    repo.p95_cognitive = percentile(&mut cognitive_values, 0.95);
     let comment_lines: usize = files.iter().map(|f| f.comment_lines).sum();
     repo.comment_density = if repo.total_loc == 0 {
         0.0
@@ -1892,6 +2023,64 @@ def b(xs):
         let md = repo.cyclomatic_markdown();
         assert!(md.contains("worst tier: high"));
         assert!(md.contains("| high (21–50) | 1 |"));
+    }
+
+    #[test]
+    fn cognitive_tier_bands() {
+        assert_eq!(CognitiveTier::from_cognitive(0), CognitiveTier::Low);
+        assert_eq!(CognitiveTier::from_cognitive(5), CognitiveTier::Low);
+        assert_eq!(CognitiveTier::from_cognitive(6), CognitiveTier::Moderate);
+        assert_eq!(CognitiveTier::from_cognitive(15), CognitiveTier::Moderate);
+        assert_eq!(CognitiveTier::from_cognitive(16), CognitiveTier::High);
+        assert_eq!(CognitiveTier::from_cognitive(40), CognitiveTier::High);
+        assert_eq!(CognitiveTier::from_cognitive(41), CognitiveTier::VeryHigh);
+    }
+
+    #[test]
+    fn aggregate_reports_cognitive_distribution() {
+        // A flat function (cognitive 0) and a deeply-nested one (cognitive > 0): the histogram and
+        // avg/p95 must surface the spread, not just `max_cognitive`.
+        let source = "\
+def a():
+    return 1
+
+def b(xs):
+    for x in xs:
+        if x:
+            if x > 0:
+                return x
+    return 0
+";
+        let repo = aggregate(&[metrics(source)]);
+        assert_eq!(repo.functions, 2);
+        // Cognitive of the nested function: for(+1) + if(+2) + if(+3) = 6 -> moderate band.
+        assert_eq!(repo.max_cognitive, 6);
+        assert!((repo.avg_cognitive - 3.0).abs() < 1e-9, "mean of [0, 6]");
+        assert_eq!(repo.p95_cognitive, 6, "nearest-rank over 2 values = max");
+        assert_eq!(repo.cognitive_risk.low, 1, "the trivial function");
+        assert_eq!(repo.cognitive_risk.moderate, 1, "the nested function");
+        assert_eq!(
+            repo.cognitive_risk.worst_cognitive_tier(),
+            Some(CognitiveTier::Moderate)
+        );
+    }
+
+    #[test]
+    fn cognitive_badge_and_markdown_reflect_worst_tier() {
+        let mut repo = RepoMetrics {
+            functions: 1,
+            max_cognitive: 145,
+            avg_cognitive: 145.0,
+            p95_cognitive: 145,
+            ..RepoMetrics::default()
+        };
+        repo.cognitive_risk.very_high = 1;
+        let badge = repo.cognitive_badge();
+        assert_eq!(badge.message, "145 (very high)");
+        assert_eq!(badge.color, Color::Red);
+        let md = repo.cognitive_markdown();
+        assert!(md.contains("worst tier: very high"));
+        assert!(md.contains("| very high (>40) | 1 |"));
     }
 
     #[test]

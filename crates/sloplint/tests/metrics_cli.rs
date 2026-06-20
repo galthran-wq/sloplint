@@ -57,6 +57,24 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
     assert_eq!(risk["high"], 0);
     assert_eq!(risk["very_high"], 0);
 
+    // Cognitive complexity at parity with cyclomatic (#110): per-function cognitive is
+    // trivial=0, comprehension=1, moderate=10 → mean 11/3, p95/max 10, two low + one moderate.
+    assert_eq!(prod["max_cognitive"], 10);
+    assert_eq!(prod["p95_cognitive"], 10);
+    let avg_cog = prod["avg_cognitive"].as_f64().unwrap();
+    assert!(
+        (avg_cog - 11.0 / 3.0).abs() < 1e-6,
+        "avg_cognitive = {avg_cog}"
+    );
+    let cog = &prod["cognitive_risk"];
+    assert_eq!(cog["low"], 2, "trivial + comprehension are ≤5");
+    assert_eq!(
+        cog["moderate"], 1,
+        "moderate() cognitive 10 is in the 6-15 band"
+    );
+    assert_eq!(cog["high"], 0);
+    assert_eq!(cog["very_high"], 0);
+
     // Type-hint coverage (#85) is wired into the aggregate. The fixture is fully unannotated, so
     // both land at 0.0 — the precise ratio math is covered by the metrics-crate unit tests.
     assert_eq!(prod["param_annotation_coverage"], 0.0);
@@ -74,6 +92,15 @@ fn github_markdown_surfaces_worst_tier_and_table() {
     assert!(
         stdout.contains("| moderate (11\u{2013}20) | 1 |"),
         "markdown has the risk-tier table:\n{stdout}"
+    );
+    // Cognitive complexity is reported at parity (#110): its own block + readability-band table.
+    assert!(
+        stdout.contains("**Cognitive complexity**"),
+        "markdown has a cognitive block:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("| moderate (6\u{2013}15) | 1 |"),
+        "markdown has the cognitive band table:\n{stdout}"
     );
 }
 

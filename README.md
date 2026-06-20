@@ -225,8 +225,10 @@ like `# noqa: E501`.
 ## Metrics & badges
 
 Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
-cognitive complexity (with McCabe risk tiers), average function length, max nesting, comment
-density, type-hint coverage, and **docstring coverage**. These are **measured, not linted**, so
+cognitive complexity (each with mean / p95 / max and risk-tier histograms; cognitive's bands are
+anchored on SonarSource's 15/function guidance and are the better *readability* signal), average
+function length, max nesting, comment density, type-hint coverage, and **docstring coverage**.
+These are **measured, not linted**, so
 they never duplicate Ruff. Gate them in CI by exit code (each names the offending functions and
 exits 1):
 

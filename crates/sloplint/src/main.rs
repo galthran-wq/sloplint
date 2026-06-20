@@ -1371,7 +1371,15 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  arity bands         low {} / moderate {} / high {} / very high {}",
         params.low, params.moderate, params.high, params.very_high
     );
+    // Cognitive complexity at parity with cyclomatic (#110) — the better readability signal.
+    println!("  avg cognitive       {:.1}", repo.avg_cognitive);
+    println!("  p95 cognitive       {}", repo.p95_cognitive);
     println!("  max cognitive       {}", repo.max_cognitive);
+    let cog = repo.cognitive_risk;
+    println!(
+        "  CoCo risk tiers     low {} / moderate {} / high {} / very high {}",
+        cog.low, cog.moderate, cog.high, cog.very_high
+    );
     println!("  max nesting         {}", repo.max_nesting);
     println!("  comment density     {:.1}%", repo.comment_density * 100.0);
     println!(
@@ -1526,7 +1534,17 @@ fn panel_json(
             "high": repo.param_count_risk.high,
             "very_high": repo.param_count_risk.very_high,
         },
+        // Cognitive complexity at parity with cyclomatic (#110): the readability distribution, not
+        // just the max. The more readability-relevant of the two complexity metrics.
+        "avg_cognitive": repo.avg_cognitive,
+        "p95_cognitive": repo.p95_cognitive,
         "max_cognitive": repo.max_cognitive,
+        "cognitive_risk": {
+            "low": repo.cognitive_risk.low,
+            "moderate": repo.cognitive_risk.moderate,
+            "high": repo.cognitive_risk.high,
+            "very_high": repo.cognitive_risk.very_high,
+        },
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
         // Type-hint coverage (#85): a quality proxy for under-annotation. Low coverage is the
@@ -1669,8 +1687,9 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics)], proxies: &TestProxies) -> St
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
+            repo.cognitive_markdown(),
             repo.params_markdown(),
             repo.wmc_markdown(),
             repo.module_size_markdown()
@@ -1726,6 +1745,9 @@ fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
                 Color::for_value(repo.max_cognitive as f64, 15.0, 30.0),
             ),
         ),
+        // Headline cognitive risk, colored by SonarSource's band rather than a flat threshold (#110)
+        // — the cognitive counterpart to `cyclomatic-risk`.
+        ("cognitive-risk", repo.cognitive_badge()),
         (
             "max-nesting",
             Badge::new(
@@ -1828,6 +1850,7 @@ fn badge_short_label(slug: &str) -> &str {
         "max-cyclomatic" => "CC",
         "cyclomatic-risk" => "risk",
         "max-cognitive" => "CoCo",
+        "cognitive-risk" => "CoCo risk",
         "avg-function-loc" => "loc",
         "max-nesting" => "nesting",
         "comment-density" => "density",
