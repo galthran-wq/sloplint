@@ -315,8 +315,8 @@ functions to *read* (numeric solvers genuinely take many knobs), not defects.
 ### Class metrics
 
 `--format classes` emits one JSONL row per class — the class-level discovery feed: `loc`,
-`methods`, `attributes`, **`lcom4`** cohesion (SLP120), `is_abstract`, and the two CK class
-metrics ([Chidamber & Kemerer 1994][ck]):
+`methods`, `attributes`, **`lcom4`** cohesion (SLP120), `is_abstract`, and the CK class metrics
+([Chidamber & Kemerer 1994][ck]):
 
 - **`wmc`** — Weighted Methods per Class: the sum of the cyclomatic complexity of the class's
   direct methods. A class-*weight* measure that separates 40 trivial accessors from 40 branchy
@@ -324,14 +324,22 @@ metrics ([Chidamber & Kemerer 1994][ck]):
 - **`dit`** — Depth of Inheritance Tree: the longest path up to a root through **first-party**
   bases. Bases that resolve to `object`, the stdlib, or a third party are invisible and end the
   chain, so `dit` is a deliberate, conservative under-count of the true Python MRO depth.
+- **`noc`** — Number of Children: how many **direct** first-party subclasses the class has — the
+  inheritance *breadth* that pairs with `dit` depth (#113). It's the in-degree of the same class
+  graph. A high-NOC base is a change-amplifier (fragile-base-class risk): every change ripples to
+  its children. Often that's good design (a well-used abstraction — yt-dlp's `InfoExtractor` is
+  subclassed by ~965 extractors), so it flags bases to *review carefully before changing*, not
+  defects.
 
 `--format json` adds the matching aggregates next to the complexity figures: `classes`,
-`max_wmc`, `avg_wmc`, `p95_wmc`, `max_dit`, `avg_dit`, and **`wmc_risk`** — class counts per WMC
-size band, mirroring the function `cyclomatic_risk` tiers:
+`max_wmc`, `avg_wmc`, `p95_wmc`, `max_dit`, `avg_dit`, `max_noc`, `avg_noc`, `p95_noc`, and the
+band histograms **`wmc_risk`** and **`noc_risk`**, mirroring the function `cyclomatic_risk` tiers:
 
 ```jsonc
-"wmc_risk": { "low": 451, "moderate": 23, "high": 15, "very_high": 5 }
+"wmc_risk": { "low": 451, "moderate": 23, "high": 15, "very_high": 5 },
 // bands by WMC:  low ≤20   moderate 21–50   high 51–200   very_high >200
+"noc_risk": { "low": 480, "moderate": 9, "high": 4, "very_high": 1 }
+// bands by NOC:  low ≤1   moderate 2–5   high 6–20   very_high >20
 ```
 
 This is the point of the histogram (#104): `avg`/`max` collapse the distribution, so the same
