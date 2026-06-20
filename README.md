@@ -21,17 +21,49 @@ Patterns that no mainstream linter flags today:
   configurable depth, distinct from control-flow nesting (model it with a named type).
 - Software-quality-metric **badges** + a per-PR summary, via a GitHub Action.
 
-## Usage
+## Installation
+
+sloplint ships on PyPI as **`sloplintpy`** (the wheel bundles the native binary — no Rust
+toolchain needed). The installed command is **`sloplint`**.
+
+Run it directly with [uvx](https://docs.astral.sh/uv/) (the package and command differ, so use
+`--from`):
 
 ```bash
-cargo run -p sloplint -- check path/to/code            # lint (exit 1 on findings)
-cargo run -p sloplint -- check src --format sarif       # SARIF / json / github / text
-cargo run -p sloplint -- metrics src                    # software-quality metrics table
-cargo run -p sloplint -- metrics src --format github     # PR-summary markdown (CC risk tiers)
-cargo run -p sloplint -- metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
-cargo run -p sloplint -- metrics src --badges badges/   # emit SVG + shields-endpoint badges
-cargo run -p sloplint -- parse file.py                  # dump AST + tokens (debug aid)
+uvx --from sloplintpy sloplint check    # Lint all files in the current directory.
+uvx --from sloplintpy sloplint metrics  # Report software-quality metrics.
 ```
+
+Or install `sloplintpy` with uv (recommended), pip, or pipx — then run `sloplint`:
+
+```bash
+# With uv.
+uv tool install sloplintpy@latest   # Install the `sloplint` command globally.
+uv add --dev sloplintpy             # Or add it to your project.
+
+# With pip.
+pip install sloplintpy
+
+# With pipx.
+pipx install sloplintpy
+```
+
+## Usage
+
+Once installed, `sloplint` is a native binary on your `PATH`:
+
+```bash
+sloplint check path/to/code              # lint (exit 1 on findings)
+sloplint check src --format sarif        # SARIF / json / github / text
+sloplint metrics src                     # software-quality metrics table
+sloplint metrics src --format github     # PR-summary markdown (CC risk tiers)
+sloplint metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
+sloplint metrics src --badges badges/    # emit SVG + shields-endpoint badges
+sloplint parse file.py                   # dump AST + tokens (debug aid)
+```
+
+From a clone, run it through cargo instead (`cargo run -p sloplint -- check path/to/code`), or
+build a wheel locally with [maturin](https://www.maturin.rs/) (`maturin build --release`).
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
 (`SLP001/002/040/060/084/120`) are preview — enable with `--preview`. `SLP120` flags
