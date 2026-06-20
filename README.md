@@ -255,6 +255,35 @@ clean-vs-slop reference distributions are the job of the benchmark harness, [#55
 
 [bench]: https://github.com/galthran-wq/sloplint/issues/55
 
+### Static test proxies (NOT coverage)
+
+`--format json` also reports a `test_proxies` block — two *static* signals of how (un)tested a
+codebase is, computed without running anything:
+
+```jsonc
+"test_proxies": {
+  "_note": "Static proxies, NOT coverage. Descriptive cohort statistics only — never a gate.",
+  "test_files": 12, "production_files": 48,
+  "test_loc": 1840, "production_loc": 5210,
+  "test_code_ratio": 0.353,    // test LoC / production LoC
+  "test_functions": 96, "assertions": 311,
+  "assertion_density": 3.24    // assertions per test function (asserts + self.assertX +
+                               // pytest.raises + self.fail), null when there are no test fns
+}
+```
+
+Test files are identified by path (`test_*.py`, `*_test.py`, a `tests/` segment, `conftest.py`);
+the figures also appear in the text table and the `--format github` PR summary.
+
+> [!IMPORTANT]
+> **This is not test coverage.** Real coverage requires *executing* the tests, which a static
+> linter cannot do. These are *proxies*: low test:code ratio + low assertion density *suggest*
+> under-testing, but they cannot tell a shallow test from a thorough one — a test can carry many
+> asserts and verify nothing, or few asserts and be excellent. So they are reported as descriptive
+> cohort statistics and are **never** a pass/fail gate. Their value is across a *cohort* (slop
+> tends to ship far less test code with shallower assertions), not as a per-repo verdict. They
+> complement the `SLP070` (assertion-free tests) and `SLP160` (test mirroring) *rules*.
+
 ## GitHub Action
 
 Run sloplint on every PR — it uploads SARIF (inline annotations), posts a findings
