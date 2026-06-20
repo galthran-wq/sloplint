@@ -100,6 +100,42 @@ pub fn class_cohesion(class: &StmtClassDef) -> ClassCohesion {
     }
 }
 
+/// Count of distinct instance attributes a class has: `<receiver>.<name>` references (across
+/// all methods, including constructors) whose `<name>` is not itself a method. A class-size
+/// signal — bloated attribute sets are a common low-quality pattern.
+pub fn class_attribute_count(class: &StmtClassDef) -> usize {
+    let methods: HashSet<&str> = class
+        .body
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::FunctionDef(function) => Some(function.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut attributes: HashSet<&str> = HashSet::new();
+    for stmt in &class.body {
+        let Stmt::FunctionDef(method) = stmt else {
+            continue;
+        };
+        let Some(receiver) = receiver_name(method) else {
+            continue;
+        };
+        let mut access = SelfAccess {
+            receiver,
+            names: HashSet::new(),
+        };
+        for body_stmt in &method.body {
+            access.visit_stmt(body_stmt);
+        }
+        for name in access.names {
+            if !methods.contains(name) {
+                attributes.insert(name);
+            }
+        }
+    }
+    attributes.len()
+}
+
 /// Constructors set up all state and are excluded from the cohesion graph.
 fn is_constructor(name: &str) -> bool {
     matches!(name, "__init__" | "__new__" | "__post_init__")

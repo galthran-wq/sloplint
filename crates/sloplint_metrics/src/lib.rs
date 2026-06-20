@@ -11,7 +11,7 @@ pub mod cohesion;
 use badge::{Badge, Color};
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{
-    Comprehension, ExceptHandler, Expr, ModModule, Parameters, Stmt, StmtFunctionDef,
+    Comprehension, ExceptHandler, Expr, ModModule, Parameters, Stmt, StmtClassDef, StmtFunctionDef,
 };
 use sloplint_python::parser::Parsed;
 use sloplint_python::{Ranged, TextRange, TokenKind};
@@ -115,12 +115,39 @@ pub struct FunctionMetrics {
     pub max_nesting: usize,
     /// Number of declared parameters.
     pub params: usize,
+    /// Non-Commenting Source Statements: count of logical statement nodes in the body
+    /// (recursive, includes nested defs/classes). A code-size measure that ignores comments,
+    /// blank lines, and pure-syntax lines — unlike `loc`.
+    pub ncss: usize,
+    /// Number of explicit exit points in the function's own body: `return`, `raise`, and
+    /// `yield`/`yield from`. Excludes nested defs/lambdas. Multi-exit sprawl is a smell.
+    pub exits: usize,
+}
+
+/// Metrics for a single class.
+#[derive(Debug, Clone)]
+pub struct ClassMetrics {
+    pub name: String,
+    /// Full span of the class statement, decorators included.
+    pub range: TextRange,
+    /// Span of the class's name identifier.
+    pub name_range: TextRange,
+    /// Physical lines spanned by the class.
+    pub loc: usize,
+    /// Methods directly in the class body (including constructors).
+    pub methods: usize,
+    /// Distinct instance attributes (`self.x` references that are not methods).
+    pub attributes: usize,
+    /// LCOM4 cohesion: connected components among non-constructor methods. >1 = low cohesion
+    /// ("god class" that should be split). See [`cohesion`].
+    pub lcom4: usize,
 }
 
 /// Metrics for a single file.
 #[derive(Debug, Clone)]
 pub struct FileMetrics {
     pub functions: Vec<FunctionMetrics>,
+    pub classes: Vec<ClassMetrics>,
     pub loc: usize,
     pub comment_lines: usize,
 }
@@ -206,6 +233,13 @@ pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {
         })
         .collect();
 
+    let mut classes = Vec::new();
+    collect_classes(&parsed.syntax().body, &mut classes);
+    let class_metrics = classes
+        .iter()
+        .map(|class| class_metrics(source, class))
+        .collect();
+
     let comment_lines = parsed
         .tokens()
         .iter()
@@ -214,6 +248,7 @@ pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {
 
     FileMetrics {
         functions: metrics,
+        classes: class_metrics,
         loc: source.lines().count(),
         comment_lines,
     }
@@ -277,7 +312,83 @@ fn function_metrics(
         cognitive: cognitive(&function.body),
         max_nesting: max_nesting(&function.body, 0),
         params: param_count(&function.parameters),
+        ncss: ncss(&function.body),
+        exits: exit_count(&function.body),
     }
+}
+
+/// Per-class metrics: size (methods, distinct instance attributes) and LCOM4 cohesion.
+fn class_metrics(source: &str, class: &StmtClassDef) -> ClassMetrics {
+    let methods = class
+        .body
+        .iter()
+        .filter(|stmt| matches!(stmt, Stmt::FunctionDef(_)))
+        .count();
+    ClassMetrics {
+        name: class.name.to_string(),
+        range: class.range(),
+        name_range: class.name.range(),
+        loc: line_span(source, class.range()),
+        methods,
+        attributes: cohesion::class_attribute_count(class),
+        lcom4: cohesion::class_cohesion(class).components,
+    }
+}
+
+/// Number of explicit exit points in the function's own body: `return`, `raise`, and
+/// `yield`/`yield from`. Does not descend into nested defs/lambdas (those exits belong to the
+/// nested scope).
+fn exit_count(body: &[Stmt]) -> usize {
+    struct Counter {
+        n: usize,
+    }
+    impl Visitor<'_> for Counter {
+        fn visit_stmt(&mut self, stmt: &Stmt) {
+            match stmt {
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {} // nested scope
+                Stmt::Return(_) | Stmt::Raise(_) => {
+                    self.n += 1;
+                    visitor::walk_stmt(self, stmt);
+                }
+                _ => visitor::walk_stmt(self, stmt),
+            }
+        }
+        fn visit_expr(&mut self, expr: &Expr) {
+            match expr {
+                Expr::Lambda(_) => {} // nested scope
+                Expr::Yield(_) | Expr::YieldFrom(_) => {
+                    self.n += 1;
+                    visitor::walk_expr(self, expr);
+                }
+                _ => visitor::walk_expr(self, expr),
+            }
+        }
+    }
+    let mut counter = Counter { n: 0 };
+    for stmt in body {
+        counter.visit_stmt(stmt);
+    }
+    counter.n
+}
+
+/// Non-Commenting Source Statements: count every statement node in the body (recursively,
+/// including nested defs/classes). Comments and blank lines are not statements, so they are
+/// naturally excluded — this is a logical code-size measure, distinct from physical `loc`.
+fn ncss(body: &[Stmt]) -> usize {
+    struct Counter {
+        n: usize,
+    }
+    impl Visitor<'_> for Counter {
+        fn visit_stmt(&mut self, stmt: &Stmt) {
+            self.n += 1;
+            visitor::walk_stmt(self, stmt);
+        }
+    }
+    let mut counter = Counter { n: 0 };
+    for stmt in body {
+        counter.visit_stmt(stmt);
+    }
+    counter.n
 }
 
 /// Nearest-rank percentile of an unsorted slice (sorts it in place). `p` is a fraction in
@@ -589,6 +700,50 @@ fn collect_functions<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtFunctionDef>) {
     }
 }
 
+/// Recursively collect every class definition (top-level, nested in functions, classes, or
+/// compound statements), mirroring [`collect_functions`].
+fn collect_classes<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtClassDef>) {
+    for stmt in body {
+        match stmt {
+            Stmt::ClassDef(node) => {
+                out.push(node);
+                collect_classes(&node.body, out);
+            }
+            Stmt::FunctionDef(node) => collect_classes(&node.body, out),
+            Stmt::If(node) => {
+                collect_classes(&node.body, out);
+                for clause in &node.elif_else_clauses {
+                    collect_classes(&clause.body, out);
+                }
+            }
+            Stmt::For(node) => {
+                collect_classes(&node.body, out);
+                collect_classes(&node.orelse, out);
+            }
+            Stmt::While(node) => {
+                collect_classes(&node.body, out);
+                collect_classes(&node.orelse, out);
+            }
+            Stmt::With(node) => collect_classes(&node.body, out),
+            Stmt::Try(node) => {
+                collect_classes(&node.body, out);
+                for handler in &node.handlers {
+                    let ExceptHandler::ExceptHandler(handler) = handler;
+                    collect_classes(&handler.body, out);
+                }
+                collect_classes(&node.orelse, out);
+                collect_classes(&node.finalbody, out);
+            }
+            Stmt::Match(node) => {
+                for case in &node.cases {
+                    collect_classes(&case.body, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -885,5 +1040,75 @@ def b(x):
         assert_eq!(repo.functions, 2);
         assert!(repo.max_cyclomatic >= 2);
         assert!(repo.avg_function_loc > 0.0);
+    }
+
+    #[test]
+    fn ncss_counts_statements_not_lines() {
+        // body: if (1) + raise (1) + aug-assign (1) + return (1) = 4 statements; the blank line
+        // and the `def` header are not counted.
+        let f = &metrics(
+            "\
+def add(self, n):
+    if n < 0:
+
+        raise ValueError(n)
+    self.total += n
+    return self.total
+",
+        )
+        .functions[0];
+        assert_eq!(f.ncss, 4);
+        assert!(f.loc > f.ncss, "physical loc exceeds logical ncss");
+    }
+
+    #[test]
+    fn exits_count_return_raise_yield_excluding_nested() {
+        let f = &metrics(
+            "\
+def f(x):
+    def nested():
+        return 1          # nested scope — not counted
+    if x:
+        raise ValueError
+    yield x
+    return x
+",
+        )
+        .functions[0];
+        assert_eq!(
+            f.exits, 3,
+            "raise + yield + return (nested return excluded)"
+        );
+    }
+
+    #[test]
+    fn class_metrics_report_size_and_lcom4() {
+        let file = metrics(
+            "\
+class Counter:
+    def __init__(self):
+        self.total = 0
+        self.name = 'c'
+    def add(self, n):
+        self.total += n
+    def show(self):
+        return self.total
+
+class Utils:
+    def parse(self, t):
+        return self.parser.run(t)
+    def render(self, n):
+        return self.formatter.go(n)
+",
+        );
+        let counter = &file.classes[0];
+        assert_eq!(counter.name, "Counter");
+        assert_eq!(counter.methods, 3);
+        assert_eq!(counter.attributes, 2); // total, name
+        assert_eq!(counter.lcom4, 1, "all methods share self.total");
+
+        let utils = &file.classes[1];
+        assert_eq!(utils.methods, 2);
+        assert_eq!(utils.lcom4, 2, "parse/render touch disjoint attributes");
     }
 }
