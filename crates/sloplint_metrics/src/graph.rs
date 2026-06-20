@@ -904,6 +904,25 @@ from pkg import *
     }
 
     #[test]
+    fn instability_is_asymmetric_through_real_aggregation() {
+        // `a` imports both `b` and `c`, and `b` imports `a` back: a has Ce=2 (b, c) and Ca=1 (b),
+        // so I = 2/3 — an asymmetric value computed from the actual graph, not a hand-built row.
+        let g = graph_of(&[
+            ("a/__init__.py", ""),
+            ("a/m.py", "from b import n\nfrom c import p\n"),
+            ("b/__init__.py", ""),
+            ("b/n.py", "from a import m\n"),
+            ("c/__init__.py", ""),
+            ("c/p.py", ""),
+        ]);
+        let rows = g.package_rows();
+        let a = rows.iter().find(|r| r.package == "a").unwrap();
+        assert_eq!(a.imports, vec!["b".to_string(), "c".to_string()]);
+        assert_eq!(a.imported_by, vec!["b".to_string()]);
+        assert_eq!(a.instability, 2.0 / 3.0);
+    }
+
+    #[test]
     fn instability_formula_edge_cases() {
         assert_eq!(instability(0, 0), 0.0); // uncoupled → stable, no divide-by-zero
         assert_eq!(instability(3, 0), 1.0); // depends on others, depended on by none
