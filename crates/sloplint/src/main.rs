@@ -150,6 +150,8 @@ enum MetricsFormat {
     /// One JSON object per function (JSONL) — the per-function feature dump for the
     /// benchmark / rule-discovery harness. Raw rows, not aggregates.
     Functions,
+    /// One JSON object per class (JSONL) — per-class size + LCOM4 cohesion. Raw rows.
+    Classes,
 }
 
 fn main() -> ExitCode {
@@ -795,6 +797,8 @@ fn run_metrics(
 
     if let MetricsFormat::Functions = format {
         print_function_rows(&per_file);
+    } else if let MetricsFormat::Classes = format {
+        print_class_rows(&per_file);
     } else {
         let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
         let repo = aggregate(&just_metrics);
@@ -802,7 +806,7 @@ fn run_metrics(
             MetricsFormat::Text => print_metrics_table(&repo),
             MetricsFormat::Json => println!("{}", metrics_json(&repo)),
             MetricsFormat::Github => println!("{}", metrics_markdown(&repo)),
-            MetricsFormat::Functions => unreachable!(),
+            MetricsFormat::Functions | MetricsFormat::Classes => unreachable!(),
         }
         if let Some(dir) = badges {
             let settings = load_badge_settings(config_path)?;
@@ -924,6 +928,30 @@ fn print_function_rows(per_file: &[MeasuredFile]) {
     }
 }
 
+/// Emit one JSONL row per class: size (methods, attributes) + LCOM4 cohesion. The class-level
+/// discovery feed, mirroring `print_function_rows`.
+fn print_class_rows(per_file: &[MeasuredFile]) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for file in per_file {
+        for class in &file.metrics.classes {
+            let _ = writeln!(out, "{}", class_row(&file.path, class));
+        }
+    }
+}
+
+/// Build the JSONL row for one class. Split out so its shape can be unit-tested.
+fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::Value {
+    serde_json::json!({
+        "file": path,
+        "class": class.name,
+        "loc": class.loc,
+        "methods": class.methods,
+        "attributes": class.attributes,
+        "lcom4": class.lcom4,
+    })
+}
+
 /// Build the JSONL row for one function. Split out so its shape can be unit-tested.
 fn function_row(
     path: &str,
@@ -939,10 +967,12 @@ fn function_row(
         "file": path,
         "function": function.name,
         "loc": function.loc,
+        "ncss": function.ncss,
         "cyclomatic": function.cyclomatic,
         "cognitive": function.cognitive,
         "max_nesting": function.max_nesting,
         "params": function.params,
+        "exits": function.exits,
         "file_loc": file.loc,
         "file_comment_density": comment_density,
     })
@@ -1269,6 +1299,29 @@ mod tests {
         // 1 comment line over the file's physical lines.
         let density = row["file_comment_density"].as_f64().unwrap();
         assert!(density > 0.0 && density < 1.0, "got {density}");
+    }
+
+    #[test]
+    fn class_row_has_size_and_cohesion_fields() {
+        let source = "\
+class Counter:
+    def __init__(self):
+        self.total = 0
+    def add(self, n):
+        self.total += n
+    def show(self):
+        return self.total
+";
+        let parsed = parse(source).unwrap();
+        let metrics = file_metrics(source, &parsed);
+        let row = class_row("pkg/m.py", &metrics.classes[0]);
+
+        assert_eq!(row["file"], "pkg/m.py");
+        assert_eq!(row["class"], "Counter");
+        assert_eq!(row["methods"], 3);
+        assert_eq!(row["attributes"], 1); // self.total
+        assert_eq!(row["lcom4"], 1, "add/show share self.total");
+        assert!(row["loc"].as_u64().unwrap() >= 7);
     }
 
     #[test]
