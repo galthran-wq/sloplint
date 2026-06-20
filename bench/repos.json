@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "Benchmark manifest. Two cohorts label code by QUALITY, not authorship:",
+    "  - 'clean'  = high-quality, widely-respected Python a good engineer is proud of.",
+    "  - 'slop'   = low-quality / vibe-coded Python that is dense with smells.",
+    "Vibe-coded repos are just a convenient SOURCE of slop; any rule we mine from this",
+    "data must still flag BADNESS, never AI authorship (see slop-is-badness-not-provenance).",
+    "",
+    "Each entry: name, url, ref (tag/branch/sha), cohort, paths (dirs to measure).",
+    "sloplint only reads .py files, so paths ['.'] safely measures the Python subset of a",
+    "mixed-language repo. run_manifest.json records the resolved sha after each run, so a run",
+    "reproduces even from a moving branch. Edit freely.",
+    "",
+    "HOW THE slop[] REPOS WERE PICKED (see find_slop_gharchive.py):",
+    "  1. DISCOVER candidates from GH Archive (https://data.gharchive.org) hourly dumps:",
+    "     stream a sample of hours, grep PushEvent payloads for the AI-authorship trailers",
+    "     'Generated with Claude Code' / 'Co-Authored-By: Claude' / 'Made with Cursor'.",
+    "     GH Archive needs no auth and is NOT subject to GitHub's commit-search rate limit.",
+    "  2. SCORE each candidate with the GitHub CORE API only (5000/hr, never search):",
+    "       - /repos/{r}/languages          -> python_frac (keep >= 0.6)",
+    "       - /repos/{r}                     -> size_kb (floor + cap, skip monster trees)",
+    "       - paginate /repos/{r}/commits   -> ai_frac = WHOLE-HISTORY share of commits",
+    "         carrying a trailer (we trust whole-history, not just the last 100 commits).",
+    "     Keep ai_frac >= ~0.4 over a mature history => genuinely vibe-coded.",
+    "  Provenance only SELECTS candidates; each then earns 'slop' by measuring badly.",
+    "  Established/popular repos that merely use AI assist are NOT slop and are excluded",
+    "  (e.g. borgbackup/borg 13k stars, getsentry/skills) per slop-is-badness-not-provenance.",
+    "  Each slop entry records its measured python_frac, ai_frac, total_commits, size_kb."
+  ],
+  "clean": [
+    {"name": "flask", "url": "https://github.com/pallets/flask", "ref": "3.0.3", "paths": ["src/flask"]},
+    {"name": "requests", "url": "https://github.com/psf/requests", "ref": "v2.32.3", "paths": ["src/requests"]},
+    {"name": "rich", "url": "https://github.com/Textualize/rich", "ref": "v13.7.1", "paths": ["rich"]},
+    {"name": "click", "url": "https://github.com/pallets/click", "ref": "8.1.7", "paths": ["src/click"]},
+    {"name": "httpx", "url": "https://github.com/encode/httpx", "ref": "0.27.0", "paths": ["httpx"]},
+    {"name": "sqlalchemy", "url": "https://github.com/sqlalchemy/sqlalchemy", "ref": "rel_2_0_30", "paths": ["lib/sqlalchemy"]},
+    {"name": "black", "url": "https://github.com/psf/black", "ref": "24.4.2", "paths": ["src/black"]},
+    {"name": "pydantic", "url": "https://github.com/pydantic/pydantic", "ref": "74a0d3a7bb5d0114fc99aa2179a0821528d3f67d", "paths": ["pydantic"]}
+  ],
+  "slop": [
+    {"name": "research-agent", "url": "https://github.com/brandonmbehring-dev/research-agent", "ref": "fbbfe47bd6a67b6322ddd81d28fa48afd7e17d8e", "paths": ["."], "python_frac": 0.997, "size_kb": 615, "ai_frac": 0.988, "total_commits": 83},
+    {"name": "nf-metro", "url": "https://github.com/pinin4fjords/nf-metro", "ref": "241606044569369edaa393232d628c0778d1a0f7", "paths": ["."], "python_frac": 0.993, "size_kb": 18933, "ai_frac": 0.662, "total_commits": 982},
+    {"name": "jfox", "url": "https://github.com/zhuxixi/jfox", "ref": "10a0f1d2d9d9adba035d74450756eb9a3744e0de", "paths": ["."], "python_frac": 0.99, "size_kb": 1460, "ai_frac": 0.328, "total_commits": 256},
+    {"name": "ultra-autotrade", "url": "https://github.com/milechy/ultra-autotrade-project", "ref": "5353377bc75c98249706cec8dcaf37aa735b7f07", "paths": ["."], "python_frac": 0.69, "size_kb": 48316, "ai_frac": 0.571, "total_commits": 2148},
+    {"name": "qrspi", "url": "https://github.com/russelltsherman/qrspi", "ref": "9a0346a6cc934deac4d5540b56c1762c21e9548a", "paths": ["."], "python_frac": 0.828, "size_kb": 4406, "ai_frac": 0.864, "total_commits": 596},
+    {"name": "ginkgo", "url": "https://github.com/Kaoruha/GinkGO", "ref": "8876cacd3e8830642281d54f312f5f084e0adf63", "paths": ["."], "python_frac": 0.836, "size_kb": 62419, "ai_frac": 0.514, "total_commits": 1857},
+    {"name": "cwms-tools", "url": "https://github.com/briandconnelly/cwms-tools", "ref": "bd11251e070c00dded8a4de482fa7ba73fe31457", "paths": ["."], "python_frac": 0.999, "size_kb": 797, "ai_frac": 0.608, "total_commits": 125},
+    {"name": "magma-cycling", "url": "https://github.com/stephanejouve/magma-cycling", "ref": "d10fc646305002f79b4cd5900f6ab567a7bcd6a1", "paths": ["."], "python_frac": 0.969, "size_kb": 29204, "ai_frac": 0.628, "total_commits": 1364},
+    {"name": "pm", "url": "https://github.com/aktasbatuhan/pm", "ref": "2a83d43afab0c406deba1662d005104382f1072f", "paths": ["."], "python_frac": 0.909, "ai_frac": 0.547, "total_commits": 86, "size_kb": 4549},
+    {"name": "diff-diff", "url": "https://github.com/igerber/diff-diff", "ref": "30c2cb96c99c3b3a2131b534d2bed8b65e358e1c", "paths": ["."], "python_frac": 0.96, "ai_frac": 0.754, "total_commits": 2923, "size_kb": 24276},
+    {"name": "jdocmunch-mcp", "url": "https://github.com/jgravelle/jdocmunch-mcp", "ref": "ea10c1d5ed3e53e695034ddbe9ef68ebac8983f7", "paths": ["."], "python_frac": 0.996, "ai_frac": 0.7, "total_commits": 203, "size_kb": 7124}
+  ]
+}
