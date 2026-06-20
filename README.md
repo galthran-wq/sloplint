@@ -322,6 +322,26 @@ descriptive distributions for tracking a repo over time.
 
 [ck]: https://doi.org/10.1109/32.295895
 
+### Module size
+
+The third leg of the size triad (#107): oversized **functions** (cyclomatic tiers) and **classes**
+(`wmc_risk`) have reporting; oversized **modules** are the file-level counterpart. `--format json`
+emits, per profile:
+
+```jsonc
+"module_nloc": { "avg": 88.4, "max": 6531, "p95": 412 },
+"module_size_risk": { "low": 980, "moderate": 47, "high": 19, "very_high": 11 }
+// bands by NLOC:  low ≤250   moderate 251–500   high 501–1000   very_high >1000
+```
+
+`nloc` is **non-comment, non-blank** lines (string-literal/docstring content counts; blank and
+comment-only lines don't). A **god-module** — a single multi-thousand-line file — is otherwise
+invisible: its lines vanish into `total_loc` and the average. The histogram tells "47 files over
+1000 NLOC" apart from "one big generated file", which `max`/`avg` collapse. As with the function
+and class tiers, NLOC has no canonical hard threshold (SonarQube's ~750–1000-line guidance is the
+starting point), so the bands are **descriptive, never a gate** — high `high`/`very_high` counts
+flag files to *read*, not defects.
+
 ### Package & module architecture metrics
 
 `sloplint metrics` also analyzes the project's **first-party import graph** — the metrics the
