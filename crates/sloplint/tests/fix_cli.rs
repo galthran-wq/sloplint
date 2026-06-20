@@ -54,7 +54,10 @@ fn fix_deletes_banned_comments_in_place() {
     assert_eq!(code, 0, "stderr: {stderr}");
     assert!(stderr.contains("fixed 3 issue(s)"), "stderr: {stderr}");
     // Inline comments lose just the trailing `  # ...`; own-line comments lose the whole line.
-    assert_eq!(read(&project, "a.py"), "def f():\n    x = 1\n    return x\n");
+    assert_eq!(
+        read(&project, "a.py"),
+        "def f():\n    x = 1\n    return x\n"
+    );
 }
 
 #[test]

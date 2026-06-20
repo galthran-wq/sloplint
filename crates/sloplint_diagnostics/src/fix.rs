@@ -203,8 +203,16 @@ mod tests {
         // "abXcdYe" -> delete X (2..3) and Y (5..6) -> "abcde".
         let source = "abXcdYe";
         let diags = [
-            diag_with("A", range(2, 3), Some(Fix::safe_edit(Edit::deletion(range(2, 3))))),
-            diag_with("B", range(5, 6), Some(Fix::safe_edit(Edit::deletion(range(5, 6))))),
+            diag_with(
+                "A",
+                range(2, 3),
+                Some(Fix::safe_edit(Edit::deletion(range(2, 3)))),
+            ),
+            diag_with(
+                "B",
+                range(5, 6),
+                Some(Fix::safe_edit(Edit::deletion(range(5, 6)))),
+            ),
         ];
         let applied = apply(source, &diags, false);
         assert_eq!(applied.output, "abcde");
@@ -216,8 +224,16 @@ mod tests {
         // Two fixes touching overlapping ranges: only the first (by start) is applied.
         let source = "0123456789";
         let diags = [
-            diag_with("A", range(2, 6), Some(Fix::safe_edit(Edit::deletion(range(2, 6))))),
-            diag_with("B", range(4, 8), Some(Fix::safe_edit(Edit::deletion(range(4, 8))))),
+            diag_with(
+                "A",
+                range(2, 6),
+                Some(Fix::safe_edit(Edit::deletion(range(2, 6)))),
+            ),
+            diag_with(
+                "B",
+                range(4, 8),
+                Some(Fix::safe_edit(Edit::deletion(range(4, 8)))),
+            ),
         ];
         let applied = apply(source, &diags, false);
         assert_eq!(applied.fixed, vec![0]);

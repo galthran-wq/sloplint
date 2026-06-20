@@ -654,9 +654,7 @@ fn run_check(
         // Remaining findings were located in the pre-fix source, so once we've actually rewritten
         // files their reported line:col can be stale. Say so, rather than print misleading numbers.
         if fixed > 0 && findings > 0 {
-            eprintln!(
-                "sloplint: note: positions above predate --fix; re-run to refresh them"
-            );
+            eprintln!("sloplint: note: positions above predate --fix; re-run to refresh them");
         }
     }
 
