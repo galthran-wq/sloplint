@@ -35,16 +35,16 @@ mod tests {
     #[test]
     fn reads_claude_post_tool_use_shape() {
         let json = r#"{ "tool_name": "Edit", "tool_input": { "file_path": "/repo/src/app.py", "file_text": "x" } }"#;
-        assert_eq!(
-            extract_hook_path(json).as_deref(),
-            Some("/repo/src/app.py")
-        );
+        assert_eq!(extract_hook_path(json).as_deref(), Some("/repo/src/app.py"));
     }
 
     #[test]
     fn reads_cursor_after_file_edit_shape() {
         let json = r#"{ "file_path": "/repo/lib/util.py", "edits": [] }"#;
-        assert_eq!(extract_hook_path(json).as_deref(), Some("/repo/lib/util.py"));
+        assert_eq!(
+            extract_hook_path(json).as_deref(),
+            Some("/repo/lib/util.py")
+        );
     }
 
     #[test]

@@ -377,10 +377,7 @@ fn run_init(tools: &[InitTool], dry_run: bool) -> anyhow::Result<()> {
                 );
             }
             init::Action::Write(contents) if dry_run => {
-                println!(
-                    "{}: would write {rel}:\n\n{contents}",
-                    tool.display_name()
-                );
+                println!("{}: would write {rel}:\n\n{contents}", tool.display_name());
             }
             init::Action::Write(contents) => {
                 if let Some(parent) = path.parent() {

@@ -171,7 +171,11 @@ fn hook_config_error_does_not_masquerade_as_a_finding() {
     let project = make_project("hookbadcfg");
     let file = project.join("app.py");
     std::fs::write(&file, "x = 1\n").unwrap();
-    std::fs::write(project.join("sloplint.toml"), "this is not = valid toml [[[\n").unwrap();
+    std::fs::write(
+        project.join("sloplint.toml"),
+        "this is not = valid toml [[[\n",
+    )
+    .unwrap();
 
     let payload = format!(r#"{{"tool_input":{{"file_path":"{}"}}}}"#, file.display());
     let (_, _, code) = run_with_stdin(&project, &["check", "--hook"], &payload);
@@ -183,8 +187,11 @@ fn hook_config_error_does_not_masquerade_as_a_finding() {
 fn hook_ignores_non_python_and_missing_paths() {
     let project = make_project("hookskip");
     // A non-Python edit (Cursor afterFileEdit shape) -> nothing to lint, exit 0.
-    let (_, _, code) =
-        run_with_stdin(&project, &["check", "--hook"], r#"{"file_path":"README.md"}"#);
+    let (_, _, code) = run_with_stdin(
+        &project,
+        &["check", "--hook"],
+        r#"{"file_path":"README.md"}"#,
+    );
     assert_eq!(code, 0);
     // A payload with no path at all (e.g. a Bash tool call) -> exit 0.
     let (_, _, code2) = run_with_stdin(&project, &["check", "--hook"], r#"{"tool_name":"Bash"}"#);
