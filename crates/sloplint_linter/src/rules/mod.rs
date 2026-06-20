@@ -5,4 +5,5 @@
 
 pub mod comments;
 pub mod duplication;
+pub mod padding;
 pub mod structure;

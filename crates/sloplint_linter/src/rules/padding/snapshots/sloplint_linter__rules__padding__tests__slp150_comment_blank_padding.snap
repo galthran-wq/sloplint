@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/padding/mod.rs
+expression: rendered
+---
+7:5 SLP150 [warning] function `accumulate`: 57% of its 14 lines are comments or blanks — the code is padded with narration and spacing, not logic

@@ -30,7 +30,9 @@ cargo run -p sloplint -- parse file.py                  # dump AST + tokens (deb
 ```
 
 Comments are banned by default; relax per-path in `sloplint.toml`. Heuristic rules
-(`SLP001/002/040/060`) are preview — enable with `--preview`.
+(`SLP001/002/040/060/150`) are preview — enable with `--preview`. `SLP150` flags functions
+whose physical size is mostly comment/blank padding rather than code (thresholds
+`padding_min_lines` / `padding_max_ratio` under `[limits]`).
 
 ## GitHub Action
 

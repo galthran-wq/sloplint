@@ -54,6 +54,12 @@ pub struct Limits {
     pub max_identifier_words: usize,
     /// SLP090: maximum `.py` modules directly in one directory before it's "flat fanout".
     pub dir_max_modules: usize,
+    /// SLP150: minimum own lines a function must have before its comment/blank padding ratio
+    /// is judged — small functions are too noisy.
+    pub padding_min_lines: usize,
+    /// SLP150: comment+blank lines as a fraction of a function's own lines (0.0–1.0) at/above
+    /// which it's flagged as padded.
+    pub padding_max_ratio: f64,
 }
 
 impl Default for Limits {
@@ -63,6 +69,8 @@ impl Default for Limits {
             nesting_max_depth: 4,
             max_identifier_words: 4,
             dir_max_modules: 15,
+            padding_min_lines: 10,
+            padding_max_ratio: 0.5,
         }
     }
 }
