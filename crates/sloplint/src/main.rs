@@ -5,6 +5,7 @@
 //!   run cross-file clone detection (SLP020), and report all findings.
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::{env, fs};
@@ -100,6 +101,9 @@ enum MetricsFormat {
     Json,
     /// GitHub-flavored markdown summary (a PR-comment line + risk-tier table).
     Github,
+    /// One JSON object per function (JSONL) — the per-function feature dump for the
+    /// benchmark / rule-discovery harness. Raw rows, not aggregates.
+    Functions,
 }
 
 fn main() -> ExitCode {
@@ -474,18 +478,22 @@ fn run_metrics(
             metrics,
         });
     }
-    let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
-    let repo = aggregate(&just_metrics);
 
-    match format {
-        MetricsFormat::Text => print_metrics_table(&repo),
-        MetricsFormat::Json => println!("{}", metrics_json(&repo)),
-        MetricsFormat::Github => println!("{}", metrics_markdown(&repo)),
-    }
-
-    if let Some(dir) = badges {
-        let settings = load_badge_settings(config_path)?;
-        write_badges(dir, &repo, &settings)?;
+    if let MetricsFormat::Functions = format {
+        print_function_rows(&per_file);
+    } else {
+        let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
+        let repo = aggregate(&just_metrics);
+        match format {
+            MetricsFormat::Text => print_metrics_table(&repo),
+            MetricsFormat::Json => println!("{}", metrics_json(&repo)),
+            MetricsFormat::Github => println!("{}", metrics_markdown(&repo)),
+            MetricsFormat::Functions => unreachable!(),
+        }
+        if let Some(dir) = badges {
+            let settings = load_badge_settings(config_path)?;
+            write_badges(dir, &repo, &settings)?;
+        }
     }
 
     // CI gates: run both so all offenders are reported, then fail if either tripped.
@@ -587,6 +595,43 @@ fn gate_offenders(
         }
     }
     offenders
+}
+
+/// Emit one JSONL row per function: raw per-function features plus the enclosing file's
+/// length and comment density. This is the discovery feed — `analyze.py` mines these rows
+/// for features that separate the slop and clean cohorts.
+fn print_function_rows(per_file: &[MeasuredFile]) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for file in per_file {
+        for function in &file.metrics.functions {
+            let _ = writeln!(out, "{}", function_row(&file.path, &file.metrics, function));
+        }
+    }
+}
+
+/// Build the JSONL row for one function. Split out so its shape can be unit-tested.
+fn function_row(
+    path: &str,
+    file: &FileMetrics,
+    function: &sloplint_metrics::FunctionMetrics,
+) -> serde_json::Value {
+    let comment_density = if file.loc == 0 {
+        0.0
+    } else {
+        file.comment_lines as f64 / file.loc as f64
+    };
+    serde_json::json!({
+        "file": path,
+        "function": function.name,
+        "loc": function.loc,
+        "cyclomatic": function.cyclomatic,
+        "cognitive": function.cognitive,
+        "max_nesting": function.max_nesting,
+        "params": function.params,
+        "file_loc": file.loc,
+        "file_comment_density": comment_density,
+    })
 }
 
 fn print_metrics_table(repo: &RepoMetrics) {
@@ -861,6 +906,25 @@ mod tests {
             source: String::new(),
             diagnostics: Vec::new(),
         }
+    }
+
+    #[test]
+    fn function_row_has_features_and_file_comment_density() {
+        let source = "# a comment\ndef f(a, b):\n    if a:\n        return b\n    return a\n";
+        let parsed = parse(source).unwrap();
+        let metrics = file_metrics(source, &parsed);
+        let row = function_row("pkg/m.py", &metrics, &metrics.functions[0]);
+
+        assert_eq!(row["file"], "pkg/m.py");
+        assert_eq!(row["function"], "f");
+        assert_eq!(row["params"], 2);
+        assert!(
+            row["cyclomatic"].as_u64().unwrap() >= 2,
+            "the `if` is a branch"
+        );
+        // 1 comment line over the file's physical lines.
+        let density = row["file_comment_density"].as_f64().unwrap();
+        assert!(density > 0.0 && density < 1.0, "got {density}");
     }
 
     #[test]
