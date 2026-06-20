@@ -117,3 +117,14 @@ fn json_rollup_reports_cyclic_tangles() {
     let pct = cycles["pct_modules_in_cycles"].as_f64().unwrap();
     assert!((pct - 3.0 / 7.0).abs() < 1e-9, "pct = {pct}");
 }
+
+#[test]
+fn json_rollup_reports_propagation_cost() {
+    let value: Value = serde_json::from_str(&run("json")).expect("metrics --format json is valid");
+    let pc = value["packages"]["propagation_cost"].as_f64().unwrap();
+
+    // Reachability (incl. self) over the 7 modules: the 3 cycle members each reach the 4-node
+    // {a, b, c, helper} set; proj/proj.sub/c/top each reach only themselves.
+    // (4*3 + 1*4) / 7^2 = 16/49.
+    assert!((pc - 16.0 / 49.0).abs() < 1e-9, "propagation_cost = {pc}");
+}
