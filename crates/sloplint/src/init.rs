@@ -97,7 +97,10 @@ pub enum Action {
     Manual(String),
 }
 
-/// Does any existing PostToolUse / afterFileEdit entry already invoke sloplint?
+/// Does any existing PostToolUse / afterFileEdit entry already invoke sloplint? This is a
+/// substring heuristic on the command — enough to keep `init` idempotent without parsing each
+/// tool's command grammar. It errs toward "already configured" (skip), never toward a
+/// duplicate, which is the safe direction.
 fn array_mentions_sloplint(arr: &[Value]) -> bool {
     arr.iter().any(|entry| {
         // Claude nests the command under `hooks[].command`; Cursor puts it on `command`.

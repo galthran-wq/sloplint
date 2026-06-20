@@ -176,7 +176,14 @@ fn main() -> ExitCode {
                     eprint!("{text}");
                     ExitCode::from(2)
                 }
-                Err(err) => tool_error(err),
+                // Exit 2 is the "block / feed back to the agent" signal — reserve it strictly
+                // for findings. If sloplint itself can't run (e.g. a malformed sloplint.toml),
+                // exit 1 so the edit proceeds and the agent isn't told its code is bad: both
+                // Claude Code and Cursor treat a non-2 non-zero as a non-blocking hook error.
+                Err(err) => {
+                    eprintln!("sloplint: {err:#}");
+                    ExitCode::from(1)
+                }
             }
         }
         Command::Check {
@@ -364,7 +371,8 @@ fn run_init(tools: &[InitTool], dry_run: bool) -> anyhow::Result<()> {
             }
             init::Action::Manual(snippet) => {
                 println!(
-                    "{}: {rel} already exists — add these lines yourself:\n\n{snippet}",
+                    "{}: {rel} already exists — merge this into it by hand (fold the entry into \
+                     any existing `lint-cmd` list rather than adding a second key):\n\n{snippet}",
                     tool.display_name()
                 );
             }

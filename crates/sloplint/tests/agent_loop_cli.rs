@@ -165,6 +165,21 @@ fn hook_is_silent_on_clean_file() {
 }
 
 #[test]
+fn hook_config_error_does_not_masquerade_as_a_finding() {
+    // A broken sloplint.toml means sloplint can't run — it must NOT exit 2 (the "block the
+    // edit / tell the agent its code is bad" signal), or every edit would be wrongly rejected.
+    let project = make_project("hookbadcfg");
+    let file = project.join("app.py");
+    std::fs::write(&file, "x = 1\n").unwrap();
+    std::fs::write(project.join("sloplint.toml"), "this is not = valid toml [[[\n").unwrap();
+
+    let payload = format!(r#"{{"tool_input":{{"file_path":"{}"}}}}"#, file.display());
+    let (_, _, code) = run_with_stdin(&project, &["check", "--hook"], &payload);
+    assert_ne!(code, 2, "an internal config error must not block the edit");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+#[test]
 fn hook_ignores_non_python_and_missing_paths() {
     let project = make_project("hookskip");
     // A non-Python edit (Cursor afterFileEdit shape) -> nothing to lint, exit 0.
