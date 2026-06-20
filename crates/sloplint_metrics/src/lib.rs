@@ -8,6 +8,7 @@
 pub mod badge;
 pub mod cohesion;
 pub mod graph;
+pub mod modularity;
 
 use badge::{Badge, Color};
 use sloplint_python::ast::visitor::{self, Visitor};

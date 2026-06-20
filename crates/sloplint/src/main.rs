@@ -1100,7 +1100,7 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
         // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles +
-        // propagation cost; modularity from issue #69 will extend this block).
+        // propagation cost + modularity).
         "packages": {
             "modules": summary.modules,
             "packages": summary.packages,
@@ -1109,9 +1109,25 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
             "cycles": cycles_json(graph, summary.modules),
             // Whole-system coupling: density of the module reachability matrix (issue #68).
             "propagation_cost": graph.propagation_cost(),
+            // Newman–Girvan modularity: declared package partition vs. detected (issue #69).
+            "modularity": modularity_json(graph),
         },
     }))
     .unwrap()
+}
+
+/// The modularity rollup for the JSON feed (issue #69): Q of the declared package partition, Q of
+/// the Louvain-detected partition, their community counts, and the gap (detected − declared) — a
+/// large gap means the declared package boundaries don't match the natural structure.
+fn modularity_json(graph: &ImportGraph) -> serde_json::Value {
+    let report = graph.modularity();
+    serde_json::json!({
+        "q_declared": report.q_declared,
+        "communities_declared": report.communities_declared,
+        "q_detected": report.q_detected,
+        "communities_detected": report.communities_detected,
+        "gap": report.gap(),
+    })
 }
 
 /// The cyclic-dependency (SCC) rollup for the JSON feed (issue #66): tangle counts over the
