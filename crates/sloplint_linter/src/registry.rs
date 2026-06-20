@@ -144,10 +144,12 @@ mod tests {
     }
 
     #[test]
-    fn path_override_disables_for_matching_files_only() {
-        let config =
-            Config::from_toml_str("[[overrides]]\npath = \"tests/**\"\nignore = [\"SLP999\"]\n")
-                .unwrap();
+    fn profile_disables_for_matching_files_only() {
+        let config = Config::from_toml_str(
+            "[[profiles]]\nname = \"tests\"\nmatch = [\"tests/**\"]\nignore = [\"SLP999\"]\n\
+             [[profiles]]\nname = \"production\"\ndefault = true\n",
+        )
+        .unwrap();
         let selector = config.prepare().unwrap();
         assert_eq!(
             registry().enabled_for(&selector, "tests/test_app.py").len(),

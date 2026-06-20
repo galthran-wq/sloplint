@@ -47,19 +47,16 @@ fn json_emits_production_top_level_and_a_test_panel_in_one_run() {
     assert_eq!(code, 0);
     let value: Value = serde_json::from_str(&stdout).expect("valid JSON");
 
-    // Top level is the PRODUCTION panel: app/core.py's `run` + `build`, one class `Engine`.
-    assert_eq!(value["functions"], 2, "production: run + build");
-    assert_eq!(value["classes"], 1, "production: Engine");
+    // Every profile gets a panel under `profiles`. Production: app/core.py's `run` + `build`,
+    // one class `Engine`.
+    let prod = &value["profiles"]["production"];
+    assert_eq!(prod["functions"], 2, "production: run + build");
+    assert_eq!(prod["classes"], 1, "production: Engine");
 
     // The test panel sits beside it — both from the single run.
-    assert_eq!(
-        value["tests"]["functions"], 2,
-        "test: test_runs + test_negative"
-    );
-    assert_eq!(
-        value["tests"]["classes"], 0,
-        "no classes in the test module"
-    );
+    let tests = &value["profiles"]["tests"];
+    assert_eq!(tests["functions"], 2, "test: test_runs + test_negative");
+    assert_eq!(tests["classes"], 0, "no classes in the test module");
 
     // test_proxies is the whole-project split (always over all files), unaffected by the panels.
     let proxies = &value["test_proxies"];

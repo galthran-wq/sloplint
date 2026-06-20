@@ -62,10 +62,11 @@ pub struct FileTestStats {
     pub assertions: usize,
 }
 
-/// Gather the per-file test signals for one parsed file. `loc` is the file's physical line
-/// count (passed in so this shares `FileMetrics`'s definition rather than recomputing it).
-pub fn file_test_stats(path: &str, loc: usize, parsed: &Parsed<ModModule>) -> FileTestStats {
-    let is_test = is_test_file(path);
+/// Gather the per-file test signals for one parsed file. `loc` is the file's physical line count
+/// (passed in so this shares `FileMetrics`'s definition rather than recomputing it). `is_test` is
+/// the caller's classification — the CLI binds it to the `tests` profile (#96) so the proxies and
+/// the metric panels agree; [`is_test_file`] is the path heuristic that classifier defaults to.
+pub fn file_test_stats(is_test: bool, loc: usize, parsed: &Parsed<ModModule>) -> FileTestStats {
     if !is_test {
         return FileTestStats {
             is_test: false,
@@ -288,7 +289,7 @@ class TestThing:
         assert False  # not test_* — not counted
 ";
         let parsed = parse_src(source);
-        let stats = file_test_stats("test_mod.py", source.lines().count(), &parsed);
+        let stats = file_test_stats(true, source.lines().count(), &parsed);
         assert!(stats.is_test);
         // test_one, test_two, TestThing.test_method.
         assert_eq!(stats.test_functions, 3);
@@ -300,8 +301,8 @@ class TestThing:
     fn production_file_carries_only_size() {
         let source = "def test_looks_like_a_test():\n    assert True\n";
         let parsed = parse_src(source);
-        // Path is not a test path, so the test-shaped contents are ignored.
-        let stats = file_test_stats("src/module.py", source.lines().count(), &parsed);
+        // Classified as production (is_test = false), so the test-shaped contents are ignored.
+        let stats = file_test_stats(false, source.lines().count(), &parsed);
         assert!(!stats.is_test);
         assert_eq!(stats.test_functions, 0);
         assert_eq!(stats.assertions, 0);
@@ -337,7 +338,7 @@ def test_mock_calls():
     self.assertEqual(a, b)      # counts
 ";
         let parsed = parse_src(source);
-        let stats = file_test_stats("test_mocks.py", source.lines().count(), &parsed);
+        let stats = file_test_stats(true, source.lines().count(), &parsed);
         assert_eq!(stats.assertions, 1);
     }
 
@@ -349,7 +350,7 @@ def test_fail_path():
     job.fail()  # unrelated .fail() — not an assertion
 ";
         let parsed = parse_src(source);
-        let stats = file_test_stats("test_x.py", source.lines().count(), &parsed);
+        let stats = file_test_stats(true, source.lines().count(), &parsed);
         assert_eq!(stats.assertions, 1);
     }
 

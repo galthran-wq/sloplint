@@ -73,15 +73,17 @@ fn classes_feed_reports_wmc_and_first_party_dit() {
 fn json_reports_wmc_and_dit_aggregates() {
     let value: Value =
         serde_json::from_str(&run("json")).expect("metrics --format json is valid JSON");
+    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    let prod = &value["profiles"]["production"];
 
-    assert_eq!(value["classes"], 4, "Shape, Circle, Unit, Panel");
+    assert_eq!(prod["classes"], 4, "Shape, Circle, Unit, Panel");
     // Heaviest class is Shape (WMC 4); deepest is Unit (DIT 2).
-    assert_eq!(value["max_wmc"], 4);
-    assert_eq!(value["max_dit"], 2);
+    assert_eq!(prod["max_wmc"], 4);
+    assert_eq!(prod["max_dit"], 2);
     // avg_dit = (0 + 1 + 2 + 0) / 4 = 0.75.
-    let avg_dit = value["avg_dit"].as_f64().unwrap();
+    let avg_dit = prod["avg_dit"].as_f64().unwrap();
     assert!((avg_dit - 0.75).abs() < 1e-9, "avg_dit = {avg_dit}");
     // avg_wmc = (4 + 2 + 3 + Panel's 1) / 4 = 2.5.
-    let avg_wmc = value["avg_wmc"].as_f64().unwrap();
+    let avg_wmc = prod["avg_wmc"].as_f64().unwrap();
     assert!((avg_wmc - 2.5).abs() < 1e-9, "avg_wmc = {avg_wmc}");
 }

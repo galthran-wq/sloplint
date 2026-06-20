@@ -69,7 +69,7 @@ Once installed, `sloplint` is a native binary on your `PATH`:
 sloplint check path/to/code              # lint (exit 1 on findings)
 sloplint check src --format sarif        # SARIF / json / github / text
 sloplint metrics src                     # software-quality metrics table (production code)
-sloplint metrics src --scope all         # both production and test panels
+sloplint metrics src --scope all         # a panel for every profile (default: production only)
 sloplint metrics src --format github     # PR-summary markdown (CC risk tiers)
 sloplint metrics src --format packages   # per-package feed: coupling, cycles, abstractness (JSONL)
 sloplint metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
@@ -143,16 +143,35 @@ extra = []                    # extra distribution names to treat as declared (s
 # include = ["cyclomatic-risk"]   # per-metric badges; omit = all, [] = none
 summary = []                  # metrics to fold into one combined `sloplint` badge
 
-[[overrides]]                 # relax rules for matching paths (gitignore-style globs)
-path = "tests/**"
-ignore = ["SLP010"]
+# Profiles (#96): named, path-matched slices of the tree. Each carries its own rule deltas over
+# the global config AND defines a metrics panel. Omit the section entirely to get the built-in
+# `tests` + `production` pair. The values above ([limits]/[clone]) are the global defaults a
+# profile inherits; a profile overrides only the keys it sets.
+[[profiles]]
+name = "tests"                # matched first; a file belongs to every profile whose globs hit it
+match = ["tests/**", "test_*.py", "*_test.py", "conftest.py"]
+# exclude = ["tests/fixtures/**"]   # the "not" pattern — carve paths back out of `match`
+ignore = ["SLP010"]           # rule deltas for this profile (accumulate across matches)
 allow_comments = true         # permit comments here (otherwise banned)
+limits = { file_max_lines = 1000 }   # threshold deltas (only the keys set here change)
+
+[[profiles]]
+name = "production"
+default = true                # the catch-all: claims every file no other profile matched
 ```
+
+Profiles replace the old `[[overrides]]`. For a file in more than one profile, rule `ignore`s
+accumulate and threshold overrides resolve in declaration order (last writer wins). `metrics`
+reports a panel per profile (see below); `check` lints each file with its profile's effective
+config. Cross-file/directory rules (SLP020 clones, SLP090 fanout) use the global thresholds, since
+their unit of analysis spans profiles. Keep a `default` profile unless you mean it — a file that
+matches no profile is linted with the global config but is omitted from every metrics panel.
 
 ### Inline suppression (`# noqa`)
 
-`overrides` mute a rule across a whole path; for a single intentional case, acknowledge it **at the
-site** with Ruff's familiar `# noqa` — sloplint reads it exactly as Ruff does:
+A profile's `ignore` mutes a rule across a whole path slice; for a single intentional case,
+acknowledge it **at the site** with Ruff's familiar `# noqa` — sloplint reads it exactly as Ruff
+does:
 
 ```python
 def request(self, ...):   # noqa: SLP020  (sync/async mirror of AsyncClient.request)
@@ -166,10 +185,10 @@ def request(self, ...):   # noqa: SLP020  (sync/async mirror of AsyncClient.requ
 
 A `# noqa` is scoped to its line — the finding's reported line (the `line:col` shown in output), so
 for a whole-function finding it goes on the `def` line. This is line-level only, like Ruff;
-broad/file/directory suppression stays in config (`ignore` and per-path `overrides`). Duplication is
-the motivating case: SLP020 is on by default ("no un-acknowledged duplication"), and a clone is
-reported at *each* end — so silencing a whole pair takes a `# noqa` at each end, each documenting
-why that twin is intentional.
+broad/file/directory suppression stays in config (global `ignore` and per-profile `ignore`).
+Duplication is the motivating case: SLP020 is on by default ("no un-acknowledged duplication"), and
+a clone is reported at *each* end — so silencing a whole pair takes a `# noqa` at each end, each
+documenting why that twin is intentional.
 
 **Running alongside Ruff:** Ruff reads the same `# noqa` comments, and since `SLP*` aren't Ruff
 codes, its RUF100 (unused-noqa) would otherwise flag `# noqa: SLP020` as unnecessary. Tell Ruff to
@@ -182,6 +201,13 @@ external = ["SLP"]
 
 Symmetrically, sloplint only ever acts on its own `SLP*` codes and never reports on Ruff directives
 like `# noqa: E501`.
+=======
+Profiles replace the old `[[overrides]]`. For a file in more than one profile, rule `ignore`s
+accumulate and threshold overrides resolve in declaration order (last writer wins). `metrics`
+reports a panel per profile (see below); `check` lints each file with its profile's effective
+config. Cross-file/directory rules (SLP020 clones, SLP090 fanout) use the global thresholds, since
+their unit of analysis spans profiles.
+>>>>>>> 690a946 (metrics+config: generalize the prod/test split into configurable profiles (#96))
 
 ## Metrics & badges
 
@@ -196,22 +222,23 @@ sloplint metrics src --max-cyclomatic 10   # fail if any function's cyclomatic c
 sloplint metrics src --max-cognitive 15    # ditto for SonarSource cognitive complexity
 ```
 
-### Production vs test partition
+### Per-profile metric panels
 
-Production and test code have different healthy norms — tests are legitimately longer, more
-repetitive, and less type-annotated — so collapsing them into one set of aggregates misleads in
-either direction (a heavy test-support class can dominate the "worst class", a thin test suite
-can drag down the averages). `sloplint metrics` keeps them apart, in **one run** (#96). Files are
-classified by path (`test_*.py`/`*_test.py`/`conftest.py`/a `tests/` segment).
+Different parts of a codebase have different healthy norms — test code is legitimately longer,
+more repetitive, and less type-annotated; generated code and examples differ again — so collapsing
+them into one set of aggregates misleads in either direction (a heavy test-support class can
+dominate the "worst class", a thin test suite can drag down the averages). `sloplint metrics`
+reports a panel **per profile** (see [Configuration](#configuration)), in **one run** (#96). With
+zero config that's the built-in `tests` vs `production` split.
 
-- **`--scope {production,tests,all}`** (default `production`) selects which partition the text
-  view and the per-unit feeds (`--format functions`/`classes`/`packages`) report. `production`
-  is the headline — what judges quality; `tests` reports only test files; `all` prints both
-  panels. The **packages graph is built from the scoped modules only**, so a test importing
-  production no longer manufactures cycles or coupling in the production architecture metrics.
-- **`--format json`** ignores `--scope` and is always comprehensive: the **production** panel at
-  the top level (the honest default), the full **`tests`** panel beside it, and the project-wide
-  **`test_proxies`** split (always over all files). One invocation yields every view — no more
+- **`--scope <profile>`** (default: the `default` profile, `production` out of the box) selects
+  which profile the text view and the per-unit feeds (`--format functions`/`classes`/`packages`)
+  report; `--scope all` prints a panel for every profile. The **packages graph is built from the
+  scoped profile's modules only**, so a file in one profile importing another can't manufacture
+  cycles or coupling in the first profile's architecture metrics.
+- **`--format json`** ignores `--scope` and is always comprehensive: a panel for every profile
+  under **`profiles`** (keyed by name), plus the project-wide **`test_proxies`** split (always
+  over all files, bound to the `tests` profile). One invocation yields every view — no more
   pointing at the package dir, `rsync --exclude tests`, and a second whole-repo pass just to
   recover the test figures.
 
