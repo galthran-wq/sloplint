@@ -26,6 +26,7 @@ use sloplint_linter::config::{BadgeSettings, Config, Selector};
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_metrics::badge::{Badge, Color};
+use sloplint_metrics::graph::{self, ImportGraph, ModuleInput, PackageRow};
 use sloplint_metrics::{aggregate, file_metrics, FileMetrics, FunctionMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged, TextRange};
 use sloplint_report::ReportEntry;
@@ -152,6 +153,9 @@ enum MetricsFormat {
     Functions,
     /// One JSON object per class (JSONL) — per-class size + LCOM4 cohesion. Raw rows.
     Classes,
+    /// One JSON object per package (JSONL) — the first-party import graph collapsed to
+    /// directory level: module count + the packages it imports / is imported by. Raw rows.
+    Packages,
 }
 
 fn main() -> ExitCode {
@@ -763,6 +767,31 @@ fn is_python(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "py")
 }
 
+/// The first-party dotted module name for a discovered `.py` file, for the import graph.
+///
+/// The dotted name must match what `import` statements actually reference, regardless of where
+/// the project sits relative to the working directory. So we find the file's **source root** —
+/// the nearest ancestor directory that is *not* itself a Python package — by walking up while a
+/// directory contains `__init__.py`, then name the module relative to that root. This resolves
+/// `tests/fixtures/proj/a.py` to `proj.a` (not `tests.fixtures.proj.a`) and handles the `src/`
+/// layout for free (the walk stops at `src`, which has no `__init__.py`).
+///
+/// Known limitation (documented): a PEP 420 namespace package (a directory with no
+/// `__init__.py`) is treated as a source-root boundary, so its prefix is dropped from the names
+/// of modules in nested regular sub-packages. Full multi-root namespace handling is out of scope
+/// for this foundation.
+fn module_name(path: &Path) -> Option<graph::ModuleName> {
+    let mut root = path.parent()?;
+    while root.join("__init__.py").is_file() {
+        match root.parent() {
+            Some(parent) => root = parent,
+            None => break,
+        }
+    }
+    let rel = path.strip_prefix(root).ok()?;
+    graph::module_from_path(&rel.to_string_lossy())
+}
+
 /// Compute and report software-quality metrics; optionally emit badges and enforce
 /// complexity gates. Returns `Ok(false)` only when a `--max-*` ceiling is set and some function
 /// exceeds it — the CI gate. Reporting/badge writing always happens first so the numbers are
@@ -776,9 +805,14 @@ fn run_metrics(
     max_cognitive: Option<usize>,
 ) -> anyhow::Result<bool> {
     let (files, _) = discover_python_files(paths);
+    // The package feed and the JSON rollup need the first-party import graph, which is a
+    // whole-project pass (like SLP180): collect every file's module-level imports here, then
+    // build the graph once after the loop.
+    let needs_graph = matches!(format, MetricsFormat::Packages | MetricsFormat::Json);
     // Keep path + source alongside metrics so the gate can name offending functions with a
     // resolved `path:line` location.
     let mut per_file: Vec<MeasuredFile> = Vec::new();
+    let mut module_inputs: Vec<ModuleInput> = Vec::new();
     for path in files {
         let display = path.to_string_lossy().to_string();
         let Ok(source) = fs::read_to_string(&path) else {
@@ -787,6 +821,14 @@ fn run_metrics(
         let Ok(parsed) = parse(&source) else {
             continue;
         };
+        if needs_graph {
+            if let Some(name) = module_name(&path) {
+                module_inputs.push(ModuleInput {
+                    name,
+                    imports: graph::scan_module_imports(&parsed),
+                });
+            }
+        }
         let metrics = file_metrics(&source, &parsed);
         per_file.push(MeasuredFile {
             path: display,
@@ -799,14 +841,23 @@ fn run_metrics(
         print_function_rows(&per_file);
     } else if let MetricsFormat::Classes = format {
         print_class_rows(&per_file);
+    } else if let MetricsFormat::Packages = format {
+        print_package_rows(&ImportGraph::build(module_inputs));
     } else {
         let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
         let repo = aggregate(&just_metrics);
         match format {
             MetricsFormat::Text => print_metrics_table(&repo),
-            MetricsFormat::Json => println!("{}", metrics_json(&repo)),
+            MetricsFormat::Json => {
+                println!(
+                    "{}",
+                    metrics_json(&repo, &ImportGraph::build(module_inputs))
+                )
+            }
             MetricsFormat::Github => println!("{}", metrics_markdown(&repo)),
-            MetricsFormat::Functions | MetricsFormat::Classes => unreachable!(),
+            MetricsFormat::Functions | MetricsFormat::Classes | MetricsFormat::Packages => {
+                unreachable!()
+            }
         }
         if let Some(dir) = badges {
             let settings = load_badge_settings(config_path)?;
@@ -952,6 +1003,28 @@ fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::
     })
 }
 
+/// Emit one JSONL row per package: the first-party import graph collapsed to directory level.
+/// The package-level discovery feed, mirroring `print_function_rows`/`print_class_rows`.
+fn print_package_rows(graph: &ImportGraph) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for row in graph.package_rows() {
+        let _ = writeln!(out, "{}", package_row(&row));
+    }
+}
+
+/// Build the JSONL row for one package. Split out so its shape can be unit-tested.
+fn package_row(row: &PackageRow) -> serde_json::Value {
+    serde_json::json!({
+        "package": row.package,
+        "modules": row.modules,
+        "imports": row.imports,
+        "imported_by": row.imported_by,
+        "efferent": row.imports.len(),
+        "afferent": row.imported_by.len(),
+    })
+}
+
 /// Build the JSONL row for one function. Split out so its shape can be unit-tested.
 fn function_row(
     path: &str,
@@ -998,7 +1071,8 @@ fn print_metrics_table(repo: &RepoMetrics) {
     println!("  comment density     {:.1}%", repo.comment_density * 100.0);
 }
 
-fn metrics_json(repo: &RepoMetrics) -> String {
+fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
+    let summary = graph.summary();
     serde_json::to_string_pretty(&serde_json::json!({
         "files": repo.files,
         "functions": repo.functions,
@@ -1017,6 +1091,14 @@ fn metrics_json(repo: &RepoMetrics) -> String {
         "max_cognitive": repo.max_cognitive,
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
+        // Per-project import-graph rollup (the foundation figures; cycles, propagation cost,
+        // and modularity from issues #66–#69 will extend this block).
+        "packages": {
+            "modules": summary.modules,
+            "packages": summary.packages,
+            "module_edges": summary.module_edges,
+            "package_edges": summary.package_edges,
+        },
     }))
     .unwrap()
 }
@@ -1322,6 +1404,22 @@ class Counter:
         assert_eq!(row["attributes"], 1); // self.total
         assert_eq!(row["lcom4"], 1, "add/show share self.total");
         assert!(row["loc"].as_u64().unwrap() >= 7);
+    }
+
+    #[test]
+    fn package_row_has_module_count_and_coupling() {
+        let row = PackageRow {
+            package: "pkg".to_string(),
+            modules: 2,
+            imports: vec!["pkg.sub".to_string()],
+            imported_by: vec!["app".to_string(), "cli".to_string()],
+        };
+        let value = package_row(&row);
+        assert_eq!(value["package"], "pkg");
+        assert_eq!(value["modules"], 2);
+        assert_eq!(value["imports"], serde_json::json!(["pkg.sub"]));
+        assert_eq!(value["efferent"], 1);
+        assert_eq!(value["afferent"], 2);
     }
 
     #[test]
