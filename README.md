@@ -15,12 +15,12 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | Rule | Stability | What it flags |
 | --- | --- | --- |
 | `SLP010` | stable | Comments — **banned by default** (relax per-path in `sloplint.toml`) |
-| `SLP020` | stable | Cross-file duplicate / near-duplicate functions — copy-paste *and* "same logic, slightly different" (the flagship clone engine) |
+| `SLP020` | stable | Cross-file duplicate / near-duplicate functions — copy-paste *and* "same logic, slightly different" |
 | `SLP030` | stable | Overly defensive `try`/`except` |
 | `SLP050` | stable | Non-ASCII source (e.g. emoji) |
-| `SLP080` | stable | Oversized files (configurable line cap) |
-| `SLP082` | stable | Deep control-flow nesting inside a function |
-| `SLP090` | stable | Flat-directory fanout — too many `.py` modules in one directory |
+| `SLP080` | stable | Oversized files (default: > 400 lines, configurable via `file_max_lines`) |
+| `SLP082` | stable | Deep control-flow nesting inside a function (default: > 4 levels, via `nesting_max_depth`) |
+| `SLP090` | stable | Flat-directory fanout — too many `.py` modules in one directory (default: > 15, via `dir_max_modules`) |
 | `SLP001` | preview | Redundant "what" comments that just restate the code |
 | `SLP002` | preview | Redundant docstrings that just restate the code |
 | `SLP040` | preview | Redundant type hints |
