@@ -1328,6 +1328,9 @@ fn function_row(
         "cognitive": function.cognitive,
         "max_nesting": function.max_nesting,
         "params": function.params,
+        // Caller-facing arity (#108): params minus the self/cls receiver — the Long-Parameter-List
+        // signal. `*args`/`**kwargs` each count once.
+        "arity": function.arity,
         "exits": function.exits,
         // Type-hint coverage (#85): annotated vs. annotatable params, and whether a return type is
         // declared. `annotatable_params` excludes the self/cls receiver and *args/**kwargs.
@@ -1357,6 +1360,16 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
     println!(
         "  CC risk tiers       low {} / moderate {} / high {} / very high {}",
         risk.low, risk.moderate, risk.high, risk.very_high
+    );
+    // Parameter count (caller-facing arity) distribution (#108): Long-Parameter-List prevalence.
+    println!(
+        "  avg/p95/max params  {:.1} / {} / {}",
+        repo.avg_params, repo.p95_params, repo.max_params
+    );
+    let params = repo.param_count_risk;
+    println!(
+        "  arity bands         low {} / moderate {} / high {} / very high {}",
+        params.low, params.moderate, params.high, params.very_high
     );
     println!("  max cognitive       {}", repo.max_cognitive);
     println!("  max nesting         {}", repo.max_nesting);
@@ -1498,6 +1511,20 @@ fn panel_json(
             "moderate": repo.cyclomatic_risk.moderate,
             "high": repo.cyclomatic_risk.high,
             "very_high": repo.cyclomatic_risk.very_high,
+        },
+        // Parameter-count distribution (#108): Long Parameter List prevalence, which `avg` hides.
+        // Caller-facing arity (self/cls excluded, *args/**kwargs once). Bands ≤4 / 5–6 / 7–10 / >10,
+        // descriptive, never a gate.
+        "params": {
+            "avg": repo.avg_params,
+            "max": repo.max_params,
+            "p95": repo.p95_params,
+        },
+        "param_count_risk": {
+            "low": repo.param_count_risk.low,
+            "moderate": repo.param_count_risk.moderate,
+            "high": repo.param_count_risk.high,
+            "very_high": repo.param_count_risk.very_high,
         },
         "max_cognitive": repo.max_cognitive,
         "max_nesting": repo.max_nesting,
@@ -1642,8 +1669,9 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics)], proxies: &TestProxies) -> St
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
+            repo.params_markdown(),
             repo.wmc_markdown(),
             repo.module_size_markdown()
         ));

@@ -135,10 +135,46 @@ impl ModuleSizeTier {
     }
 }
 
+/// Function-arity bands for the Long Parameter List smell (#108) — Fowler's canonical signal that
+/// parameters want bundling into an object. Counts caller-facing [`FunctionMetrics::arity`], not
+/// raw params. No canonical hard threshold (Fowler/Martin suggest keeping arguments ≤3–4), so
+/// **descriptive** bands, never a pass/fail standard. Boundaries (inclusive): **≤4 low**,
+/// **5–6 moderate**, **7–10 high**, **>10 very high**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ParamCountTier {
+    Low,
+    Moderate,
+    High,
+    VeryHigh,
+}
+
+impl ParamCountTier {
+    /// Classify a function's caller-facing arity into its band.
+    pub fn from_arity(arity: usize) -> Self {
+        match arity {
+            0..=4 => ParamCountTier::Low,
+            5..=6 => ParamCountTier::Moderate,
+            7..=10 => ParamCountTier::High,
+            _ => ParamCountTier::VeryHigh,
+        }
+    }
+
+    /// Short, stable label used in tables and JSON.
+    pub fn label(self) -> &'static str {
+        match self {
+            ParamCountTier::Low => "low",
+            ParamCountTier::Moderate => "moderate",
+            ParamCountTier::High => "high",
+            ParamCountTier::VeryHigh => "very high",
+        }
+    }
+}
+
 /// A four-band tier histogram: how many units fall into each `{low, moderate, high, very_high}`
-/// band. Shared by the function cyclomatic tiers (#10), the class WMC tiers (#104), and the module
-/// NLOC tiers (#107) — the bands differ per metric (see [`RiskTier`] / [`WmcTier`] /
-/// [`ModuleSizeTier`]); the bucket shape does not.
+/// band. Shared by the function cyclomatic tiers (#10), the class WMC tiers (#104), the module
+/// NLOC tiers (#107), and the function-arity tiers (#108) — the bands differ per metric (see
+/// [`RiskTier`] / [`WmcTier`] / [`ModuleSizeTier`] / [`ParamCountTier`]); the bucket shape does
+/// not.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RiskHistogram {
     pub low: usize,
@@ -177,6 +213,17 @@ impl RiskHistogram {
         }
     }
 
+    /// Record a function by its arity band (#108) — the Long-Parameter-List counterpart to
+    /// [`Self::record`].
+    fn record_arity(&mut self, arity: usize) {
+        match ParamCountTier::from_arity(arity) {
+            ParamCountTier::Low => self.low += 1,
+            ParamCountTier::Moderate => self.moderate += 1,
+            ParamCountTier::High => self.high += 1,
+            ParamCountTier::VeryHigh => self.very_high += 1,
+        }
+    }
+
     /// The worst tier that actually has a function in it (the headline risk for a badge).
     /// `None` only when there are no functions at all.
     pub fn worst_tier(self) -> Option<RiskTier> {
@@ -211,8 +258,15 @@ pub struct FunctionMetrics {
     pub cognitive: usize,
     /// Deepest nesting of compound statements inside the function.
     pub max_nesting: usize,
-    /// Number of declared parameters.
+    /// Number of declared parameters, including the `self`/`cls` receiver and `*args`/`**kwargs`
+    /// (each variadic counted once). The raw signature width; see [`Self::arity`] for the
+    /// caller-facing count the long-parameter-list metric uses.
     pub params: usize,
+    /// Caller-facing arity (#108): [`Self::params`] minus the `self`/`cls` receiver — the
+    /// parameters a caller actually passes. `*args`/`**kwargs` each count once (a `**kwargs` sink
+    /// is the *opposite* of a long parameter list, so it must not inflate the count). The input to
+    /// the Long-Parameter-List bands ([`ParamCountTier`]).
+    pub arity: usize,
     /// Non-Commenting Source Statements: count of logical statement nodes in the function's
     /// **own** body. A nested def/class counts as one statement (its declaration) but its body
     /// is excluded — those statements belong to the nested unit's own row — so `ncss` shares
@@ -314,6 +368,17 @@ pub struct RepoMetrics {
     pub p95_cyclomatic: usize,
     /// Count of functions in each McCabe risk tier.
     pub cyclomatic_risk: RiskHistogram,
+    /// Mean caller-facing arity across all functions ([`FunctionMetrics::arity`]) (#108).
+    pub avg_params: f64,
+    /// Highest caller-facing arity — the worst Long Parameter List, which the mean hides.
+    pub max_params: usize,
+    /// 95th-percentile caller-facing arity (nearest-rank) — the heavy tail, mirroring
+    /// [`Self::p95_cyclomatic`].
+    pub p95_params: usize,
+    /// Count of functions in each arity band (#108) — Long-Parameter-List *prevalence*. Counts
+    /// caller-facing arity (`self`/`cls` excluded, `*args`/`**kwargs` once). Descriptive bands
+    /// ([`ParamCountTier`]), never a gate.
+    pub param_count_risk: RiskHistogram,
     pub max_cognitive: usize,
     pub max_nesting: usize,
     /// Comment lines as a fraction of total lines (0.0–1.0).
@@ -394,6 +459,27 @@ impl RepoMetrics {
             self.p95_cyclomatic,
             self.max_cyclomatic,
             risk.worst_tier().map(RiskTier::label).unwrap_or("n/a"),
+            risk.low,
+            risk.moderate,
+            risk.high,
+            risk.very_high,
+        )
+    }
+
+    /// The arity counterpart to [`Self::cyclomatic_markdown`] (#108): mean/p95/max parameters plus
+    /// the Long-Parameter-List histogram. Caller-facing arity (`self`/`cls` excluded). Descriptive
+    /// bands ([`ParamCountTier`]) — high `high`/`very high` counts flag *functions to read*, never
+    /// defects.
+    pub fn params_markdown(&self) -> String {
+        let risk = self.param_count_risk;
+        format!(
+            "**Parameter count** — mean {:.1}, p95 {}, max {}.\n\n\
+             | Arity band | Functions |\n| --- | ---: |\n\
+             | low (≤4) | {} |\n| moderate (5–6) | {} |\n\
+             | high (7–10) | {} |\n| very high (>10) | {} |\n",
+            self.avg_params,
+            self.p95_params,
+            self.max_params,
             risk.low,
             risk.moderate,
             risk.high,
@@ -522,6 +608,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut function_loc_sum = 0usize;
     let mut cyclomatic_sum = 0usize;
     let mut cyclomatic_values: Vec<usize> = Vec::new();
+    let mut arity_sum = 0usize;
+    let mut arity_values: Vec<usize> = Vec::new();
     let mut typed_params_sum = 0usize;
     let mut annotatable_params_sum = 0usize;
     let mut fully_annotated = 0usize;
@@ -551,6 +639,10 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             cyclomatic_sum += function.cyclomatic;
             cyclomatic_values.push(function.cyclomatic);
             repo.cyclomatic_risk.record(function.cyclomatic);
+            arity_sum += function.arity;
+            arity_values.push(function.arity);
+            repo.param_count_risk.record_arity(function.arity);
+            repo.max_params = repo.max_params.max(function.arity);
             repo.max_function_loc = repo.max_function_loc.max(function.loc);
             repo.max_cyclomatic = repo.max_cyclomatic.max(function.cyclomatic);
             repo.max_cognitive = repo.max_cognitive.max(function.cognitive);
@@ -596,6 +688,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         cyclomatic_sum as f64 / repo.functions as f64
     };
     repo.p95_cyclomatic = percentile(&mut cyclomatic_values, 0.95);
+    repo.avg_params = if repo.functions == 0 {
+        0.0
+    } else {
+        arity_sum as f64 / repo.functions as f64
+    };
+    repo.p95_params = percentile(&mut arity_values, 0.95);
     let comment_lines: usize = files.iter().map(|f| f.comment_lines).sum();
     repo.comment_density = if repo.total_loc == 0 {
         0.0
@@ -668,6 +766,7 @@ fn function_metrics(
         cognitive: cognitive(&function.body),
         max_nesting: max_nesting(&function.body, 0),
         params: param_count(&function.parameters),
+        arity: caller_arity(function),
         ncss: ncss(&function.body),
         exits: exit_count(&function.body),
         typed_params,
@@ -971,6 +1070,29 @@ fn param_count(parameters: &Parameters) -> usize {
         + usize::from(parameters.kwarg.is_some())
 }
 
+/// Whether the function's first positional parameter is a `self`/`cls` receiver (`1`) or not
+/// (`0`). A non-static method whose first parameter (positional-only first, else the first regular
+/// arg) is named `self`/`cls` carries one. Caller-invisible, so it counts toward neither annotation
+/// coverage (#85) nor arity (#108).
+fn receiver_count(function: &StmtFunctionDef) -> usize {
+    let params = &function.parameters;
+    usize::from(
+        !is_staticmethod(function)
+            && params
+                .posonlyargs
+                .first()
+                .or_else(|| params.args.first())
+                .is_some_and(|param| matches!(param.parameter.name.as_str(), "self" | "cls")),
+    )
+}
+
+/// Caller-facing arity (#108): every declared parameter a caller passes — positional-only,
+/// regular, keyword-only, and `*args`/`**kwargs` (each variadic once) — minus the `self`/`cls`
+/// receiver. The input to the Long-Parameter-List bands.
+fn caller_arity(function: &StmtFunctionDef) -> usize {
+    param_count(&function.parameters) - receiver_count(function)
+}
+
 /// Whether a function carries `@staticmethod` — so its first parameter is a genuine argument, not
 /// a `self`/`cls` receiver.
 fn is_staticmethod(function: &StmtFunctionDef) -> bool {
@@ -996,17 +1118,9 @@ fn is_staticmethod(function: &StmtFunctionDef) -> bool {
 /// is neutral-to-good and is never itself a slop signal (slop is badness, not provenance).
 fn type_hint_coverage(function: &StmtFunctionDef) -> (usize, usize, bool) {
     let params = &function.parameters;
-    // The receiver, when present, is the first positional parameter (positional-only first,
-    // otherwise the first regular arg). Drop exactly one leading positional for a non-static
-    // method whose first parameter is named `self`/`cls`.
-    let skip_receiver = usize::from(
-        !is_staticmethod(function)
-            && params
-                .posonlyargs
-                .first()
-                .or_else(|| params.args.first())
-                .is_some_and(|param| matches!(param.parameter.name.as_str(), "self" | "cls")),
-    );
+    // Drop exactly one leading positional for a non-static method whose first parameter is the
+    // `self`/`cls` receiver (see [`receiver_count`]).
+    let skip_receiver = receiver_count(function);
 
     let mut annotatable = 0usize;
     let mut typed = 0usize;
@@ -1585,6 +1699,86 @@ def outer(xs):
         assert_eq!(ModuleSizeTier::from_nloc(501), ModuleSizeTier::High);
         assert_eq!(ModuleSizeTier::from_nloc(1000), ModuleSizeTier::High);
         assert_eq!(ModuleSizeTier::from_nloc(1001), ModuleSizeTier::VeryHigh);
+    }
+
+    #[test]
+    fn param_count_tier_boundaries() {
+        // Descriptive arity bands (#108): ≤4 low, 5–6 moderate, 7–10 high, >10 very high.
+        assert_eq!(ParamCountTier::from_arity(0), ParamCountTier::Low);
+        assert_eq!(ParamCountTier::from_arity(4), ParamCountTier::Low);
+        assert_eq!(ParamCountTier::from_arity(5), ParamCountTier::Moderate);
+        assert_eq!(ParamCountTier::from_arity(6), ParamCountTier::Moderate);
+        assert_eq!(ParamCountTier::from_arity(7), ParamCountTier::High);
+        assert_eq!(ParamCountTier::from_arity(10), ParamCountTier::High);
+        assert_eq!(ParamCountTier::from_arity(11), ParamCountTier::VeryHigh);
+    }
+
+    #[test]
+    fn arity_excludes_receiver_and_counts_variadics_once() {
+        let by_name = |src: &str| {
+            metrics(src)
+                .functions
+                .into_iter()
+                .map(|f| (f.name, f.params, f.arity))
+                .collect::<Vec<_>>()
+        };
+        let fns = by_name(
+            "\
+def free(a, b, c):
+    return a
+
+class C:
+    def method(self, x, y):
+        return x
+
+    @staticmethod
+    def stat(self, z):
+        return z
+
+    def variadic(self, *args, **kwargs):
+        return args
+",
+        );
+        // (name, params incl. receiver/variadics, arity caller-facing)
+        assert_eq!(fns[0], ("free".into(), 3, 3), "no receiver");
+        assert_eq!(fns[1], ("method".into(), 3, 2), "self excluded from arity");
+        assert_eq!(
+            fns[2],
+            ("stat".into(), 2, 2),
+            "@staticmethod: the first param is a real arg"
+        );
+        assert_eq!(
+            fns[3],
+            ("variadic".into(), 3, 2),
+            "self excluded; *args + **kwargs count once each"
+        );
+    }
+
+    #[test]
+    fn aggregate_reports_param_count_distribution() {
+        // Arities 3 (low), 5 (moderate), 8 (high), 12 (very high) — one function each, so the
+        // histogram shows the full spread the mean would flatten.
+        let src = "\
+def a(p0, p1, p2): return 0
+def b(p0, p1, p2, p3, p4): return 0
+def c(p0, p1, p2, p3, p4, p5, p6, p7): return 0
+def d(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11): return 0
+";
+        let repo = aggregate(&[metrics(src)]);
+        assert_eq!(repo.functions, 4);
+        assert_eq!(repo.max_params, 12);
+        assert_eq!(repo.param_count_risk.low, 1, "arity 3");
+        assert_eq!(repo.param_count_risk.moderate, 1, "arity 5");
+        assert_eq!(repo.param_count_risk.high, 1, "arity 8");
+        assert_eq!(repo.param_count_risk.very_high, 1, "arity 12");
+        // p95 (nearest-rank over [3, 5, 8, 12]) is the widest signature.
+        assert_eq!(repo.p95_params, 12);
+        // mean = (3 + 5 + 8 + 12) / 4 = 7.0.
+        assert!(
+            (repo.avg_params - 7.0).abs() < 1e-9,
+            "avg = {}",
+            repo.avg_params
+        );
     }
 
     #[test]
