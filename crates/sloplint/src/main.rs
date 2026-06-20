@@ -956,9 +956,9 @@ fn run_metrics(
                 }
                 print_test_proxies_table(&proxies);
             }
-            // JSON is the comprehensive machine feed and ignores `--scope`: the all-files panel
-            // stays at the top level (backward-compatible), with `production` and `tests`
-            // sections beside it and the all-files `test_proxies`.
+            // JSON is the comprehensive machine feed and ignores `--scope`: the production panel
+            // is the top level (backward-compatible keys), with the full `tests` panel beside it
+            // and the all-files `test_proxies`.
             MetricsFormat::Json => println!(
                 "{}",
                 metrics_json(
@@ -974,7 +974,14 @@ fn run_metrics(
                 )
             ),
             MetricsFormat::Github => {
-                println!("{}", metrics_markdown(&panel_for(scope), &proxies))
+                let production = scope
+                    .includes(false)
+                    .then(|| panel_for(MetricsScope::Production));
+                let tests = scope.includes(true).then(|| panel_for(MetricsScope::Tests));
+                println!(
+                    "{}",
+                    metrics_markdown(production.as_ref(), tests.as_ref(), &proxies)
+                )
             }
             MetricsFormat::Functions | MetricsFormat::Classes | MetricsFormat::Packages => {
                 unreachable!()
@@ -1389,14 +1396,27 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
     })
 }
 
-/// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from
-/// `sloplint_metrics`, under a heading. Pairs with the `cyclomatic-risk` badge.
-fn metrics_markdown(repo: &RepoMetrics, proxies: &TestProxies) -> String {
-    format!(
-        "### sloplint metrics\n\n{}\n{}",
-        repo.cyclomatic_markdown(),
-        test_proxies_markdown(proxies)
-    )
+/// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from `sloplint_metrics`
+/// for each in-scope partition (#96), under a heading, then the test proxies. `--scope all`
+/// renders both the production and test panels side by side — never one combined panel, which
+/// would mix the two norms the feature keeps apart. Pairs with the `cyclomatic-risk` badge.
+fn metrics_markdown(
+    production: Option<&RepoMetrics>,
+    tests: Option<&RepoMetrics>,
+    proxies: &TestProxies,
+) -> String {
+    let mut out = String::from("### sloplint metrics\n\n");
+    if let Some(repo) = production {
+        out.push_str(&format!(
+            "#### production\n\n{}\n",
+            repo.cyclomatic_markdown()
+        ));
+    }
+    if let Some(repo) = tests {
+        out.push_str(&format!("#### tests\n\n{}\n", repo.cyclomatic_markdown()));
+    }
+    out.push_str(&test_proxies_markdown(proxies));
+    out
 }
 
 /// A markdown block for the static test proxies (#86), explicitly captioned as *proxies, not
