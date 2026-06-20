@@ -148,6 +148,28 @@ ignore = ["SLP010"]
 allow_comments = true         # permit comments here (otherwise banned)
 ```
 
+### Inline suppression
+
+`overrides` mute a rule across a whole path; for a single intentional case, acknowledge it **at
+the site** with a trailing or standalone comment, like Ruff's `# noqa`:
+
+```python
+def request(self, ...):   # sloplint: allow SLP020  (sync/async mirror of AsyncClient.request)
+    ...
+```
+
+- `# sloplint: allow SLP020` suppresses that code on the construct the comment sits on; list
+  several with `# sloplint: allow SLP020, SLP030`.
+- A bare `# sloplint: allow` suppresses every rule there.
+- The trailing free-text reason is optional and encouraged — it's the "I understand, and here's
+  why" — and is never itself reported.
+
+A directive applies to any finding whose span covers the comment's line, so placing it on the
+`def`/statement line is enough even for a whole-function finding. This works for **every** rule.
+Duplication is the motivating case: SLP020 is on by default ("no un-acknowledged duplication"), and
+a clone is reported at *each* end — so silencing a whole pair takes a directive in both functions,
+each documenting why that twin is intentional.
+
 ## Metrics & badges
 
 Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and

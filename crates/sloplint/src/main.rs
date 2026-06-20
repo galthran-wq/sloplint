@@ -25,6 +25,7 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::{BadgeSettings, Config, Selector};
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
+use sloplint_linter::suppression::Suppressions;
 use sloplint_metrics::badge::{Badge, Color};
 use sloplint_metrics::graph::{self, ImportGraph, ModuleInput, PackageRow};
 use sloplint_metrics::test_proxies::{self, FileTestStats, TestProxies};
@@ -480,10 +481,12 @@ fn run_check(
         if selector.preview() {
             import_scans.push((display.clone(), imports::scan_imports(&parsed)));
         }
+        let suppressions = Suppressions::parse(&source, &parsed);
         results.push(FileResult {
             path: display,
             source,
             diagnostics,
+            suppressions,
         });
     }
 
@@ -497,6 +500,12 @@ fn run_check(
             &selector,
             &mut results,
         );
+    }
+
+    // Inline `# sloplint: allow` suppression (#94) runs last, so it filters whole-tree findings
+    // (SLP020 clones, SLP090 fanout, SLP180 imports) as well as the per-file rules.
+    for result in &mut results {
+        result.suppressions.filter(&mut result.diagnostics);
     }
 
     let findings: usize = results.iter().map(|r| r.diagnostics.len()).sum();
@@ -540,6 +549,9 @@ struct FileResult {
     path: String,
     source: String,
     diagnostics: Vec<Diagnostic>,
+    /// Inline `# sloplint: allow` directives for this file (#94). Parsed up front while the tree
+    /// is in scope, then applied once at the end so it filters whole-tree findings (SLP020) too.
+    suppressions: Suppressions,
 }
 
 /// Run cross-file clone detection and push exactly one `SLP020` diagnostic onto each
@@ -1544,6 +1556,7 @@ mod tests {
             path: path.to_string(),
             source: String::new(),
             diagnostics: Vec::new(),
+            suppressions: Suppressions::empty(),
         }
     }
 

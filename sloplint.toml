@@ -37,3 +37,13 @@ dir_max_modules = 15       # SLP090: flag dirs with more .py modules than this
 # [[overrides]]
 # path = "tests/**"
 # allow_comments = true
+
+# For a single intentional case, prefer inline suppression over a path-wide override — acknowledge
+# it at the site with a trailing or standalone comment (like Ruff's `# noqa`):
+#
+#   def request(self, ...):   # sloplint: allow SLP020  (sync/async mirror of AsyncClient.request)
+#
+# List several codes (`# sloplint: allow SLP020, SLP030`), or use a bare `# sloplint: allow` for
+# every rule on that construct. The trailing reason is optional and encouraged. SLP020 is on by
+# default, and a clone is reported at each end, so silencing a whole pair takes a directive in both
+# functions.

@@ -8,6 +8,7 @@
 pub use ruff_python_ast as ast;
 pub use ruff_python_ast::token::{TokenKind, Tokens};
 pub use ruff_python_parser as parser;
+pub use ruff_source_file::{LineIndex, OneIndexed};
 pub use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use ruff_python_ast::ModModule;

@@ -16,6 +16,7 @@ rust-version = "1.94"
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff", tag = "0.15.18" }
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff", tag = "0.15.18" }
 ruff_text_size = { git = "https://github.com/astral-sh/ruff", tag = "0.15.18" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff", tag = "0.15.18" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
