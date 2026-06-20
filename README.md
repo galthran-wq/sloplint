@@ -30,8 +30,9 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP180` | preview | Undeclared third-party imports — a module imported but missing from the project's `pyproject.toml`/`requirements*.txt` (broken on a clean install) |
 
 Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
-McCabe risk tiers, shields **badges**, and a per-PR summary — via the `metrics` command and the
-GitHub Action.
+McCabe risk tiers, shields **badges**, and a per-PR summary — and **package/module architecture
+metrics** over the import graph (dependency cycles, coupling/instability, propagation cost,
+modularity) — via the `metrics` command and the GitHub Action.
 
 ## Installation
 
@@ -176,6 +177,45 @@ Choose which badges via `[badges]` in `sloplint.toml`: `include` picks the per-m
 Commit the SVGs, or host the `*.json` and point a shields URL at it for a badge that updates
 itself. The GitHub Action writes them when you set its `badges-dir` input.
 
+### Package & module architecture metrics
+
+`sloplint metrics` also analyzes the project's **first-party import graph** — the metrics the
+literature ties most directly to architectural decay, and the ones AI-generated codebases tend to
+do worst (circular imports, god-modules, flat dumping-grounds, hidden coupling). All deterministic
+and reproducible — no LLM, no randomness. Two feeds:
+
+- **`--format packages`** — one JSONL row per package (directory): `modules`, `loc`, efferent /
+  afferent coupling (`ce` / `ca`) and Martin **`instability`**, **`abstractness`** + **`distance`**
+  from the main sequence, whether it sits in a dependency cycle (`in_cycle`), and the first-party
+  packages it `imports` / is `imported_by`. The per-package discovery feed, mirroring
+  `--format functions` / `--format classes`.
+- **`--format json`** — a per-project `packages` rollup alongside the complexity figures:
+
+  ```jsonc
+  "packages": {
+    "modules": 412, "packages": 37, "module_edges": 689, "package_edges": 81,
+    "cycles": {            // cyclic dependency tangles (Tarjan SCC) — 2–11× defect density
+      "tangles": 3, "largest_tangle": 9, "modules_in_cycles": 21,
+      "pct_modules_in_cycles": 0.051,
+      "runtime_tangles": 2,   // dropping `if TYPE_CHECKING:`-only edges (benign at runtime)
+      "members": [["pkg.a", "pkg.b", "pkg.c"]]
+    },
+    "propagation_cost": 0.18, // how far a change ripples (DSM transitive-closure density)
+    "modularity": {           // Newman–Girvan Q: declared packages vs. detected communities
+      "q_declared": 0.41, "communities_declared": 37,
+      "q_detected": 0.55, "communities_detected": 29,
+      "gap": 0.14             // large positive gap ⇒ "packages in name only"
+    }
+  }
+  ```
+
+These are research-backed structural signals (Martin's package metrics; MacCormack's propagation
+cost; Newman–Girvan modularity; Melton & Tempero on cyclic dependencies) — descriptive measures
+for tracking a repo over time or comparing across codebases, not pass/fail gates. (Published
+clean-vs-slop reference distributions are the job of the benchmark harness, [#55][bench].)
+
+[bench]: https://github.com/galthran-wq/sloplint/issues/55
+
 ## GitHub Action
 
 Run sloplint on every PR — it uploads SARIF (inline annotations), posts a findings
@@ -220,6 +260,6 @@ git tag v0.2.0 && git push origin v0.2.0   # triggers .github/workflows/release.
 | `sloplint_python` | parser seam over the pinned `ruff_*` crates |
 | `sloplint_diagnostics` | rule-independent diagnostic model |
 | `sloplint_clone` | near-duplicate function detection |
-| `sloplint_metrics` | quality metrics + badges |
+| `sloplint_metrics` | quality metrics, import-graph architecture metrics, badges |
 | `sloplint_report` | output formatters (text/JSON/SARIF/markdown) |
 | `sloplint_dev` | development utilities (cf. `ruff_dev`) |
