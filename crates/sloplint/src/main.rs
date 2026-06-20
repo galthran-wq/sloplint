@@ -821,15 +821,16 @@ fn run_metrics(
         let Ok(parsed) = parse(&source) else {
             continue;
         };
+        let metrics = file_metrics(&source, &parsed);
         if needs_graph {
             if let Some(name) = module_name(&path) {
                 module_inputs.push(ModuleInput {
                     name,
                     imports: graph::scan_module_imports(&parsed),
+                    loc: metrics.loc,
                 });
             }
         }
-        let metrics = file_metrics(&source, &parsed);
         per_file.push(MeasuredFile {
             path: display,
             source,
@@ -1014,14 +1015,20 @@ fn print_package_rows(graph: &ImportGraph) {
 }
 
 /// Build the JSONL row for one package. Split out so its shape can be unit-tested.
+///
+/// `ce`/`ca` are Martin's efferent/afferent coupling (the counts of distinct first-party packages
+/// in `imports`/`imported_by`); `instability` is `ce / (ce + ca)` (#67). The named-package lists
+/// are kept so a consumer can see *which* packages couple, not just how many.
 fn package_row(row: &PackageRow) -> serde_json::Value {
     serde_json::json!({
         "package": row.package,
         "modules": row.modules,
+        "loc": row.loc,
         "imports": row.imports,
         "imported_by": row.imported_by,
-        "efferent": row.imports.len(),
-        "afferent": row.imported_by.len(),
+        "ce": row.imports.len(),
+        "ca": row.imported_by.len(),
+        "instability": row.instability,
         "in_cycle": row.in_cycle,
     })
 }
@@ -1434,16 +1441,21 @@ class Counter:
         let row = PackageRow {
             package: "pkg".to_string(),
             modules: 2,
+            loc: 42,
             imports: vec!["pkg.sub".to_string()],
             imported_by: vec!["app".to_string(), "cli".to_string()],
             in_cycle: true,
+            instability: graph::instability(1, 2),
         };
         let value = package_row(&row);
         assert_eq!(value["package"], "pkg");
         assert_eq!(value["modules"], 2);
+        assert_eq!(value["loc"], 42);
         assert_eq!(value["imports"], serde_json::json!(["pkg.sub"]));
-        assert_eq!(value["efferent"], 1);
-        assert_eq!(value["afferent"], 2);
+        // Ce = 1 (pkg.sub), Ca = 2 (app, cli) → I = 1 / 3.
+        assert_eq!(value["ce"], 1);
+        assert_eq!(value["ca"], 2);
+        assert_eq!(value["instability"], 1.0 / 3.0);
         assert_eq!(value["in_cycle"], true);
     }
 
