@@ -994,6 +994,9 @@ fn run_metrics(
                 // One panel per in-scope profile; the proxies (always the full split) follow once.
                 for name in &scoped {
                     print_metrics_panel(name, &panel_of(name));
+                    // Package module-count concentration (#103) — node distribution, computed from
+                    // the panel's own files (edge-free, so no import graph is needed in text mode).
+                    print_concentration(&concentration_for(&per_file, name));
                 }
                 print_test_proxies_table(&proxies);
             }
@@ -1269,6 +1272,35 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
     println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
 }
 
+/// The package module-count concentration (#103) for one profile's files. Edge-free — it needs
+/// only each module's package, so the text view computes it without building the import graph
+/// (which would require an extra import-scan pass per file). The package list is assembled the same
+/// way as the graph's nodes (`module_name` → `package_of`), so it agrees with the JSON feed.
+fn concentration_for(per_file: &[MeasuredFile], profile: &str) -> graph::Concentration {
+    let packages: Vec<String> = per_file
+        .iter()
+        .filter(|f| f.profiles.iter().any(|p| p == profile))
+        .filter_map(|f| module_name(Path::new(&f.path)))
+        .map(|m| graph::package_of(&m.dotted, m.is_package))
+        .collect();
+    graph::concentration(&packages)
+}
+
+/// Print the package module-count concentration block (#103) beneath a metric panel: how piled the
+/// modules are across packages, and which package holds the most. A descriptive distribution
+/// statistic — never a gate (a small repo's one main package scores high and that's fine).
+fn print_concentration(c: &graph::Concentration) {
+    let largest = match &c.largest_package {
+        Some((name, modules)) => format!("{name}, {modules}/{} modules", c.total_modules),
+        None => "n/a".to_string(),
+    };
+    println!("  max package share   {:.2}  ({largest})", c.max_package_share);
+    println!(
+        "  module-count gini   {:.2}  (over {} packages)",
+        c.module_count_gini, c.packages
+    );
+}
+
 /// Print the static test proxies block (#86) once, beneath the panel(s). Always the full
 /// project-wide split (production vs test), independent of `--scope` — descriptive only, NOT
 /// coverage and never a gate.
@@ -1368,6 +1400,8 @@ fn panel_json(
             "propagation_cost": graph.propagation_cost(),
             // Newman–Girvan modularity: declared package partition vs. detected (issue #69).
             "modularity": modularity_json(graph),
+            // Node-distribution concentration: god-package / flat dumping-ground (issue #103).
+            "concentration": concentration_json(graph),
         },
     }) else {
         unreachable!("a json object literal is an object")
@@ -1406,6 +1440,22 @@ fn modularity_json(graph: &ImportGraph) -> serde_json::Value {
         "q_detected": report.q_detected,
         "communities_detected": report.communities_detected,
         "gap": report.gap(),
+    })
+}
+
+/// The node-distribution concentration rollup for the JSON feed (issue #103): how modules are
+/// piled across packages, the axis the edge-based metrics can't see. `largest_package` names the
+/// offender (or `null` when there are no packages). Descriptive only — never a gate.
+fn concentration_json(graph: &ImportGraph) -> serde_json::Value {
+    let c = graph.concentration();
+    serde_json::json!({
+        "total_modules": c.total_modules,
+        "packages": c.packages,
+        "max_package_share": c.max_package_share,
+        "module_count_gini": c.module_count_gini,
+        "largest_package": c.largest_package.map(|(package, modules)| {
+            serde_json::json!({ "package": package, "modules": modules })
+        }),
     })
 }
 

@@ -319,9 +319,21 @@ and reproducible — no LLM, no randomness. Two feeds:
       "q_declared": 0.41, "communities_declared": 37,
       "q_detected": 0.55, "communities_detected": 29,
       "gap": 0.14             // large positive gap ⇒ "packages in name only"
+    },
+    "concentration": {        // node distribution: god-package / flat dumping-ground (not edges)
+      "total_modules": 412, "packages": 37,
+      "max_package_share": 0.21,  // biggest package's share of all modules (yt-dlp = 0.90)
+      "module_count_gini": 0.38,  // inequality of modules-per-package (0 = even, →1 = one pile)
+      "largest_package": { "package": "pkg.io", "modules": 86 }
     }
   }
   ```
+
+  The `concentration` block is the one architecture metric over **nodes** rather than **edges**: a
+  flat directory accreting hundreds of independent files (the classic god-package) has near-zero
+  coupling, so propagation cost / cycles / modularity all read it as healthy — only the module-count
+  distribution exposes it. The `text` view prints `max package share` / `module-count gini` under
+  each profile's panel and names the offending package.
 
 These are research-backed structural signals (Martin's package metrics; MacCormack's propagation
 cost; Newman–Girvan modularity; Melton & Tempero on cyclic dependencies) — descriptive measures
