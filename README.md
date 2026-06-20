@@ -152,17 +152,27 @@ allow_comments = true         # permit comments here (otherwise banned)
 
 Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
 cognitive complexity (with McCabe risk tiers), average function length, max nesting, comment
-density, and type-hint coverage. These are **measured, not linted**, so they never duplicate Ruff.
-Gate them in CI by exit code (each names the offending functions and exits 1):
+density, type-hint coverage, and **docstring coverage**. These are **measured, not linted**, so
+they never duplicate Ruff. Gate them in CI by exit code (each names the offending functions and
+exits 1):
 
 ```bash
 sloplint metrics src --max-cyclomatic 10   # fail if any function's cyclomatic complexity > 10
 sloplint metrics src --max-cognitive 15    # ditto for SonarSource cognitive complexity
 ```
 
+**Docstring coverage** is tracked separately from comment density, because the two measure
+different things: comment density counts `#`-comments, while many codebases document almost
+entirely via docstrings (a `StringLiteral`, not a `Comment`). The `--format json` rollup reports
+`docstring_coverage` (public defs/classes with a docstring ÷ all public defs/classes — "public" =
+not `_`-prefixed) and `docstring_code_ratio` (function docstring lines ÷ function NCSS). Low
+coverage flags an under-documented public API; a high ratio flags AI **over-documentation** — a
+verbose docstring stacked onto a one-line body. The `--format functions` / `--format classes` feeds carry
+`has_docstring` + `docstring_lines` per unit.
+
 `--badges badges/` writes an SVG + a shields.io [endpoint](https://shields.io/endpoint) JSON for
 each metric (`cyclomatic-risk`, `max-cognitive`, `avg-function-loc`, `max-nesting`,
-`comment-density`, …) — for example:
+`comment-density`, `docstring-coverage`, …) — for example:
 
 ![cyclomatic-risk](https://img.shields.io/badge/cyclomatic--risk-moderate-yellow)
 ![max cognitive](https://img.shields.io/badge/max%20cognitive-14-yellow)
