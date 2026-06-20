@@ -148,31 +148,39 @@ ignore = ["SLP010"]
 allow_comments = true         # permit comments here (otherwise banned)
 ```
 
-### Inline suppression
+### Inline suppression (`# noqa`)
 
-`overrides` mute a rule across a whole path; for a single intentional case, acknowledge it **at
-the site** with a trailing or standalone comment, like Ruff's `# noqa`:
+`overrides` mute a rule across a whole path; for a single intentional case, acknowledge it **at the
+site** with Ruff's familiar `# noqa` — sloplint reads it exactly as Ruff does:
 
 ```python
-def request(self, ...):   # sloplint: allow SLP020  (sync/async mirror of AsyncClient.request)
+def request(self, ...):   # noqa: SLP020  (sync/async mirror of AsyncClient.request)
     ...
 ```
 
-- `# sloplint: allow SLP020` suppresses that code on the construct the comment sits on; list
-  several with `# sloplint: allow SLP020, SLP030`.
-- A bare `# sloplint: allow` suppresses every rule there.
-- The trailing free-text reason is optional and encouraged — it's the "I understand, and here's
-  why" — and is never itself reported.
+- `# noqa: SLP020` suppresses that code on the line; list several with `# noqa: SLP020, SLP082`.
+- A bare `# noqa` suppresses every sloplint rule on that line.
+- The trailing free-text reason is just a normal comment — encouraged ("I understand, and here's
+  why"), never itself reported.
 
-A directive applies to any finding whose span covers the comment's line, so placing it on the
-`def`/statement line is enough even for a whole-function finding — this works for the per-file
-rules, SLP020 (clones), and SLP180 (imports). The one exception is the directory-level rule SLP090
-(too many modules in a directory): its finding has no per-site anchor, so tune it via
-`dir_max_modules` or `ignore` rather than an inline comment.
+A `# noqa` is scoped to its line — the finding's reported line (the `line:col` shown in output), so
+for a whole-function finding it goes on the `def` line. This is line-level only, like Ruff;
+broad/file/directory suppression stays in config (`ignore` and per-path `overrides`). Duplication is
+the motivating case: SLP020 is on by default ("no un-acknowledged duplication"), and a clone is
+reported at *each* end — so silencing a whole pair takes a `# noqa` at each end, each documenting
+why that twin is intentional.
 
-Duplication is the motivating case: SLP020 is on by default ("no un-acknowledged duplication"), and
-a clone is reported at *each* end — so silencing a whole pair takes a directive in both functions,
-each documenting why that twin is intentional.
+**Running alongside Ruff:** Ruff reads the same `# noqa` comments, and since `SLP*` aren't Ruff
+codes, its RUF100 (unused-noqa) would otherwise flag `# noqa: SLP020` as unnecessary. Tell Ruff to
+preserve them:
+
+```toml
+# ruff.toml / pyproject.toml [tool.ruff.lint]
+external = ["SLP"]
+```
+
+Symmetrically, sloplint only ever acts on its own `SLP*` codes and never reports on Ruff directives
+like `# noqa: E501`.
 
 ## Metrics & badges
 

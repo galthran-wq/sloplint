@@ -39,11 +39,13 @@ dir_max_modules = 15       # SLP090: flag dirs with more .py modules than this
 # allow_comments = true
 
 # For a single intentional case, prefer inline suppression over a path-wide override — acknowledge
-# it at the site with a trailing or standalone comment (like Ruff's `# noqa`):
+# it at the site with Ruff's `# noqa` (line-level, exactly like Ruff):
 #
-#   def request(self, ...):   # sloplint: allow SLP020  (sync/async mirror of AsyncClient.request)
+#   def request(self, ...):   # noqa: SLP020  (sync/async mirror of AsyncClient.request)
 #
-# List several codes (`# sloplint: allow SLP020, SLP030`), or use a bare `# sloplint: allow` for
-# every rule on that construct. The trailing reason is optional and encouraged. SLP020 is on by
-# default, and a clone is reported at each end, so silencing a whole pair takes a directive in both
-# functions.
+# List several codes (`# noqa: SLP020, SLP082`), or use a bare `# noqa` for every rule on that line.
+# The trailing reason is just a normal comment. SLP020 is on by default and a clone is reported at
+# each end, so silencing a whole pair takes a `# noqa` at each end.
+#
+# Running next to Ruff: set `external = ["SLP"]` in your Ruff config so RUF100 doesn't flag
+# `# noqa: SLP020` as unused.

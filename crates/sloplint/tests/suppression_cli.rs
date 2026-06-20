@@ -1,7 +1,7 @@
-//! End-to-end test for inline `# sloplint: allow` suppression (#94), exercised against its
-//! motivating case: SLP020 near-duplicate functions. Runs the real built binary over a temp file
-//! and reads `check --format json`. SLP020 is on by default ("disallowed duplication"), so the
-//! run selects only SLP020 to isolate it from unrelated rules.
+//! End-to-end test for inline `# noqa` suppression (#94), exercised against its motivating case:
+//! SLP020 near-duplicate functions. Runs the real built binary over a temp file and reads
+//! `check --format json`. SLP020 is on by default ("disallowed duplication"), so the run selects
+//! only SLP020 to isolate it from unrelated rules.
 
 use std::path::Path;
 use std::process::Command;
@@ -65,11 +65,11 @@ fn slp020_fires_by_default_on_duplicates() {
 }
 
 #[test]
-fn inline_allow_suppresses_each_acknowledged_site() {
-    // A directive in ONE function clears only that end — clones are reported per-site.
+fn line_noqa_suppresses_each_acknowledged_site() {
+    // A `# noqa` on ONE function's reported (def) line clears only that end — clones are per-site.
     let one = DUP.replacen(
         "def alpha(items):",
-        "def alpha(items):  # sloplint: allow SLP020 (intentional twin)",
+        "def alpha(items):  # noqa: SLP020 (intentional twin)",
         1,
     );
     assert_eq!(
@@ -79,19 +79,15 @@ fn inline_allow_suppresses_each_acknowledged_site() {
     );
 
     // Acknowledging both ends clears the pair entirely.
-    let both = one.replacen(
-        "def beta(items):",
-        "def beta(items):  # sloplint: allow SLP020",
-        1,
-    );
+    let both = one.replacen("def beta(items):", "def beta(items):  # noqa: SLP020", 1);
     assert_eq!(slp020_count("dup_both", &both), 0, "both ends acknowledged");
 }
 
 #[test]
-fn a_directive_for_another_code_does_not_suppress_slp020() {
+fn a_noqa_for_another_code_does_not_suppress_slp020() {
     let other = DUP.replacen(
         "def alpha(items):",
-        "def alpha(items):  # sloplint: allow SLP999",
+        "def alpha(items):  # noqa: SLP999",
         1,
     );
     assert_eq!(
