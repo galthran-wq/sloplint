@@ -607,7 +607,9 @@ fn run_check(
     // `# noqa`-suppressed findings are never rewritten. Fixed findings are dropped from
     // `diagnostics`; what remains is reported (against the original source) as usual.
     let fixed = if fix_mode.enabled {
-        apply_fixes(&mut results, fix_mode.allow_unsafe)?
+        let (count, write_failed) = apply_fixes(&mut results, fix_mode.allow_unsafe);
+        had_error |= write_failed;
+        count
     } else {
         0
     };
@@ -649,26 +651,39 @@ fn run_check(
     // formats on stdout. Printed whenever `--fix` was requested, even if nothing matched.
     if fix_mode.enabled {
         eprintln!("sloplint: fixed {fixed} issue(s)");
+        // Remaining findings were located in the pre-fix source, so once we've actually rewritten
+        // files their reported line:col can be stale. Say so, rather than print misleading numbers.
+        if fixed > 0 && findings > 0 {
+            eprintln!(
+                "sloplint: note: positions above predate --fix; re-run to refresh them"
+            );
+        }
     }
 
     Ok(findings == 0 && !had_error)
 }
 
 /// Apply each file's available fixes, rewrite changed files in place, and drop the fixed findings
-/// from the report. Returns the total number of findings fixed across all files.
+/// from the report. Returns the total number of findings fixed across all files, and whether any
+/// file failed to write.
 ///
-/// The remaining diagnostics keep their original ranges and are still rendered against the
-/// original `source`, so their reported `line:col` stays correct even though the file on disk has
-/// changed (a re-run reflects the new state).
-fn apply_fixes(results: &mut [FileResult], allow_unsafe: bool) -> anyhow::Result<usize> {
+/// A write failure is reported and recorded (so the run exits non-zero) but does **not** abort the
+/// batch — later files are still fixed, mirroring how `run_check` handles per-file read/parse
+/// errors. The remaining diagnostics keep their original ranges and are still rendered against the
+/// original `source`, so a re-run is the way to see refreshed positions.
+fn apply_fixes(results: &mut [FileResult], allow_unsafe: bool) -> (usize, bool) {
     let mut total = 0;
+    let mut write_failed = false;
     for result in results.iter_mut() {
         let applied = fix::apply(&result.source, &result.diagnostics, allow_unsafe);
         if !applied.changed() {
             continue;
         }
-        fs::write(&result.path, &applied.output)
-            .map_err(|e| anyhow!("writing fixes to {}: {e}", result.path))?;
+        if let Err(err) = fs::write(&result.path, &applied.output) {
+            eprintln!("error: writing fixes to {}: {err}", result.path);
+            write_failed = true;
+            continue; // leave this file's findings in the report; keep fixing the rest.
+        }
         let fixed: std::collections::HashSet<usize> = applied.fixed.into_iter().collect();
         let mut index = 0;
         result.diagnostics.retain(|_| {
@@ -678,7 +693,7 @@ fn apply_fixes(results: &mut [FileResult], allow_unsafe: bool) -> anyhow::Result
         });
         total += fixed.len();
     }
-    Ok(total)
+    (total, write_failed)
 }
 
 /// One file's parsed source and accumulated diagnostics.

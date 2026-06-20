@@ -91,6 +91,21 @@ impl Fix {
             .max()
             .unwrap_or(0)
     }
+
+    /// Whether the fix has at least one edit and its edits don't overlap each other — the
+    /// precondition the right-to-left splice in [`apply`] relies on. A fix that's empty (a no-op
+    /// that would still be counted as "fixed") or whose own edits overlap (which would corrupt the
+    /// splice) is skipped rather than applied. Single-edit fixes always pass.
+    fn is_well_formed(&self) -> bool {
+        if self.edits.is_empty() {
+            return false;
+        }
+        let mut sorted: Vec<&Edit> = self.edits.iter().collect();
+        sorted.sort_by_key(|e| u32::from(e.range.start()));
+        sorted
+            .windows(2)
+            .all(|w| u32::from(w[0].range.end()) <= u32::from(w[1].range.start()))
+    }
 }
 
 /// The result of applying fixes to a source string.
@@ -124,6 +139,7 @@ pub fn apply(source: &str, diagnostics: &[Diagnostic], allow_unsafe: bool) -> Ap
         .enumerate()
         .filter_map(|(i, d)| d.fix.as_ref().map(|f| (i, f)))
         .filter(|(_, f)| allow_unsafe || f.applicability == Applicability::Safe)
+        .filter(|(_, f)| f.is_well_formed())
         .collect();
 
     // Deterministic order: by first edit start, then original index.
@@ -131,14 +147,14 @@ pub fn apply(source: &str, diagnostics: &[Diagnostic], allow_unsafe: bool) -> Ap
 
     let mut accepted_edits: Vec<&Edit> = Vec::new();
     let mut fixed: Vec<usize> = Vec::new();
-    // Watermark: the highest end offset accepted so far. A fix starting before it would overlap.
+    // Watermark: the highest end offset accepted so far. A fix starting before it would overlap an
+    // already-accepted edit, so it's skipped (caught on a re-run). Candidates are sorted by start
+    // and `watermark` begins at 0, so the first one is always accepted (`min_start < 0` is false).
     let mut watermark: u32 = 0;
-    let mut first = true;
     for (index, fix) in candidates {
-        if !first && fix.min_start() < watermark {
+        if fix.min_start() < watermark {
             continue; // overlaps an accepted edit — leave it for a later pass.
         }
-        first = false;
         watermark = watermark.max(fix.max_end());
         accepted_edits.extend(fix.edits.iter());
         fixed.push(index);
@@ -235,6 +251,56 @@ mod tests {
             Some(Fix::safe_edit(Edit::replacement(range(4, 5), "2"))),
         )];
         assert_eq!(apply(source, &diags, false).output, "a = 2");
+    }
+
+    #[test]
+    fn empty_fix_is_not_counted_or_applied() {
+        let source = "abc";
+        let diags = [diag_with(
+            "A",
+            range(0, 1),
+            Some(Fix {
+                edits: vec![],
+                applicability: Applicability::Safe,
+            }),
+        )];
+        let applied = apply(source, &diags, false);
+        assert!(!applied.changed());
+        assert_eq!(applied.output, source);
+    }
+
+    #[test]
+    fn fix_with_self_overlapping_edits_is_skipped() {
+        // A malformed multi-edit fix whose own edits overlap is dropped, not spliced.
+        let source = "0123456789";
+        let diags = [diag_with(
+            "A",
+            range(0, 1),
+            Some(Fix {
+                edits: vec![Edit::deletion(range(2, 6)), Edit::deletion(range(4, 8))],
+                applicability: Applicability::Safe,
+            }),
+        )];
+        let applied = apply(source, &diags, false);
+        assert!(!applied.changed());
+        assert_eq!(applied.output, source);
+    }
+
+    #[test]
+    fn well_formed_multi_edit_fix_applies() {
+        // Two non-overlapping edits in one fix both apply.
+        let source = "0123456789";
+        let diags = [diag_with(
+            "A",
+            range(0, 1),
+            Some(Fix {
+                edits: vec![Edit::deletion(range(1, 3)), Edit::deletion(range(6, 8))],
+                applicability: Applicability::Safe,
+            }),
+        )];
+        let applied = apply(source, &diags, false);
+        assert_eq!(applied.fixed, vec![0]);
+        assert_eq!(applied.output, "034589");
     }
 
     #[test]

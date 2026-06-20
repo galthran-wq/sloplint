@@ -104,6 +104,27 @@ fn unsafe_fixes_alone_does_not_apply() {
     assert_eq!(read(&project, "a.py"), original);
 }
 
+#[cfg(unix)]
+#[test]
+fn one_unwritable_file_does_not_abort_the_batch() {
+    use std::os::unix::fs::PermissionsExt;
+    // A read-only file with a fixable finding must not stop the rest of the batch from being fixed.
+    let project = make_project("unwritable");
+    write(&project, "ro.py", "# locked\nx = 1\n");
+    write(&project, "rw.py", "# fixable\ny = 2\n");
+    let ro = project.join("ro.py");
+    std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+    let (_, stderr, code) = run(&project, &["check", ".", "--fix"]);
+
+    // The writable file is still fixed; the run reports the write error and exits non-zero.
+    assert_eq!(read(&project, "rw.py"), "y = 2\n");
+    assert!(stderr.contains("writing fixes to"), "stderr: {stderr}");
+    assert_ne!(code, 0, "a failed write should fail the run: {stderr}");
+    // Cleanup: restore perms so the temp dir can be removed by a later run.
+    std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
 #[test]
 fn directive_comments_are_never_fixed() {
     // Tool directives / suppressions are exempt from SLP010, so --fix must leave them in place.

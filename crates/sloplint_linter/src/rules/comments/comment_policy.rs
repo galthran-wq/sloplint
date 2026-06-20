@@ -53,7 +53,13 @@ fn deletion_edit(source: &str, comment: TextRange) -> Edit {
     let end = usize::from(comment.end());
 
     let line_start = source[..start].rfind('\n').map_or(0, |i| i + 1);
-    let own_line = source[line_start..start].trim().is_empty();
+    // A leading UTF-8 BOM (U+FEFF) isn't whitespace to `trim`, so strip it before classifying —
+    // otherwise a BOM-prefixed first-line comment looks "trailing" and we'd leave a stray BOM line.
+    // The own-line branch deletes from `line_start`, so the BOM is removed along with the line.
+    let own_line = source[line_start..start]
+        .trim_start_matches('\u{feff}')
+        .trim()
+        .is_empty();
 
     if own_line {
         // Extend past the line terminator (handles "\n", "\r\n", and a lone "\r"; EOF has none).
@@ -223,6 +229,12 @@ mod tests {
     #[test]
     fn own_line_comment_at_eof_without_newline() {
         assert_eq!(fix_first_comment("x = 1\n# c"), "x = 1\n");
+    }
+
+    #[test]
+    fn bom_prefixed_comment_line_is_deleted_whole() {
+        // A file starting with a BOM then a comment: the whole first line (BOM included) goes.
+        assert_eq!(fix_first_comment("\u{feff}# c\nx = 1\n"), "x = 1\n");
     }
 
     #[test]
