@@ -26,6 +26,8 @@ pub struct Config {
     pub clone: CloneSettings,
     /// Size/shape limits for the structural rules.
     pub limits: Limits,
+    /// Which metric badges `metrics --badges` emits, and an optional combined summary.
+    pub badges: BadgeSettings,
 }
 
 impl Default for Config {
@@ -37,8 +39,22 @@ impl Default for Config {
             overrides: Vec::new(),
             clone: CloneSettings::default(),
             limits: Limits::default(),
+            badges: BadgeSettings::default(),
         }
     }
+}
+
+/// Controls `metrics --badges` output. Defaults to today's behavior: every per-metric badge,
+/// no combined summary.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BadgeSettings {
+    /// Per-metric badge slugs to emit. `None` (key omitted) = all of them; `Some([])` = none.
+    /// Unknown slugs are ignored.
+    pub include: Option<Vec<String>>,
+    /// Metric slugs to fold into a single combined `sloplint` badge (colored by the worst
+    /// tier among them). Empty = no summary badge.
+    pub summary: Vec<String>,
 }
 
 /// Tunable thresholds for the structural rules. `Copy` so it can ride along in a
@@ -213,6 +229,26 @@ impl std::error::Error for ConfigError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn badges_default_to_all_individual_no_summary() {
+        let config = Config::default();
+        assert!(config.badges.include.is_none()); // None => emit all
+        assert!(config.badges.summary.is_empty());
+    }
+
+    #[test]
+    fn badges_section_parses_include_and_summary() {
+        let config = Config::from_toml_str(
+            "[badges]\ninclude = []\nsummary = [\"max-cyclomatic\", \"max-cognitive\"]\n",
+        )
+        .unwrap();
+        assert_eq!(config.badges.include, Some(vec![])); // explicit [] => none
+        assert_eq!(
+            config.badges.summary,
+            vec!["max-cyclomatic".to_string(), "max-cognitive".to_string()]
+        );
+    }
 
     #[test]
     fn default_enables_all_slp_rules() {

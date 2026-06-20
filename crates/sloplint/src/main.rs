@@ -15,11 +15,11 @@ use ignore::WalkBuilder;
 use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
 use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_linter::config::{Config, Selector};
+use sloplint_linter::config::{BadgeSettings, Config, Selector};
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_metrics::badge::{Badge, Color};
-use sloplint_metrics::{aggregate, file_metrics, FileMetrics, RepoMetrics};
+use sloplint_metrics::{aggregate, file_metrics, FileMetrics, FunctionMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged, TextRange};
 use sloplint_report::ReportEntry;
 
@@ -65,11 +65,18 @@ enum Command {
         /// Write badge SVGs and shields endpoint JSON into this directory.
         #[arg(long)]
         badges: Option<String>,
+        /// Path to a config file (otherwise `sloplint.toml` is discovered) — read for `[badges]`.
+        #[arg(long)]
+        config: Option<String>,
         /// Fail (exit 1) if any function's cyclomatic complexity exceeds this ceiling. This
         /// is a CI gate, not a finding — it never emits a diagnostic, so it doesn't duplicate
         /// Ruff's `C901`. McCabe recommends a ceiling of 10.
         #[arg(long)]
         max_cyclomatic: Option<usize>,
+        /// Fail (exit 1) if any function's cognitive complexity exceeds this ceiling (a CI
+        /// gate, not a diagnostic). SonarSource suggests 15 per function.
+        #[arg(long)]
+        max_cognitive: Option<usize>,
     },
 }
 
@@ -116,10 +123,19 @@ fn main() -> ExitCode {
             paths,
             format,
             badges,
+            config,
             max_cyclomatic,
-        } => match run_metrics(&paths, format, badges.as_deref(), max_cyclomatic) {
-            Ok(true) => ExitCode::SUCCESS,  // under the gate (or no gate)
-            Ok(false) => ExitCode::from(1), // a function exceeded --max-cyclomatic
+            max_cognitive,
+        } => match run_metrics(
+            &paths,
+            format,
+            badges.as_deref(),
+            config.as_deref(),
+            max_cyclomatic,
+            max_cognitive,
+        ) {
+            Ok(true) => ExitCode::SUCCESS,  // under the gate(s) (or no gate)
+            Ok(false) => ExitCode::from(1), // a function exceeded a --max-* ceiling
             Err(err) => tool_error(err),
         },
     }
@@ -427,15 +443,17 @@ fn is_python(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "py")
 }
 
-/// Compute and report software-quality metrics; optionally emit badges and enforce a
-/// cyclomatic-complexity gate. Returns `Ok(false)` only when `max_cyclomatic` is set and some
-/// function exceeds it — the CI gate. Reporting/badge writing always happens first so the
-/// numbers are visible even on a failing gate.
+/// Compute and report software-quality metrics; optionally emit badges and enforce
+/// complexity gates. Returns `Ok(false)` only when a `--max-*` ceiling is set and some function
+/// exceeds it — the CI gate. Reporting/badge writing always happens first so the numbers are
+/// visible even on a failing gate.
 fn run_metrics(
     paths: &[String],
     format: MetricsFormat,
     badges: Option<&str>,
+    config_path: Option<&str>,
     max_cyclomatic: Option<usize>,
+    max_cognitive: Option<usize>,
 ) -> anyhow::Result<bool> {
     let (files, _) = discover_python_files(paths);
     // Keep path + source alongside metrics so the gate can name offending functions with a
@@ -466,26 +484,59 @@ fn run_metrics(
     }
 
     if let Some(dir) = badges {
-        write_badges(dir, &repo)?;
+        let settings = load_badge_settings(config_path)?;
+        write_badges(dir, &repo, &settings)?;
     }
 
-    if let Some(ceiling) = max_cyclomatic {
-        let offenders = gate_offenders(&per_file, ceiling);
-        if !offenders.is_empty() {
-            eprintln!(
-                "sloplint: {} function(s) over the cyclomatic ceiling of {ceiling}:",
-                offenders.len()
-            );
-            for offender in &offenders {
-                eprintln!(
-                    "  {}: `{}` has cyclomatic complexity {}",
-                    offender.location, offender.name, offender.cyclomatic
-                );
-            }
-            return Ok(false);
+    // CI gates: run both so all offenders are reported, then fail if either tripped.
+    let over_cyclomatic = gate(&per_file, max_cyclomatic, "cyclomatic", |f| f.cyclomatic);
+    let over_cognitive = gate(&per_file, max_cognitive, "cognitive", |f| f.cognitive);
+    Ok(!over_cyclomatic && !over_cognitive)
+}
+
+/// Read `[badges]` from the config file (explicit path or discovered `sloplint.toml`).
+fn load_badge_settings(config_path: Option<&str>) -> anyhow::Result<BadgeSettings> {
+    let config = match config_path {
+        Some(path) => {
+            let text =
+                fs::read_to_string(path).map_err(|e| anyhow!("reading config {path}: {e}"))?;
+            Config::from_toml_str(&text).map_err(|e| anyhow!("parsing config {path}: {e}"))?
         }
+        None => {
+            let cwd =
+                env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
+            Config::discover(&cwd)?
+        }
+    };
+    Ok(config.badges)
+}
+
+/// One complexity gate: report every function whose `metric` exceeds `ceiling` and return
+/// whether any did. A `None` ceiling is a no-op (returns `false`).
+fn gate(
+    per_file: &[MeasuredFile],
+    ceiling: Option<usize>,
+    noun: &str,
+    metric: impl Fn(&FunctionMetrics) -> usize,
+) -> bool {
+    let Some(ceiling) = ceiling else {
+        return false;
+    };
+    let offenders = gate_offenders(per_file, ceiling, metric);
+    if offenders.is_empty() {
+        return false;
     }
-    Ok(true)
+    eprintln!(
+        "sloplint: {} function(s) over the {noun} ceiling of {ceiling}:",
+        offenders.len()
+    );
+    for offender in &offenders {
+        eprintln!(
+            "  {}: `{}` has {noun} complexity {}",
+            offender.location, offender.name, offender.value
+        );
+    }
+    true
 }
 
 /// A measured file: its display path, source, and per-function metrics.
@@ -495,27 +546,33 @@ struct MeasuredFile {
     metrics: FileMetrics,
 }
 
-/// A function whose cyclomatic complexity exceeds the configured ceiling.
+/// A function whose `metric` value exceeds the configured ceiling.
 struct GateOffender {
     /// `path:line` of the function's `def` line (its name, not the first decorator).
     location: String,
     name: String,
-    cyclomatic: usize,
+    value: usize,
 }
 
-/// Collect every function over `ceiling`, in file then source order (deterministic).
-fn gate_offenders(per_file: &[MeasuredFile], ceiling: usize) -> Vec<GateOffender> {
+/// Collect every function whose `metric` exceeds `ceiling`, in file then source order
+/// (deterministic).
+fn gate_offenders(
+    per_file: &[MeasuredFile],
+    ceiling: usize,
+    metric: impl Fn(&FunctionMetrics) -> usize,
+) -> Vec<GateOffender> {
     let mut offenders = Vec::new();
     for file in per_file {
         for function in &file.metrics.functions {
-            if function.cyclomatic > ceiling {
+            let value = metric(function);
+            if value > ceiling {
                 // Locate the `def` line via the name span — `range` would point at the first
                 // decorator on a decorated function.
                 let line = line_of(&file.source, function.name_range.start().into());
                 offenders.push(GateOffender {
                     location: format!("{}:{line}", file.path),
                     name: function.name.clone(),
-                    cyclomatic: function.cyclomatic,
+                    value,
                 });
             }
         }
@@ -620,24 +677,141 @@ fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
     ]
 }
 
-fn write_badges(dir: &str, repo: &RepoMetrics) -> anyhow::Result<()> {
+fn write_badges(dir: &str, repo: &RepoMetrics, settings: &BadgeSettings) -> anyhow::Result<()> {
     fs::create_dir_all(dir).map_err(|e| anyhow!("creating {dir}: {e}"))?;
-    let badges = metric_badges(repo);
-    for (slug, badge) in &badges {
-        let svg_path = Path::new(dir).join(format!("{slug}.svg"));
-        let json_path = Path::new(dir).join(format!("{slug}.json"));
-        fs::write(&svg_path, badge.svg())
-            .map_err(|e| anyhow!("writing {}: {e}", svg_path.display()))?;
-        fs::write(&json_path, badge.endpoint_json())
-            .map_err(|e| anyhow!("writing {}: {e}", json_path.display()))?;
+    let all = metric_badges(repo);
+
+    let mut written = 0usize;
+    // Individual per-metric badges: `include` is None => all, Some(list) => only those.
+    for (slug, badge) in &all {
+        let keep = settings
+            .include
+            .as_ref()
+            .is_none_or(|list| list.iter().any(|s| s.as_str() == *slug));
+        if keep {
+            write_badge_files(dir, slug, badge)?;
+            written += 1;
+        }
     }
-    eprintln!("sloplint: wrote {} badges to {dir}", badges.len());
+    // One combined badge over the `summary` metrics, colored by the worst tier among them.
+    if !settings.summary.is_empty() {
+        write_badge_files(dir, "summary", &summary_badge(&all, &settings.summary))?;
+        written += 1;
+    }
+    eprintln!("sloplint: wrote {written} badge(s) to {dir}");
     Ok(())
+}
+
+fn write_badge_files(dir: &str, slug: &str, badge: &Badge) -> anyhow::Result<()> {
+    let svg_path = Path::new(dir).join(format!("{slug}.svg"));
+    let json_path = Path::new(dir).join(format!("{slug}.json"));
+    fs::write(&svg_path, badge.svg())
+        .map_err(|e| anyhow!("writing {}: {e}", svg_path.display()))?;
+    fs::write(&json_path, badge.endpoint_json())
+        .map_err(|e| anyhow!("writing {}: {e}", json_path.display()))?;
+    Ok(())
+}
+
+/// Combine the named metrics into a single `sloplint` badge, e.g. `CC 8 · CoCo 14 · density
+/// 18%`, colored by the worst tier among them. Unknown slugs are skipped.
+fn summary_badge(all: &[(&'static str, Badge)], slugs: &[String]) -> Badge {
+    let mut parts = Vec::new();
+    let mut worst = Color::Green;
+    for slug in slugs {
+        if let Some(entry) = all.iter().find(|e| e.0 == slug.as_str()) {
+            parts.push(format!(
+                "{} {}",
+                badge_short_label(entry.0),
+                entry.1.message
+            ));
+            if color_rank(entry.1.color) > color_rank(worst) {
+                worst = entry.1.color;
+            }
+        }
+    }
+    Badge::new("sloplint", parts.join(" · "), worst)
+}
+
+/// Worst-is-highest ranking so a summary badge takes the most severe color among its metrics.
+fn color_rank(color: Color) -> u8 {
+    match color {
+        Color::Green => 0,
+        Color::Yellow => 1,
+        Color::Red => 2,
+    }
+}
+
+/// Short label for a metric slug, used in the combined summary badge.
+fn badge_short_label(slug: &str) -> &str {
+    match slug {
+        "max-cyclomatic" => "CC",
+        "cyclomatic-risk" => "risk",
+        "max-cognitive" => "CoCo",
+        "avg-function-loc" => "loc",
+        "max-nesting" => "nesting",
+        "comment-density" => "density",
+        other => other,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_badges() -> Vec<(&'static str, Badge)> {
+        vec![
+            (
+                "max-cyclomatic",
+                Badge::new("max complexity", "8", Color::Green),
+            ),
+            (
+                "max-cognitive",
+                Badge::new("max cognitive", "14", Color::Yellow),
+            ),
+            (
+                "comment-density",
+                Badge::new("comment density", "18%", Color::Red),
+            ),
+        ]
+    }
+
+    #[test]
+    fn summary_badge_joins_short_labels() {
+        let badge = summary_badge(
+            &sample_badges(),
+            &["max-cyclomatic".to_string(), "max-cognitive".to_string()],
+        );
+        assert_eq!(badge.label, "sloplint");
+        assert_eq!(badge.message, "CC 8 · CoCo 14");
+    }
+
+    #[test]
+    fn summary_badge_takes_the_worst_color() {
+        // green + yellow -> yellow; adding red -> red.
+        let two = summary_badge(
+            &sample_badges(),
+            &["max-cyclomatic".to_string(), "max-cognitive".to_string()],
+        );
+        assert_eq!(two.color, Color::Yellow);
+        let three = summary_badge(
+            &sample_badges(),
+            &[
+                "max-cyclomatic".to_string(),
+                "max-cognitive".to_string(),
+                "comment-density".to_string(),
+            ],
+        );
+        assert_eq!(three.color, Color::Red);
+    }
+
+    #[test]
+    fn summary_badge_skips_unknown_slugs() {
+        let badge = summary_badge(
+            &sample_badges(),
+            &["max-cyclomatic".to_string(), "nope".to_string()],
+        );
+        assert_eq!(badge.message, "CC 8");
+    }
 
     #[test]
     fn normalize_strips_leading_dot_slash() {
