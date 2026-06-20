@@ -19,4 +19,5 @@ sloplint_report.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+toml = "0.8"
 ignore = "0.4"

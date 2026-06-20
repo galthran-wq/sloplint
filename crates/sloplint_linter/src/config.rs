@@ -28,6 +28,8 @@ pub struct Config {
     pub limits: Limits,
     /// Which metric badges `metrics --badges` emits, and an optional combined summary.
     pub badges: BadgeSettings,
+    /// Settings for the import rules (SLP180 undeclared third-party import).
+    pub imports: ImportSettings,
 }
 
 impl Default for Config {
@@ -40,8 +42,20 @@ impl Default for Config {
             clone: CloneSettings::default(),
             limits: Limits::default(),
             badges: BadgeSettings::default(),
+            imports: ImportSettings::default(),
         }
     }
+}
+
+/// Settings for SLP180 (undeclared third-party import). The check resolves declared
+/// dependencies from the project manifest automatically; `extra` lets a project declare
+/// additional distribution names that aren't in the manifest (e.g. dynamically installed or
+/// namespace packages) to suppress false positives. Names are matched PEP 503-normalized.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ImportSettings {
+    /// Extra distribution names to treat as declared, beyond the manifest.
+    pub extra: Vec<String>,
 }
 
 /// Controls `metrics --badges` output. Defaults to today's behavior: every per-metric badge,

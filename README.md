@@ -27,6 +27,7 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP060` | preview | Verbose, mechanical identifier naming |
 | `SLP084` | preview | Deeply nested data-structure literals (a dict-of-lists-of-dicts blob past a depth — model it with a named type) |
 | `SLP120` | preview | Low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups) |
+| `SLP180` | preview | Undeclared third-party imports — a module imported but missing from the project's `pyproject.toml`/`requirements*.txt` (broken on a clean install) |
 
 Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
 McCabe risk tiers, shields **badges**, and a per-PR summary — via the `metrics` command and the
@@ -101,6 +102,9 @@ lcom4_min_methods = 3         # SLP120 — skip classes smaller than this
 [clone]                       # SLP020 near-duplicate detection
 min_statements = 3            # ignore tiny functions
 similarity = 0.85             # Jaccard similarity at/above which a pair is reported
+
+[imports]                     # SLP180 undeclared third-party import
+extra = []                    # extra distribution names to treat as declared (suppress FPs)
 
 [badges]                      # which `metrics --badges` files to emit (see Metrics & badges)
 # include = ["cyclomatic-risk"]   # per-metric badges; omit = all, [] = none
