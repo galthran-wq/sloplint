@@ -9,16 +9,19 @@ use std::process::Command;
 
 use serde_json::Value;
 
-fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/docstrings.py")
+fn fixtures_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Run `sloplint metrics <fixture> <extra args...>` and return (stdout, exit code).
+/// Run `sloplint metrics docstrings.py <extra args...>` from *inside* the fixtures dir, so the
+/// classified path is the bare `docstrings.py` (production). Running from the repo root would put
+/// a `tests/fixtures/` ancestor in the path and classify the fixture as a test file (#96),
+/// emptying the production panel/feeds these assertions read.
 fn run_metrics(extra: &[&str]) -> (String, i32) {
-    let fixture = fixture();
-    let mut args = vec!["metrics", fixture.to_str().unwrap()];
+    let mut args = vec!["metrics", "docstrings.py"];
     args.extend_from_slice(extra);
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
+        .current_dir(fixtures_dir())
         .args(&args)
         .output()
         .expect("failed to run sloplint binary");
@@ -33,16 +36,18 @@ fn json_reports_docstring_coverage_and_ratio() {
     let (stdout, code) = run_metrics(&["--format", "json"]);
     assert_eq!(code, 0);
     let value: Value = serde_json::from_str(&stdout).expect("metrics --format json is valid JSON");
+    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    let prod = &value["profiles"]["production"];
 
     // Public units: documented (doc), undocumented (no doc), Service (doc), run (no doc).
     // `_private_helper` is `_`-prefixed and excluded. 2 of 4 documented => 0.5.
-    let coverage = value["docstring_coverage"].as_f64().unwrap();
+    let coverage = prod["docstring_coverage"].as_f64().unwrap();
     assert!((coverage - 0.5).abs() < 1e-9, "coverage = {coverage}");
 
     // The ratio is function-scoped on both sides: function docstring lines (4 for `documented`,
     // the only documented function) over total function NCSS (2 + 1 + 1 + 1 = 5) => 0.8. The
     // `Service` class docstring drives coverage, not the ratio.
-    let ratio = value["docstring_code_ratio"].as_f64().unwrap();
+    let ratio = prod["docstring_code_ratio"].as_f64().unwrap();
     assert!((ratio - 0.8).abs() < 1e-9, "ratio = {ratio}");
 }
 

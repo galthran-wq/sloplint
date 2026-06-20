@@ -85,11 +85,7 @@ fn line_noqa_suppresses_each_acknowledged_site() {
 
 #[test]
 fn a_noqa_for_another_code_does_not_suppress_slp020() {
-    let other = DUP.replacen(
-        "def alpha(items):",
-        "def alpha(items):  # noqa: SLP999",
-        1,
-    );
+    let other = DUP.replacen("def alpha(items):", "def alpha(items):  # noqa: SLP999", 1);
     assert_eq!(
         slp020_count("dup_other", &other),
         2,

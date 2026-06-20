@@ -22,7 +22,9 @@ fn reports_cognitive_complexity_penalizing_nesting() {
     let value: Value = serde_json::from_str(&stdout)
         .unwrap_or_else(|e| panic!("metrics --format json must be valid JSON ({e}):\n{stdout}"));
 
-    assert_eq!(value["functions"], 2);
+    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    let prod = &value["profiles"]["production"];
+    assert_eq!(prod["functions"], 2);
     // The nested `tangle` (cognitive 6) dominates; the flat `classify` match is only 1.
-    assert_eq!(value["max_cognitive"], 6, "json: {value}");
+    assert_eq!(prod["max_cognitive"], 6, "json: {value}");
 }

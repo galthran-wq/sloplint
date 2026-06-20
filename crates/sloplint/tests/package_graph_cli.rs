@@ -11,10 +11,15 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/package_graph")
 }
 
-/// Run `sloplint metrics <fixture> --format <format>` and return stdout.
+/// Run `sloplint metrics . --format <format>` from *inside* the fixture dir, so the classified
+/// paths are project-relative (`proj/a.py`, …) and count as production. Running from the repo
+/// root would put a `tests/fixtures/` ancestor in every path and classify the whole fixture as
+/// test code (#96), emptying the production import graph this feed reports. Module names are
+/// unaffected — `module_name` derives the package root from the `__init__.py` walk, not the cwd.
 fn run(format: &str) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
-        .args(["metrics", fixture().to_str().unwrap(), "--format", format])
+        .current_dir(fixture())
+        .args(["metrics", ".", "--format", format])
         .output()
         .expect("failed to run sloplint binary");
     assert_eq!(
@@ -84,7 +89,7 @@ fn packages_feed_aggregates_modules_and_first_party_coupling() {
 #[test]
 fn json_rollup_reports_graph_totals() {
     let value: Value = serde_json::from_str(&run("json")).expect("metrics --format json is valid");
-    let packages = &value["packages"];
+    let packages = &value["profiles"]["production"]["packages"];
 
     // 7 modules (proj: __init__/a/b/c, proj.sub: __init__/helper, top), 3 packages.
     assert_eq!(packages["modules"], 7);
@@ -99,7 +104,7 @@ fn json_rollup_reports_graph_totals() {
 #[test]
 fn json_rollup_reports_cyclic_tangles() {
     let value: Value = serde_json::from_str(&run("json")).expect("metrics --format json is valid");
-    let cycles = &value["packages"]["cycles"];
+    let cycles = &value["profiles"]["production"]["packages"]["cycles"];
 
     // One tangle: proj.a -> proj.b -> proj.a, with proj.sub.helper joining via
     // proj.a -> proj.sub.helper -> proj.b. proj.c is reachable only through a TYPE_CHECKING
@@ -121,7 +126,9 @@ fn json_rollup_reports_cyclic_tangles() {
 #[test]
 fn json_rollup_reports_propagation_cost() {
     let value: Value = serde_json::from_str(&run("json")).expect("metrics --format json is valid");
-    let pc = value["packages"]["propagation_cost"].as_f64().unwrap();
+    let pc = value["profiles"]["production"]["packages"]["propagation_cost"]
+        .as_f64()
+        .unwrap();
 
     // Reachability (incl. self) over the 7 modules: the 3 cycle members each reach the 4-node
     // {a, b, c, helper} set; proj/proj.sub/c/top each reach only themselves.
@@ -132,7 +139,7 @@ fn json_rollup_reports_propagation_cost() {
 #[test]
 fn json_rollup_reports_modularity() {
     let value: Value = serde_json::from_str(&run("json")).expect("metrics --format json is valid");
-    let m = &value["packages"]["modularity"];
+    let m = &value["profiles"]["production"]["packages"]["modularity"];
 
     // Three declared packages (proj, proj.sub, root `.`).
     assert_eq!(m["communities_declared"], 3);

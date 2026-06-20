@@ -177,7 +177,10 @@ mod tests {
     #[test]
     fn parses_noqa_forms() {
         assert_eq!(parse_noqa("# noqa"), Some(Codes::All));
-        assert_eq!(parse_noqa("# noqa: SLP020"), Some(Codes::Only(vec!["SLP020".into()])));
+        assert_eq!(
+            parse_noqa("# noqa: SLP020"),
+            Some(Codes::Only(vec!["SLP020".into()]))
+        );
         assert_eq!(
             parse_noqa("# noqa: SLP020, SLP082"),
             Some(Codes::Only(vec!["SLP020".into(), "SLP082".into()]))
@@ -190,7 +193,10 @@ mod tests {
         // Blanket noqa with a trailing reason.
         assert_eq!(parse_noqa("# noqa  generated"), Some(Codes::All));
         // A Ruff code parses fine (and will simply match no SLP finding).
-        assert_eq!(parse_noqa("# noqa: E501"), Some(Codes::Only(vec!["E501".into()])));
+        assert_eq!(
+            parse_noqa("# noqa: E501"),
+            Some(Codes::Only(vec!["E501".into()]))
+        );
     }
 
     #[test]
@@ -221,12 +227,20 @@ mod tests {
         let supp = suppressions(source);
 
         let mut on_line_1 = vec![diag("SLP030", 0..5), diag("SLP010", 0..5)];
-        assert_eq!(supp.filter(&mut on_line_1), 1, "only the named SLP030 is dropped");
+        assert_eq!(
+            supp.filter(&mut on_line_1),
+            1,
+            "only the named SLP030 is dropped"
+        );
         assert_eq!(on_line_1[0].code, "SLP010", "an unnamed code survives");
 
         // A finding on line 2 is untouched even though it shares the code.
         let mut on_line_2 = vec![diag("SLP030", 22..27)];
-        assert_eq!(supp.filter(&mut on_line_2), 0, "different line, not suppressed");
+        assert_eq!(
+            supp.filter(&mut on_line_2),
+            0,
+            "different line, not suppressed"
+        );
     }
 
     #[test]
@@ -244,18 +258,30 @@ mod tests {
         let on_def = "def f():  # noqa: SLP020\n    return 1\n";
         let supp = suppressions(on_def);
         let mut diags = vec![diag("SLP020", 0..u32::try_from(on_def.len()).unwrap())];
-        assert_eq!(supp.filter(&mut diags), 1, "noqa on the reported line clears it");
+        assert_eq!(
+            supp.filter(&mut diags),
+            1,
+            "noqa on the reported line clears it"
+        );
 
         let in_body = "def f():\n    return 1  # noqa: SLP020\n";
         let supp = suppressions(in_body);
         let mut diags = vec![diag("SLP020", 0..u32::try_from(in_body.len()).unwrap())];
-        assert_eq!(supp.filter(&mut diags), 0, "noqa off the reported line does not match");
+        assert_eq!(
+            supp.filter(&mut diags),
+            0,
+            "noqa off the reported line does not match"
+        );
     }
 
     #[test]
     fn a_hash_inside_a_string_is_not_a_directive() {
         let supp = suppressions("x = \"# noqa: SLP030\"\n");
         let mut diags = vec![diag("SLP030", 0..1)];
-        assert_eq!(supp.filter(&mut diags), 0, "string content is not a directive");
+        assert_eq!(
+            supp.filter(&mut diags),
+            0,
+            "string content is not a directive"
+        );
     }
 }

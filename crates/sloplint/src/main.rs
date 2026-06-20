@@ -104,6 +104,17 @@ enum Command {
         /// gate, not a diagnostic). SonarSource suggests 15 per function.
         #[arg(long)]
         max_cognitive: Option<usize>,
+        /// Which profile the human/text view and the per-unit feeds report (#96). A profile is a
+        /// named, path-matched slice of the tree (`[[profiles]]` in `sloplint.toml`); they're
+        /// measured separately because, e.g., test and production code have different healthy
+        /// norms. Pass a profile name, or `all` for every profile panel. Defaults to the
+        /// `default` profile (`production` out of the box). Governs `--format text`/`github` and
+        /// the `functions`/`classes`/`packages` feeds (the packages graph is built from the
+        /// scoped modules only, so one profile can't manufacture another's coupling). `--format
+        /// json` ignores this — it always emits every profile panel plus the all-files
+        /// `test_proxies`.
+        #[arg(long)]
+        scope: Option<String>,
     },
 }
 
@@ -158,6 +169,45 @@ enum MetricsFormat {
     /// One JSON object per package (JSONL) — the first-party import graph collapsed to
     /// directory level: module count + the packages it imports / is imported by. Raw rows.
     Packages,
+}
+
+/// Which profile(s) the text view and the per-unit feeds report (#96): one named profile, or
+/// every profile (`all`). Resolved from the `--scope` flag against the configured profiles.
+enum Scope {
+    /// Every configured profile (text prints one panel each; feeds emit all files).
+    All,
+    /// A single named profile.
+    One(String),
+}
+
+impl Scope {
+    /// Whether a file with the given profile membership is in this scope.
+    fn includes(&self, profiles: &[String]) -> bool {
+        match self {
+            Scope::All => true,
+            Scope::One(name) => profiles.iter().any(|p| p == name),
+        }
+    }
+}
+
+/// Resolve the `--scope` argument against the configured profiles: absent ⇒ the `default`
+/// profile (the quality headline); `all` ⇒ every profile; otherwise it must name a profile.
+fn resolve_scope(arg: Option<&str>, selector: &Selector) -> anyhow::Result<Scope> {
+    match arg {
+        None => {
+            let name = selector
+                .default_profile()
+                .or_else(|| selector.profile_names().first().copied())
+                .ok_or_else(|| anyhow!("no metrics profiles are configured"))?;
+            Ok(Scope::One(name.to_string()))
+        }
+        Some("all") => Ok(Scope::All),
+        Some(name) if selector.profile_names().contains(&name) => Ok(Scope::One(name.to_string())),
+        Some(name) => Err(anyhow!(
+            "unknown --scope '{name}'; configured profiles: {} (or 'all')",
+            selector.profile_names().join(", ")
+        )),
+    }
 }
 
 fn main() -> ExitCode {
@@ -216,6 +266,7 @@ fn main() -> ExitCode {
             config,
             max_cyclomatic,
             max_cognitive,
+            scope,
         } => match run_metrics(
             &paths,
             format,
@@ -223,6 +274,7 @@ fn main() -> ExitCode {
             config.as_deref(),
             max_cyclomatic,
             max_cognitive,
+            scope,
         ) {
             Ok(true) => ExitCode::SUCCESS,  // under the gate(s) (or no gate)
             Ok(false) => ExitCode::from(1), // a function exceeded a --max-* ceiling
@@ -323,7 +375,8 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
         path: &display,
         source: &source,
         parsed: &parsed,
-        limits: config.limits,
+        // Per-file thresholds: the file's profile deltas over the global limits (#96).
+        limits: selector.limits(&display),
     };
     let diagnostics = check_file(&ctx, &refs);
     if diagnostics.is_empty() {
@@ -464,7 +517,8 @@ fn run_check(
             path: &display,
             source: &source,
             parsed: &parsed,
-            limits: config.limits,
+            // Per-file thresholds: the file's profile deltas over the global limits (#96).
+            limits: selector.limits(&display),
         };
         let diagnostics = check_file(&ctx, &refs);
 
@@ -816,7 +870,22 @@ fn run_metrics(
     config_path: Option<&str>,
     max_cyclomatic: Option<usize>,
     max_cognitive: Option<usize>,
+    scope: Option<String>,
 ) -> anyhow::Result<bool> {
+    // Profiles drive classification (which panel a file feeds) the same way they drive `check`'s
+    // rule config. Load best-effort: an explicit --config is strict, discovery falls back to the
+    // built-in profiles so a malformed ancestor toml can't break `metrics`.
+    let config = load_metrics_config(config_path)?;
+    let selector = config
+        .prepare()
+        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
+    let scope = resolve_scope(scope.as_deref(), &selector)?;
+    let profile_names: Vec<String> = selector
+        .profile_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
     let (files, _) = discover_python_files(paths);
     // The package feed and the JSON rollup need the first-party import graph, which is a
     // whole-project pass (like SLP180): collect every file's module-level imports here, then
@@ -825,9 +894,12 @@ fn run_metrics(
     // Keep path + source alongside metrics so the gate can name offending functions with a
     // resolved `path:line` location.
     let mut per_file: Vec<MeasuredFile> = Vec::new();
-    let mut module_inputs: Vec<ModuleInput> = Vec::new();
-    // Static test proxies (#86): one per file, classified test-vs-production by path. Gathered
-    // here because the ratio needs paths, which `aggregate` (over `FileMetrics`) doesn't carry.
+    // Each module input carries its file's profile membership so the import graph can be built
+    // per profile (#96) — one profile importing another must not manufacture coupling in the
+    // first profile's architecture metrics.
+    let mut module_inputs: Vec<(ModuleInput, Vec<String>)> = Vec::new();
+    // Static test proxies (#86): one per file. The test/production split is bound to the `tests`
+    // profile (#96) so the proxies and the panels agree.
     let mut test_stats: Vec<FileTestStats> = Vec::new();
     for path in files {
         let display = path.to_string_lossy().to_string();
@@ -838,64 +910,124 @@ fn run_metrics(
             continue;
         };
         let metrics = file_metrics(&source, &parsed);
-        test_stats.push(test_proxies::file_test_stats(
-            &display,
-            metrics.loc,
-            &parsed,
-        ));
+        let profiles: Vec<String> = selector
+            .profiles_for(&display)
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let is_test = profiles.iter().any(|p| p == "tests");
+        test_stats.push(test_proxies::file_test_stats(is_test, metrics.loc, &parsed));
         if needs_graph {
             if let Some(name) = module_name(&path) {
-                module_inputs.push(ModuleInput {
-                    name,
-                    imports: graph::scan_module_imports(&parsed),
-                    loc: metrics.loc,
-                    classes: metrics.classes.len(),
-                    abstract_classes: metrics.classes.iter().filter(|c| c.is_abstract).count(),
-                });
+                module_inputs.push((
+                    ModuleInput {
+                        name,
+                        imports: graph::scan_module_imports(&parsed),
+                        loc: metrics.loc,
+                        classes: metrics.classes.len(),
+                        abstract_classes: metrics.classes.iter().filter(|c| c.is_abstract).count(),
+                    },
+                    profiles.clone(),
+                ));
             }
         }
         per_file.push(MeasuredFile {
             path: display,
             source,
             metrics,
+            profiles,
         });
     }
 
     // DIT is a whole-project property: a class's inheritance depth depends on bases defined in
-    // *other* files. Resolve it across the full set before any class-level output reads `dit`.
-    // Only the class and JSON feeds surface it, so skip the pass otherwise.
+    // *other* files (a class in one profile may extend a base in another), so resolve it across
+    // the FULL set — before any per-profile split — so every panel sees the real depth.
     if matches!(format, MetricsFormat::Classes | MetricsFormat::Json) {
         let mut metrics: Vec<&mut FileMetrics> =
             per_file.iter_mut().map(|f| &mut f.metrics).collect();
         sloplint_metrics::resolve_inheritance_depth(&mut metrics);
     }
 
+    // The aggregate panel for one profile: the files that profile claims.
+    let panel_of = |name: &str| {
+        let metrics: Vec<FileMetrics> = per_file
+            .iter()
+            .filter(|f| f.profiles.iter().any(|p| p == name))
+            .map(|f| f.metrics.clone())
+            .collect();
+        aggregate(&metrics)
+    };
+    // The import graph for one profile: only that profile's modules, so resolution can't reach
+    // across a profile boundary.
+    let graph_of = |name: &str| {
+        ImportGraph::build(
+            module_inputs
+                .iter()
+                .filter(|(_, ps)| ps.iter().any(|p| p == name))
+                .map(|(m, _)| m.clone())
+                .collect(),
+        )
+    };
+
     if let MetricsFormat::Functions = format {
-        print_function_rows(&per_file);
+        print_function_rows(&per_file, &scope);
     } else if let MetricsFormat::Classes = format {
-        print_class_rows(&per_file);
+        print_class_rows(&per_file, &scope);
     } else if let MetricsFormat::Packages = format {
-        print_package_rows(&ImportGraph::build(module_inputs));
-    } else {
-        let just_metrics: Vec<FileMetrics> = per_file.iter().map(|f| f.metrics.clone()).collect();
-        let repo = aggregate(&just_metrics);
-        let proxies = test_proxies::aggregate_test_proxies(&test_stats);
-        match format {
-            MetricsFormat::Text => print_metrics_table(&repo, &proxies),
-            MetricsFormat::Json => {
-                println!(
-                    "{}",
-                    metrics_json(&repo, &ImportGraph::build(module_inputs), &proxies)
-                )
+        // For `all`, the graph is the whole tree; for one profile, just its modules.
+        let graph = match &scope {
+            Scope::All => {
+                ImportGraph::build(module_inputs.iter().map(|(m, _)| m.clone()).collect())
             }
-            MetricsFormat::Github => println!("{}", metrics_markdown(&repo, &proxies)),
+            Scope::One(name) => graph_of(name),
+        };
+        print_package_rows(&graph);
+    } else {
+        let proxies = test_proxies::aggregate_test_proxies(&test_stats);
+        // The profile(s) this scope reports, in declaration order.
+        let scoped: Vec<&str> = match &scope {
+            Scope::All => profile_names.iter().map(String::as_str).collect(),
+            Scope::One(name) => vec![name.as_str()],
+        };
+        match format {
+            MetricsFormat::Text => {
+                // One panel per in-scope profile; the proxies (always the full split) follow once.
+                for name in &scoped {
+                    print_metrics_panel(name, &panel_of(name));
+                }
+                print_test_proxies_table(&proxies);
+            }
+            // JSON is the comprehensive machine feed and ignores `--scope`: a panel for every
+            // configured profile under `profiles`, plus the all-files `test_proxies`.
+            MetricsFormat::Json => {
+                let panels: Vec<(String, RepoMetrics, ImportGraph)> = profile_names
+                    .iter()
+                    .map(|name| (name.clone(), panel_of(name), graph_of(name)))
+                    .collect();
+                println!("{}", metrics_json(&panels, &proxies));
+            }
+            MetricsFormat::Github => {
+                let panels: Vec<(&str, RepoMetrics)> =
+                    scoped.iter().map(|name| (*name, panel_of(name))).collect();
+                println!("{}", metrics_markdown(&panels, &proxies));
+            }
             MetricsFormat::Functions | MetricsFormat::Classes | MetricsFormat::Packages => {
                 unreachable!()
             }
         }
         if let Some(dir) = badges {
-            let settings = load_badge_settings(config_path)?;
-            write_badges(dir, &repo, &settings)?;
+            // Badges report the scoped panel — the `default` profile by default, the quality
+            // headline; for `all`, the whole tree.
+            let repo = match &scope {
+                Scope::All => aggregate(
+                    &per_file
+                        .iter()
+                        .map(|f| f.metrics.clone())
+                        .collect::<Vec<_>>(),
+                ),
+                Scope::One(name) => panel_of(name),
+            };
+            write_badges(dir, &repo, &config.badges)?;
         }
     }
 
@@ -905,26 +1037,25 @@ fn run_metrics(
     Ok(!over_cyclomatic && !over_cognitive)
 }
 
-/// Read `[badges]` from the config. An explicit `--config` is strict (a parse error fails the
-/// run), but *discovery* is best-effort: an unrelated or malformed ancestor `sloplint.toml`
-/// must not break `metrics --badges`, so we fall back to defaults with a warning.
-fn load_badge_settings(config_path: Option<&str>) -> anyhow::Result<BadgeSettings> {
+/// Load the config for `metrics` (profiles + `[badges]`). An explicit `--config` is strict (a
+/// parse error fails the run), but *discovery* is best-effort: an unrelated or malformed ancestor
+/// `sloplint.toml` must not break `metrics`, so we fall back to the built-in defaults with a
+/// warning.
+fn load_metrics_config(config_path: Option<&str>) -> anyhow::Result<Config> {
     match config_path {
         Some(path) => {
             let text =
                 fs::read_to_string(path).map_err(|e| anyhow!("reading config {path}: {e}"))?;
-            let config =
-                Config::from_toml_str(&text).map_err(|e| anyhow!("parsing config {path}: {e}"))?;
-            Ok(config.badges)
+            Config::from_toml_str(&text).map_err(|e| anyhow!("parsing config {path}: {e}"))
         }
         None => {
             let cwd =
                 env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
             match Config::discover(&cwd) {
-                Ok(config) => Ok(config.badges),
+                Ok(config) => Ok(config),
                 Err(err) => {
-                    eprintln!("sloplint: ignoring discovered config for badges ({err})");
-                    Ok(BadgeSettings::default())
+                    eprintln!("sloplint: ignoring discovered config for metrics ({err})");
+                    Ok(Config::default())
                 }
             }
         }
@@ -959,11 +1090,13 @@ fn gate(
     true
 }
 
-/// A measured file: its display path, source, and per-function metrics.
+/// A measured file: its display path, source, per-function metrics, and the names of the profiles
+/// its path belongs to (#96 — used to place it into one or more metric panels).
 struct MeasuredFile {
     path: String,
     source: String,
     metrics: FileMetrics,
+    profiles: Vec<String>,
 }
 
 /// A function whose `metric` value exceeds the configured ceiling.
@@ -1003,10 +1136,10 @@ fn gate_offenders(
 /// Emit one JSONL row per function: raw per-function features plus the enclosing file's
 /// length and comment density. This is the discovery feed — `analyze.py` mines these rows
 /// for features that separate the slop and clean cohorts.
-fn print_function_rows(per_file: &[MeasuredFile]) {
+fn print_function_rows(per_file: &[MeasuredFile], scope: &Scope) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    for file in per_file {
+    for file in per_file.iter().filter(|f| scope.includes(&f.profiles)) {
         for function in &file.metrics.functions {
             let _ = writeln!(out, "{}", function_row(&file.path, &file.metrics, function));
         }
@@ -1015,10 +1148,10 @@ fn print_function_rows(per_file: &[MeasuredFile]) {
 
 /// Emit one JSONL row per class: size (methods, attributes) + LCOM4 cohesion. The class-level
 /// discovery feed, mirroring `print_function_rows`.
-fn print_class_rows(per_file: &[MeasuredFile]) {
+fn print_class_rows(per_file: &[MeasuredFile], scope: &Scope) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    for file in per_file {
+    for file in per_file.iter().filter(|f| scope.includes(&f.profiles)) {
         for class in &file.metrics.classes {
             let _ = writeln!(out, "{}", class_row(&file.path, class));
         }
@@ -1109,8 +1242,10 @@ fn function_row(
     })
 }
 
-fn print_metrics_table(repo: &RepoMetrics, proxies: &TestProxies) {
-    println!("sloplint metrics");
+/// Print one labeled metric panel (#96) — the per-partition aggregates, without the test
+/// proxies (those are the project-wide split and are printed once, after the panel(s)).
+fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
+    println!("sloplint metrics — {label}");
     println!("  files               {}", repo.files);
     println!("  functions           {}", repo.functions);
     println!("  total lines         {}", repo.total_loc);
@@ -1132,7 +1267,12 @@ fn print_metrics_table(repo: &RepoMetrics, proxies: &TestProxies) {
         repo.docstring_coverage * 100.0
     );
     println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
-    // Static test proxies (#86) — descriptive only, NOT coverage and never a gate.
+}
+
+/// Print the static test proxies block (#86) once, beneath the panel(s). Always the full
+/// project-wide split (production vs test), independent of `--scope` — descriptive only, NOT
+/// coverage and never a gate.
+fn print_test_proxies_table(proxies: &TestProxies) {
     println!(
         "  test:code ratio     {}  ({} test / {} prod LoC)",
         opt_ratio(proxies.test_code_ratio),
@@ -1156,9 +1296,32 @@ fn opt_ratio(value: Option<f64>) -> String {
     }
 }
 
-fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph, proxies: &TestProxies) -> String {
+/// Assemble the full JSON feed (#96): a panel for **every** configured profile under `profiles`
+/// (keyed by name), plus the project-wide `test_proxies` split (always over all files). `--scope`
+/// does not affect this feed — it always reports every profile.
+fn metrics_json(panels: &[(String, RepoMetrics, ImportGraph)], proxies: &TestProxies) -> String {
+    let mut profiles = serde_json::Map::new();
+    for (name, repo, graph) in panels {
+        profiles.insert(
+            name.clone(),
+            serde_json::Value::Object(panel_json(repo, graph)),
+        );
+    }
+    let mut root = serde_json::Map::new();
+    root.insert("profiles".to_string(), serde_json::Value::Object(profiles));
+    // Static test proxies (issue #86): test:code ratio + assertion density.
+    root.insert("test_proxies".to_string(), test_proxies_json(proxies));
+    serde_json::to_string_pretty(&serde_json::Value::Object(root)).unwrap()
+}
+
+/// One metric panel as a JSON object (#96): every aggregate plus the import-graph rollup for the
+/// panel's file set. Shared by every profile section so they stay identical in shape.
+fn panel_json(
+    repo: &RepoMetrics,
+    graph: &ImportGraph,
+) -> serde_json::Map<String, serde_json::Value> {
     let summary = graph.summary();
-    serde_json::to_string_pretty(&serde_json::json!({
+    let serde_json::Value::Object(map) = serde_json::json!({
         "files": repo.files,
         "functions": repo.functions,
         "total_loc": repo.total_loc,
@@ -1206,10 +1369,10 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph, proxies: &TestProxies) 
             // Newman–Girvan modularity: declared package partition vs. detected (issue #69).
             "modularity": modularity_json(graph),
         },
-        // Static test proxies (issue #86): test:code ratio + assertion density.
-        "test_proxies": test_proxies_json(proxies),
-    }))
-    .unwrap()
+    }) else {
+        unreachable!("a json object literal is an object")
+    };
+    map
 }
 
 /// The test-proxies rollup for the JSON feed (issue #86). The `_note` is emitted inline so any
@@ -1267,14 +1430,17 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
     })
 }
 
-/// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from
-/// `sloplint_metrics`, under a heading. Pairs with the `cyclomatic-risk` badge.
-fn metrics_markdown(repo: &RepoMetrics, proxies: &TestProxies) -> String {
-    format!(
-        "### sloplint metrics\n\n{}\n{}",
-        repo.cyclomatic_markdown(),
-        test_proxies_markdown(proxies)
-    )
+/// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from `sloplint_metrics`
+/// for each in-scope profile (#96), under its own heading, then the test proxies. `--scope all`
+/// renders one block per profile side by side — never a combined panel that would mix profiles'
+/// norms. Pairs with the `cyclomatic-risk` badge.
+fn metrics_markdown(panels: &[(&str, RepoMetrics)], proxies: &TestProxies) -> String {
+    let mut out = String::from("### sloplint metrics\n\n");
+    for (name, repo) in panels {
+        out.push_str(&format!("#### {name}\n\n{}\n", repo.cyclomatic_markdown()));
+    }
+    out.push_str(&test_proxies_markdown(proxies));
+    out
 }
 
 /// A markdown block for the static test proxies (#86), explicitly captioned as *proxies, not
@@ -1511,11 +1677,13 @@ mod tests {
 
     #[test]
     fn normalized_walk_paths_match_documented_globs() {
-        // Regression: WalkBuilder::new(".") yields "./tests/t.py"; a `tests/**` override
+        // Regression: WalkBuilder::new(".") yields "./tests/t.py"; a `tests/**` profile glob
         // must still apply after normalization.
-        let config =
-            Config::from_toml_str("[[overrides]]\npath = \"tests/**\"\nignore = [\"SLP010\"]\n")
-                .unwrap();
+        let config = Config::from_toml_str(
+            "[[profiles]]\nname = \"tests\"\nmatch = [\"tests/**\"]\nignore = [\"SLP010\"]\n\
+             [[profiles]]\nname = \"production\"\ndefault = true\n",
+        )
+        .unwrap();
         let selector = config.prepare().unwrap();
         let walked = normalize(Path::new("./tests/t.py"));
         assert!(!selector.is_enabled("SLP010", &walked.to_string_lossy()));

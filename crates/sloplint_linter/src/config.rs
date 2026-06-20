@@ -1,9 +1,13 @@
 //! Configuration model and loading (`sloplint.toml`).
 //!
-//! Mirrors Ruff's select/ignore model with per-path overrides. Defaults are deliberately
-//! strict-but-safe: every stable `SLP` rule is enabled, nothing is ignored, preview rules
-//! are off. A code is "enabled" for a file when a `select` prefix matches it, no `ignore`
-//! prefix matches, and no matching path override ignores it.
+//! Mirrors Ruff's select/ignore model, layered over named **profiles** (#96). A profile is a
+//! path-matched slice of the tree — `tests`, `production`, generated code, … — carrying its own
+//! rule deltas (ignores, comment allowance, threshold overrides) *and* defining a metrics panel.
+//! Defaults are deliberately strict-but-safe: every stable `SLP` rule is enabled, nothing is
+//! ignored, preview rules are off. A code is "enabled" for a file when a `select` prefix matches
+//! it, no `ignore` prefix matches, and no profile matching that file ignores it. Per-file
+//! thresholds resolve the same way: the global [`Limits`] with each matching profile's deltas
+//! applied in declaration order (last writer wins).
 
 use std::path::{Path, PathBuf};
 
@@ -20,11 +24,14 @@ pub struct Config {
     pub ignore: Vec<String>,
     /// Enable preview-group (unstable) rules. Off by default, like Ruff's `--preview`.
     pub preview: bool,
-    /// Per-path overrides; all matching overrides apply (their ignores accumulate).
-    pub overrides: Vec<PathOverride>,
-    /// Near-duplicate (clone) detection settings.
+    /// Named, path-matched profiles (#96). Replaces the old per-path overrides: a profile both
+    /// carries rule deltas and defines a metrics panel. Omitted in TOML ⇒ the built-in `tests` +
+    /// `production` pair ([`default_profiles`]); declaring any replaces that set.
+    #[serde(default = "default_profiles")]
+    pub profiles: Vec<Profile>,
+    /// Near-duplicate (clone) detection settings (global defaults; a profile may override).
     pub clone: CloneSettings,
-    /// Size/shape limits for the structural rules.
+    /// Size/shape limits for the structural rules (global defaults; a profile may override).
     pub limits: Limits,
     /// Which metric badges `metrics --badges` emits, and an optional combined summary.
     pub badges: BadgeSettings,
@@ -38,7 +45,7 @@ impl Default for Config {
             select: vec!["SLP".to_string()],
             ignore: Vec::new(),
             preview: false,
-            overrides: Vec::new(),
+            profiles: default_profiles(),
             clone: CloneSettings::default(),
             limits: Limits::default(),
             badges: BadgeSettings::default(),
@@ -127,19 +134,127 @@ impl Default for CloneSettings {
     }
 }
 
-/// A per-path override: extra rule ignores (and, later, comment allowances) for files whose
-/// path matches `path` (a gitignore-style glob).
+/// A named, path-matched slice of the tree (#96). It carries rule deltas applied over the global
+/// config for files it matches, *and* it is the unit `metrics` reports a panel for. Profiles are
+/// an ordered list: a file belongs to every profile whose `match`/`exclude` globs select it
+/// (overlap is allowed), and overlapping deltas resolve in declaration order. A `default` profile
+/// is the complement — it claims files matched by no other profile.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PathOverride {
-    /// Glob matched against the file path, e.g. `"alembic/**"` or `"tests/**"`.
-    pub path: String,
-    /// Code prefixes to additionally ignore for matching files.
+pub struct Profile {
+    /// Stable name, e.g. `"tests"` / `"production"`. Used by `metrics --scope <name>` and as the
+    /// JSON panel key.
+    pub name: String,
+    /// Include globs (gitignore-style path globs, e.g. `"tests/**"`). A file is a candidate for
+    /// the profile when any matches. Ignored for a `default` profile (it matches by complement).
+    #[serde(default)]
+    pub r#match: Vec<String>,
+    /// Exclude globs carved back out of `match` — the "not" pattern. A file matching any of these
+    /// is not in the profile even if an include matched.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Marks the catch-all profile: it claims exactly the files no other profile matched. At most
+    /// one profile should set this.
+    #[serde(default)]
+    pub default: bool,
+    /// Code prefixes to additionally ignore for files in this profile (accumulate across all
+    /// matching profiles, like the old overrides).
     #[serde(default)]
     pub ignore: Vec<String>,
-    /// Whether comments are allowed for matching files (consumed by the comment rules).
+    /// Whether comments are allowed for files in this profile.
     #[serde(default)]
     pub allow_comments: bool,
+    /// Threshold overrides for files in this profile, applied as deltas over the global
+    /// [`Limits`] (only the keys set here change). Note: SLP020 (clones) and SLP090 (fanout) are
+    /// cross-file/directory analyses whose unit spans profiles, so they always use the *global*
+    /// thresholds — only per-file rules honor a profile's `limits`.
+    #[serde(default)]
+    pub limits: LimitsPatch,
+}
+
+/// The built-in profiles when none are configured: `tests` (path heuristic mirroring
+/// [`crate`]'s test classification) and `production` (everything else). Reproduces the
+/// pre-profiles behavior with zero config.
+pub fn default_profiles() -> Vec<Profile> {
+    vec![
+        Profile {
+            name: "tests".to_string(),
+            // Mirror the test classifier: a test_*/*_test/conftest filename, or a `tests`/`test`
+            // directory segment at any depth (anchored + `**/`-prefixed forms cover top-level
+            // and nested alike).
+            r#match: [
+                "test_*.py",
+                "*_test.py",
+                "conftest.py",
+                "**/test_*.py",
+                "**/*_test.py",
+                "**/conftest.py",
+                "tests/**",
+                "test/**",
+                "**/tests/**",
+                "**/test/**",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            exclude: Vec::new(),
+            default: false,
+            ignore: Vec::new(),
+            allow_comments: false,
+            limits: LimitsPatch::default(),
+        },
+        Profile {
+            name: "production".to_string(),
+            r#match: Vec::new(),
+            exclude: Vec::new(),
+            default: true,
+            ignore: Vec::new(),
+            allow_comments: false,
+            limits: LimitsPatch::default(),
+        },
+    ]
+}
+
+/// Per-field overrides for [`Limits`]; `None` leaves the global value untouched. Same keys as
+/// `Limits`, all optional.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LimitsPatch {
+    pub file_max_lines: Option<usize>,
+    pub nesting_max_depth: Option<usize>,
+    pub data_nesting_max_depth: Option<usize>,
+    pub max_identifier_words: Option<usize>,
+    pub dir_max_modules: Option<usize>,
+    pub lcom4_max_components: Option<usize>,
+    pub lcom4_min_methods: Option<usize>,
+}
+
+impl LimitsPatch {
+    /// Apply the set fields onto `base`, leaving the rest as the global default.
+    fn apply(&self, mut base: Limits) -> Limits {
+        if let Some(v) = self.file_max_lines {
+            base.file_max_lines = v;
+        }
+        if let Some(v) = self.nesting_max_depth {
+            base.nesting_max_depth = v;
+        }
+        if let Some(v) = self.data_nesting_max_depth {
+            base.data_nesting_max_depth = v;
+        }
+        if let Some(v) = self.max_identifier_words {
+            base.max_identifier_words = v;
+        }
+        if let Some(v) = self.dir_max_modules {
+            base.dir_max_modules = v;
+        }
+        if let Some(v) = self.lcom4_max_components {
+            base.lcom4_max_components = v;
+        }
+        if let Some(v) = self.lcom4_min_methods {
+            base.lcom4_min_methods = v;
+        }
+        base
+    }
 }
 
 impl Config {
@@ -163,27 +278,104 @@ impl Config {
         Ok(Self::default())
     }
 
-    /// Compile globs once so per-file selection is cheap. Fails on an invalid glob.
+    /// Compile each profile's globs once so per-file resolution is cheap. Fails on an invalid
+    /// glob.
     pub fn prepare(&self) -> Result<Selector<'_>, globset::Error> {
-        let mut overrides = Vec::with_capacity(self.overrides.len());
-        for ov in &self.overrides {
-            overrides.push((Glob::new(&ov.path)?.compile_matcher(), ov));
+        let mut profiles = Vec::with_capacity(self.profiles.len());
+        for profile in &self.profiles {
+            let include = compile_globs(&profile.r#match)?;
+            let exclude = compile_globs(&profile.exclude)?;
+            profiles.push(CompiledProfile {
+                profile,
+                include,
+                exclude,
+            });
         }
         Ok(Selector {
             config: self,
-            overrides,
+            profiles,
         })
     }
 }
 
-/// A config with its path globs compiled, ready for repeated per-file queries.
-pub struct Selector<'a> {
-    config: &'a Config,
-    overrides: Vec<(GlobMatcher, &'a PathOverride)>,
+/// Compile a list of path globs into matchers.
+fn compile_globs(globs: &[String]) -> Result<Vec<GlobMatcher>, globset::Error> {
+    globs
+        .iter()
+        .map(|g| Ok(Glob::new(g)?.compile_matcher()))
+        .collect()
 }
 
-impl Selector<'_> {
-    /// Whether `code` is enabled for the file at `path`.
+/// A profile with its include/exclude globs compiled.
+struct CompiledProfile<'a> {
+    profile: &'a Profile,
+    include: Vec<GlobMatcher>,
+    exclude: Vec<GlobMatcher>,
+}
+
+impl CompiledProfile<'_> {
+    /// Whether this profile's *globs* select `path` (independent of the `default` complement).
+    fn glob_matches(&self, path: &str) -> bool {
+        self.include.iter().any(|m| m.is_match(path))
+            && !self.exclude.iter().any(|m| m.is_match(path))
+    }
+}
+
+/// A config with its profile globs compiled, ready for repeated per-file queries.
+pub struct Selector<'a> {
+    config: &'a Config,
+    profiles: Vec<CompiledProfile<'a>>,
+}
+
+impl<'a> Selector<'a> {
+    /// Indices (into the profile list, in declaration order) of every profile `path` belongs to.
+    /// A file matches each profile whose globs select it; if none do, it falls to the `default`
+    /// profile (the complement). Empty only when there is neither a glob match nor a default.
+    fn matching_indices(&self, path: &str) -> Vec<usize> {
+        let matched: Vec<usize> = self
+            .profiles
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.profile.default && c.glob_matches(path))
+            .map(|(i, _)| i)
+            .collect();
+        if !matched.is_empty() {
+            return matched;
+        }
+        self.profiles
+            .iter()
+            .position(|c| c.profile.default)
+            .into_iter()
+            .collect()
+    }
+
+    /// The names of the profiles `path` belongs to, in declaration order. The classification used
+    /// by `metrics` to place a file into one or more panels.
+    pub fn profiles_for(&self, path: &str) -> Vec<&'a str> {
+        self.matching_indices(path)
+            .into_iter()
+            .map(|i| self.profiles[i].profile.name.as_str())
+            .collect()
+    }
+
+    /// Every configured profile name, in declaration order.
+    pub fn profile_names(&self) -> Vec<&'a str> {
+        self.profiles
+            .iter()
+            .map(|c| c.profile.name.as_str())
+            .collect()
+    }
+
+    /// The name of the `default` (catch-all) profile, if one is configured.
+    pub fn default_profile(&self) -> Option<&'a str> {
+        self.profiles
+            .iter()
+            .find(|c| c.profile.default)
+            .map(|c| c.profile.name.as_str())
+    }
+
+    /// Whether `code` is enabled for the file at `path`: globally selected, not globally ignored,
+    /// and not ignored by any profile the file belongs to.
     pub fn is_enabled(&self, code: &str, path: &str) -> bool {
         let selected = self
             .config
@@ -201,19 +393,34 @@ impl Selector<'_> {
         {
             return false;
         }
-        for (matcher, ov) in &self.overrides {
-            if matcher.is_match(path) && ov.ignore.iter().any(|p| code.starts_with(p.as_str())) {
+        for i in self.matching_indices(path) {
+            if self.profiles[i]
+                .profile
+                .ignore
+                .iter()
+                .any(|p| code.starts_with(p.as_str()))
+            {
                 return false;
             }
         }
         true
     }
 
-    /// Whether comments are allowed for the file at `path` (any matching override opts in).
+    /// Whether comments are allowed for the file at `path` (any profile it belongs to opts in).
     pub fn comments_allowed(&self, path: &str) -> bool {
-        self.overrides
-            .iter()
-            .any(|(matcher, ov)| ov.allow_comments && matcher.is_match(path))
+        self.matching_indices(path)
+            .into_iter()
+            .any(|i| self.profiles[i].profile.allow_comments)
+    }
+
+    /// The effective thresholds for the file at `path`: the global [`Limits`] with each matching
+    /// profile's deltas applied in declaration order (last writer wins).
+    pub fn limits(&self, path: &str) -> Limits {
+        let mut limits = self.config.limits;
+        for i in self.matching_indices(path) {
+            limits = self.profiles[i].profile.limits.apply(limits);
+        }
+        limits
     }
 
     /// Whether preview-group rules are enabled.
@@ -282,21 +489,134 @@ mod tests {
     }
 
     #[test]
-    fn per_path_override_ignores_and_allows_comments() {
+    fn profile_ignores_and_allows_comments_by_path() {
         let toml = r#"
-[[overrides]]
-path = "alembic/**"
+[[profiles]]
+name = "migrations"
+match = ["alembic/**"]
 ignore = ["SLP010"]
 allow_comments = true
+
+[[profiles]]
+name = "production"
+default = true
 "#;
         let config = Config::from_toml_str(toml).unwrap();
         let selector = config.prepare().unwrap();
-        // Disabled under the override path, enabled elsewhere.
+        // Disabled under the profile path, enabled elsewhere.
         assert!(!selector.is_enabled("SLP010", "alembic/versions/001_init.py"));
         assert!(selector.is_enabled("SLP010", "src/app.py"));
         // Comment allowance follows the same glob.
         assert!(selector.comments_allowed("alembic/versions/001_init.py"));
         assert!(!selector.comments_allowed("src/app.py"));
+        // Classification: the migrations file is in `migrations`; everything else is `production`.
+        assert_eq!(
+            selector.profiles_for("alembic/versions/001_init.py"),
+            ["migrations"]
+        );
+        assert_eq!(selector.profiles_for("src/app.py"), ["production"]);
+    }
+
+    #[test]
+    fn default_profiles_classify_tests_vs_production() {
+        let selector_cfg = Config::default();
+        let selector = selector_cfg.prepare().unwrap();
+        for test_path in [
+            "test_foo.py",
+            "pkg/test_foo.py",
+            "pkg/foo_test.py",
+            "conftest.py",
+            "pkg/tests/thing.py",
+            "a/b/test/thing.py",
+        ] {
+            assert_eq!(
+                selector.profiles_for(test_path),
+                ["tests"],
+                "{test_path} should be a test"
+            );
+        }
+        for prod_path in [
+            "foo.py",
+            "src/app.py",
+            "src/latest/thing.py",
+            "src/testing.py",
+        ] {
+            assert_eq!(
+                selector.profiles_for(prod_path),
+                ["production"],
+                "{prod_path} should be production"
+            );
+        }
+    }
+
+    #[test]
+    fn profile_limits_override_globally_with_last_writer_wins() {
+        let toml = r#"
+limits = { file_max_lines = 400 }
+
+[[profiles]]
+name = "tests"
+match = ["tests/**"]
+limits = { file_max_lines = 1000, nesting_max_depth = 8 }
+
+[[profiles]]
+name = "production"
+default = true
+"#;
+        let config = Config::from_toml_str(toml).unwrap();
+        let selector = config.prepare().unwrap();
+        // Production keeps the global threshold.
+        assert_eq!(selector.limits("src/app.py").file_max_lines, 400);
+        // Tests get the profile delta; unset keys (e.g. data_nesting) stay global.
+        let test_limits = selector.limits("tests/test_app.py");
+        assert_eq!(test_limits.file_max_lines, 1000);
+        assert_eq!(test_limits.nesting_max_depth, 8);
+        assert_eq!(
+            test_limits.data_nesting_max_depth,
+            Limits::default().data_nesting_max_depth
+        );
+    }
+
+    #[test]
+    fn exclude_carves_files_back_out_of_a_profile() {
+        let toml = r#"
+[[profiles]]
+name = "src"
+match = ["src/**"]
+exclude = ["src/legacy/**"]
+
+[[profiles]]
+name = "rest"
+default = true
+"#;
+        let config = Config::from_toml_str(toml).unwrap();
+        let selector = config.prepare().unwrap();
+        assert_eq!(selector.profiles_for("src/app.py"), ["src"]);
+        // Excluded path falls through to the default profile.
+        assert_eq!(selector.profiles_for("src/legacy/old.py"), ["rest"]);
+    }
+
+    #[test]
+    fn overlapping_profiles_both_claim_a_file() {
+        let toml = r#"
+[[profiles]]
+name = "api"
+match = ["src/api/**"]
+
+[[profiles]]
+name = "py"
+match = ["**/*.py"]
+
+[[profiles]]
+name = "production"
+default = true
+"#;
+        let config = Config::from_toml_str(toml).unwrap();
+        let selector = config.prepare().unwrap();
+        // A file under src/api matches both `api` and `py` — overlap is allowed, both claim it.
+        assert_eq!(selector.profiles_for("src/api/users.py"), ["api", "py"]);
+        // The default never applies when a glob profile matched.
+        assert_eq!(selector.profiles_for("src/main.py"), ["py"]);
     }
 
     #[test]

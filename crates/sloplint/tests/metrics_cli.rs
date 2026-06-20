@@ -8,16 +8,23 @@ use std::process::Command;
 
 use serde_json::Value;
 
-fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cyclomatic.py")
+fn fixtures_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Run `sloplint metrics <fixture> <extra args...>` and return (stdout, stderr, exit code).
+fn fixture() -> PathBuf {
+    fixtures_dir().join("cyclomatic.py")
+}
+
+/// Run `sloplint metrics cyclomatic.py <extra args...>` from *inside* the fixtures dir, so the
+/// classified path is the bare `cyclomatic.py` (production). Running from the repo root would put
+/// a `tests/fixtures/` ancestor in the path and classify the fixture as a test file (#96),
+/// emptying the production panel these assertions read.
 fn run_metrics(extra: &[&str]) -> (String, String, i32) {
-    let fixture = fixture();
-    let mut args = vec!["metrics", fixture.to_str().unwrap()];
+    let mut args = vec!["metrics", "cyclomatic.py"];
     args.extend_from_slice(extra);
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
+        .current_dir(fixtures_dir())
         .args(&args)
         .output()
         .expect("failed to run sloplint binary");
@@ -33,16 +40,18 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
     let (stdout, _stderr, code) = run_metrics(&["--format", "json"]);
     assert_eq!(code, 0, "metrics without a gate exits 0");
     let value: Value = serde_json::from_str(&stdout).expect("metrics --format json is valid JSON");
+    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    let prod = &value["profiles"]["production"];
 
-    assert_eq!(value["functions"], 3);
-    assert_eq!(value["max_cyclomatic"], 12);
+    assert_eq!(prod["functions"], 3);
+    assert_eq!(prod["max_cyclomatic"], 12);
     // p95 (nearest-rank over [1, 3, 12]) lands on the worst function.
-    assert_eq!(value["p95_cyclomatic"], 12);
+    assert_eq!(prod["p95_cyclomatic"], 12);
     // mean = (1 + 3 + 12) / 3.
-    let avg = value["avg_cyclomatic"].as_f64().unwrap();
+    let avg = prod["avg_cyclomatic"].as_f64().unwrap();
     assert!((avg - 16.0 / 3.0).abs() < 1e-6, "avg_cyclomatic = {avg}");
 
-    let risk = &value["cyclomatic_risk"];
+    let risk = &prod["cyclomatic_risk"];
     assert_eq!(risk["low"], 2, "trivial + comprehension are low-risk");
     assert_eq!(risk["moderate"], 1, "moderate() is in the 11-20 tier");
     assert_eq!(risk["high"], 0);
@@ -50,8 +59,8 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
 
     // Type-hint coverage (#85) is wired into the aggregate. The fixture is fully unannotated, so
     // both land at 0.0 — the precise ratio math is covered by the metrics-crate unit tests.
-    assert_eq!(value["param_annotation_coverage"], 0.0);
-    assert_eq!(value["fully_annotated_function_rate"], 0.0);
+    assert_eq!(prod["param_annotation_coverage"], 0.0);
+    assert_eq!(prod["fully_annotated_function_rate"], 0.0);
 }
 
 #[test]
