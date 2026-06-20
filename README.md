@@ -211,7 +211,10 @@ and reproducible — no LLM, no randomness. Two feeds:
 
 These are research-backed structural signals (Martin's package metrics; MacCormack's propagation
 cost; Newman–Girvan modularity; Melton & Tempero on cyclic dependencies) — descriptive measures
-to compare against a baseline, not pass/fail gates.
+for tracking a repo over time or comparing across codebases, not pass/fail gates. (Published
+clean-vs-slop reference distributions are the job of the benchmark harness, [#55][bench].)
+
+[bench]: https://github.com/galthran-wq/sloplint/issues/55
 
 ## GitHub Action
 
