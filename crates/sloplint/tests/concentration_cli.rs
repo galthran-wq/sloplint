@@ -89,6 +89,36 @@ fn text_view_surfaces_concentration_and_offender() {
 }
 
 #[test]
+fn text_and_json_agree_when_a_file_collides_with_a_package() {
+    // `a.py` resolves to the same dotted name as the package `a/`, so the import graph counts it
+    // once (the node index overwrites). The text view must dedup the same way — regression for the
+    // text-vs-JSON divergence the reviewer found.
+    let project = make_project("collide");
+    write(&project, "a.py", "x = 1\n");
+    write(&project, "a/__init__.py", "");
+    write(&project, "a/sub.py", "y = 1\n");
+    write(&project, "main.py", "z = 1\n");
+
+    let (json, _, jc) = run(&project, &["metrics", ".", "--format", "json"]);
+    assert_eq!(jc, 0);
+    let value: Value = serde_json::from_str(&json).expect("valid JSON");
+    let c = &value["profiles"]["production"]["packages"]["concentration"];
+    // Distinct dotted names: `a` (package, from __init__ and a.py — counted once), `a.sub`, `main`.
+    // Packages: `a` (2: itself + sub) and `.` (1: main) → 3 modules, share 2/3.
+    assert_eq!(c["total_modules"], 3);
+    let json_share = c["max_package_share"].as_f64().unwrap();
+    assert!((json_share - 2.0 / 3.0).abs() < 1e-9, "json share {json_share}");
+
+    let (text, _, tc) = run(&project, &["metrics", "."]);
+    assert_eq!(tc, 0);
+    // The text view reports the same module count and share as the JSON feed.
+    assert!(
+        text.contains("3 modules") && text.contains("max package share   0.67"),
+        "text must match JSON (3 modules, share 0.67): {text}"
+    );
+}
+
+#[test]
 fn concentration_is_scoped_to_the_production_profile() {
     // Test files live in the `tests` profile, so they must not count toward production concentration
     // (#96). Production here is just the 2-module `app` package + root main.py = 3 modules.

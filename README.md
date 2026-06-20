@@ -322,7 +322,7 @@ and reproducible — no LLM, no randomness. Two feeds:
     },
     "concentration": {        // node distribution: god-package / flat dumping-ground (not edges)
       "total_modules": 412, "packages": 37,
-      "max_package_share": 0.21,  // biggest package's share of all modules (yt-dlp = 0.90)
+      "max_package_share": 0.21,  // biggest package's share of all modules
       "module_count_gini": 0.38,  // inequality of modules-per-package (0 = even, →1 = one pile)
       "largest_package": { "package": "pkg.io", "modules": 86 }
     }

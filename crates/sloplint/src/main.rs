@@ -1274,14 +1274,25 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
 
 /// The package module-count concentration (#103) for one profile's files. Edge-free — it needs
 /// only each module's package, so the text view computes it without building the import graph
-/// (which would require an extra import-scan pass per file). The package list is assembled the same
-/// way as the graph's nodes (`module_name` → `package_of`), so it agrees with the JSON feed.
+/// (which would require an extra import-scan pass per file).
+///
+/// Modules are deduplicated by dotted name (last writer wins), exactly as `ImportGraph::build`
+/// populates its node index: two files resolving to the same dotted name (e.g. `a.py` beside a
+/// package `a/`) are one node there and must be one module here too — otherwise the text view would
+/// disagree with the JSON feed and `--format packages`.
 fn concentration_for(per_file: &[MeasuredFile], profile: &str) -> graph::Concentration {
-    let packages: Vec<String> = per_file
+    let mut modules: BTreeMap<String, bool> = BTreeMap::new();
+    for file in per_file
         .iter()
         .filter(|f| f.profiles.iter().any(|p| p == profile))
-        .filter_map(|f| module_name(Path::new(&f.path)))
-        .map(|m| graph::package_of(&m.dotted, m.is_package))
+    {
+        if let Some(name) = module_name(Path::new(&file.path)) {
+            modules.insert(name.dotted, name.is_package);
+        }
+    }
+    let packages: Vec<String> = modules
+        .into_iter()
+        .map(|(dotted, is_package)| graph::package_of(&dotted, is_package))
         .collect();
     graph::concentration(&packages)
 }
