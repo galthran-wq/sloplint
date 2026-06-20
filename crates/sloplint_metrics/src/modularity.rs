@@ -10,14 +10,21 @@
 //! - **detected Q** — the modularity of the partition found by [Louvain](https://en.wikipedia.org/wiki/Louvain_method)
 //!   community detection (a high-Q clustering ignoring the declared boundaries).
 //!
-//! The **gap** (detected − declared) is the slop signal the issue calls out: a large gap means
-//! the natural community structure does not line up with the declared packages — flat
+//! The **gap** (detected − declared) is the slop signal the issue calls out: a large *positive*
+//! gap means the natural community structure does not line up with the declared packages — flat
 //! dumping-grounds and packages-in-name-only, common in vibe-coded repos.
 //!
 //! Louvain is normally randomized (random node order / tie-breaking); here it is made fully
 //! deterministic — nodes are visited in index order and ties resolve to the lowest community id —
 //! so the reported Q is reproducible, matching the rest of sloplint. (We avoid an external
 //! community-detection crate precisely because those introduce nondeterminism.)
+//!
+//! Louvain is a *greedy heuristic*, so `q_detected` is a lower bound on the optimal modularity,
+//! not a guaranteed maximum: on small or dense graphs it can settle in a local optimum that
+//! scores below the declared partition, making the gap slightly negative. A negative gap just
+//! means the declared boundaries are already as good as anything the heuristic found (good
+//! structure); the slop signal is a large *positive* gap. Both Q values are reported raw so a
+//! consumer can interpret the gap as `max(0, detected − declared)` if a one-sided signal is wanted.
 
 use std::collections::HashMap;
 
@@ -36,7 +43,9 @@ pub struct ModularityReport {
 
 impl ModularityReport {
     /// `q_detected − q_declared`: how much better the natural clustering scores than the declared
-    /// package boundaries. A large positive gap flags "packages in name only".
+    /// package boundaries. A large positive gap flags "packages in name only". Can be slightly
+    /// negative — Louvain is a greedy heuristic and may not beat the declared partition on small or
+    /// dense graphs; treat a negative gap as 0 (the declared structure is already good).
     pub fn gap(&self) -> f64 {
         self.q_detected - self.q_declared
     }
@@ -331,7 +340,9 @@ mod tests {
             "q_declared = {}",
             r.q_declared
         );
-        // Louvain finds the same two clusters (or better), so detected >= declared.
+        // For this clean two-cluster graph Louvain recovers the two communities, so detected
+        // matches declared here. (Not a general guarantee — the greedy heuristic can underperform
+        // the declared partition on small/dense graphs; see the module docs.)
         assert!(
             r.q_detected >= r.q_declared - 1e-9,
             "detected {} should be >= declared {}",
@@ -355,6 +366,28 @@ mod tests {
             r.gap()
         );
         assert_eq!(r.communities_declared, 1);
+    }
+
+    #[test]
+    fn gap_can_be_negative_when_greedy_underperforms_declared() {
+        // Louvain is a greedy heuristic and can settle below the declared partition's Q on a
+        // small/dense graph. Here the declared 2-partition is the global optimum (Q = 0.125) but
+        // Louvain collapses everything into one community (Q = 0), so the gap is negative. This is
+        // expected and documented — a negative gap means "declared is already good".
+        let edges = [
+            (1, 4),
+            (4, 2),
+            (1, 4),
+            (4, 2),
+            (2, 4),
+            (2, 0),
+            (3, 1),
+            (4, 0),
+        ];
+        let declared = [1, 0, 1, 0, 1];
+        let r = analyze(5, &edges, &declared);
+        assert!(r.q_declared > 0.0, "declared Q = {}", r.q_declared);
+        assert!(r.gap() < 0.0, "gap should be negative here: {}", r.gap());
     }
 
     #[test]
