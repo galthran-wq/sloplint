@@ -156,6 +156,22 @@ pub struct ClassMetrics {
     /// LCOM4 cohesion: connected components among non-constructor methods. >1 = low cohesion
     /// ("god class" that should be split). See [`cohesion`].
     pub lcom4: usize,
+    /// WMC — Weighted Methods per Class (Chidamber & Kemerer 1994): the sum of the cyclomatic
+    /// complexity of the class's **direct** methods. A class-weight measure — "how heavy is this
+    /// class" — that distinguishes 40 trivial accessors from 40 branchy ones, unlike a raw
+    /// method count. Each method's complexity is its own-body cyclomatic (nested defs excluded,
+    /// as in [`FunctionMetrics::cyclomatic`]).
+    pub wmc: usize,
+    /// DIT — Depth of Inheritance Tree (Chidamber & Kemerer 1994): the longest path from this
+    /// class to a root through its bases, counting **first-party** bases only. Resolved
+    /// project-wide by [`resolve_inheritance_depth`] (0 until that pass runs). Bases that resolve
+    /// to `object`, the stdlib, or a third party are invisible and terminate the chain, so this
+    /// is a conservative under-count of the true Python MRO depth (#84).
+    pub dit: usize,
+    /// Trailing identifiers of this class's base expressions (`Base` from `pkg.mod.Base`), in
+    /// source order — the raw input to [`resolve_inheritance_depth`]. Unresolved here; whether a
+    /// base is first-party is decided project-wide against the full class set.
+    pub bases: Vec<String>,
     /// Whether this class counts as "abstract" for Martin's package abstractness ratio (#70).
     /// A documented heuristic ([`class_is_abstract`]), since Python has no interface keyword.
     pub is_abstract: bool,
@@ -196,6 +212,17 @@ pub struct RepoMetrics {
     /// Fraction of functions that are fully annotated — every annotatable param plus the return
     /// type (0.0–1.0).
     pub fully_annotated_function_rate: f64,
+    /// Number of classes across all files — the denominator for the WMC/DIT averages.
+    pub classes: usize,
+    /// Heaviest class by WMC (sum of its methods' cyclomatic complexity).
+    pub max_wmc: usize,
+    /// Mean WMC across all classes.
+    pub avg_wmc: f64,
+    /// Deepest first-party inheritance chain (DIT). Requires [`resolve_inheritance_depth`] to
+    /// have run over the file set first; otherwise every `dit` is 0.
+    pub max_dit: usize,
+    /// Mean DIT across all classes.
+    pub avg_dit: f64,
 }
 
 impl RepoMetrics {
@@ -261,7 +288,7 @@ pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {
     collect_classes(&parsed.syntax().body, &mut classes);
     let class_metrics = classes
         .iter()
-        .map(|class| class_metrics(source, class))
+        .map(|class| class_metrics(source, parsed, class))
         .collect();
 
     let comment_lines = parsed
@@ -290,6 +317,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut typed_params_sum = 0usize;
     let mut annotatable_params_sum = 0usize;
     let mut fully_annotated = 0usize;
+    let mut wmc_sum = 0usize;
+    let mut dit_sum = 0usize;
     for file in files {
         repo.total_loc += file.loc;
         for function in &file.functions {
@@ -311,6 +340,13 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             {
                 fully_annotated += 1;
             }
+        }
+        for class in &file.classes {
+            repo.classes += 1;
+            wmc_sum += class.wmc;
+            dit_sum += class.dit;
+            repo.max_wmc = repo.max_wmc.max(class.wmc);
+            repo.max_dit = repo.max_dit.max(class.dit);
         }
     }
     repo.avg_function_loc = if repo.functions == 0 {
@@ -340,6 +376,16 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     } else {
         fully_annotated as f64 / repo.functions as f64
     };
+    repo.avg_wmc = if repo.classes == 0 {
+        0.0
+    } else {
+        wmc_sum as f64 / repo.classes as f64
+    };
+    repo.avg_dit = if repo.classes == 0 {
+        0.0
+    } else {
+        dit_sum as f64 / repo.classes as f64
+    };
     repo
 }
 
@@ -367,8 +413,10 @@ fn function_metrics(
     }
 }
 
-/// Per-class metrics: size (methods, distinct instance attributes) and LCOM4 cohesion.
-fn class_metrics(source: &str, class: &StmtClassDef) -> ClassMetrics {
+/// Per-class metrics: size (methods, distinct instance attributes), LCOM4 cohesion, and WMC.
+/// `dit` is left at 0 here — depth of inheritance is a project-wide property filled in later by
+/// [`resolve_inheritance_depth`], once every file's classes are known.
+fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef) -> ClassMetrics {
     let methods = class
         .body
         .iter()
@@ -382,8 +430,112 @@ fn class_metrics(source: &str, class: &StmtClassDef) -> ClassMetrics {
         methods,
         attributes: cohesion::class_attribute_count(class),
         lcom4: cohesion::class_cohesion(class).components,
+        wmc: class_wmc(parsed, class),
+        dit: 0,
+        bases: class
+            .bases()
+            .iter()
+            .filter_map(|base| expr_trailing_name(base).map(str::to_string))
+            .collect(),
         is_abstract: class_is_abstract(class),
     }
+}
+
+/// WMC — the sum of the cyclomatic complexity of the class's **direct** methods. Each method is
+/// measured own-body (nested defs/lambdas excluded), mirroring [`function_metrics`], so a method
+/// and its helpers aren't double-counted. Methods inherited or defined in nested classes are not
+/// this class's weight and don't contribute.
+fn class_wmc(parsed: &Parsed<ModModule>, class: &StmtClassDef) -> usize {
+    class
+        .body
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::FunctionDef(method) => Some(method),
+            _ => None,
+        })
+        .map(|method| {
+            let mut nested = Vec::new();
+            collect_functions(&method.body, &mut nested);
+            let nested_ranges: Vec<TextRange> = nested.iter().map(|f| f.range()).collect();
+            cyclomatic(parsed, method.range(), &nested_ranges)
+        })
+        .sum()
+}
+
+/// Fill in [`ClassMetrics::dit`] for every class across the project. DIT (Chidamber & Kemerer
+/// 1994) is the longest path from a class up to a root via its bases. Bases are resolved by
+/// **trailing class name** against the set of first-party classes in `files`; a base that
+/// doesn't resolve — `object`, the stdlib, a third party, or any name no first-party class
+/// claims — is treated as a root and terminates the chain. External inheritance depth is
+/// therefore invisible (a deliberate, conservative under-count, #84), and a class with no
+/// first-party base has DIT 0.
+///
+/// When a class name is defined more than once in the project, the first definition wins (names
+/// are sorted first, so the result is deterministic regardless of file iteration order). Real
+/// Python inheritance is acyclic, but name collisions could synthesize a cycle; a name already
+/// on the current resolution path terminates it, so the pass always halts.
+pub fn resolve_inheritance_depth(files: &mut [&mut FileMetrics]) {
+    use std::collections::HashMap;
+
+    let mut bases_of: HashMap<&str, &[String]> = HashMap::new();
+    for file in files.iter() {
+        for class in &file.classes {
+            bases_of
+                .entry(class.name.as_str())
+                .or_insert(class.bases.as_slice());
+        }
+    }
+
+    let mut cache: HashMap<&str, usize> = HashMap::new();
+    let mut names: Vec<&str> = bases_of.keys().copied().collect();
+    names.sort_unstable();
+    for name in names {
+        dit_of(name, &bases_of, &mut cache, &mut Vec::new());
+    }
+    // Detach the depths from `bases_of`'s borrow of `files` so we can write them back.
+    let depths: HashMap<String, usize> = cache.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+
+    for file in files.iter_mut() {
+        for class in &mut file.classes {
+            class.dit = depths.get(&class.name).copied().unwrap_or(0);
+        }
+    }
+}
+
+/// Longest first-party base chain above `name`, memoized in `cache`. `path` holds the names on
+/// the current DFS branch; revisiting one means a (collision-induced) cycle, severed by
+/// returning 0 there without caching. Depths *on or just above* such a cycle are then
+/// ill-defined — they reflect where the back-edge happened to be cut — but the cut point is
+/// fixed (names are resolved in sorted order), so the result is at least deterministic, and the
+/// only contract for the cyclic case is that the pass halts. Acyclic inheritance (i.e. all real
+/// Python) memoizes exactly.
+fn dit_of<'a>(
+    name: &'a str,
+    bases_of: &std::collections::HashMap<&'a str, &'a [String]>,
+    cache: &mut std::collections::HashMap<&'a str, usize>,
+    path: &mut Vec<&'a str>,
+) -> usize {
+    if let Some(depth) = cache.get(name) {
+        return *depth;
+    }
+    if path.contains(&name) {
+        return 0;
+    }
+    let Some(bases) = bases_of.get(name) else {
+        return 0;
+    };
+    path.push(name);
+    let mut best = 0;
+    for base in bases.iter() {
+        // Resolve by name against the first-party class set; only a base another first-party
+        // class claims extends the chain.
+        if let Some((first_party_name, _)) = bases_of.get_key_value(base.as_str()) {
+            best = best.max(1 + dit_of(first_party_name, bases_of, cache, path));
+        }
+    }
+    path.pop();
+    cache.insert(name, best);
+    best
 }
 
 /// Heuristic for whether a class is "abstract" for Martin's package abstractness ratio (#70).
@@ -1301,6 +1453,119 @@ class Utils:
         assert_eq!(utils.lcom4, 2, "parse/render touch disjoint attributes");
     }
 
+    #[test]
+    fn wmc_sums_method_cyclomatic() {
+        // calc: CC 1; check: `if` (+1) + `and` (+1) over base 1 = 3. WMC = 1 + 3 = 4. The bare
+        // `Empty` class contributes 0 (no methods).
+        let file = metrics(
+            "\
+class C:
+    def calc(self):
+        return 1
+    def check(self, x):
+        if x and x > 0:
+            return True
+        return False
+
+class Empty:
+    pass
+",
+        );
+        let c = &file.classes[0];
+        assert_eq!(c.wmc, 4, "1 (calc) + 3 (check: if + and)");
+        assert_eq!(file.classes[1].wmc, 0, "no methods → no weight");
+    }
+
+    #[test]
+    fn wmc_excludes_nested_helper_complexity() {
+        // A method's WMC contribution is its *own-body* cyclomatic, like FunctionMetrics: the
+        // nested `inner`'s branch belongs to `inner`, not to `m`. m's own body: just the `if`
+        // guarding the def → CC 2. inner's `for`+`if` are excluded.
+        let file = metrics(
+            "\
+class C:
+    def m(self, flag):
+        def inner(xs):
+            for x in xs:
+                if x:
+                    return x
+        if flag:
+            return inner([])
+        return None
+",
+        );
+        assert_eq!(
+            file.classes[0].wmc, 2,
+            "only m's own `if` counts, not inner's"
+        );
+    }
+
+    /// DIT resolves over the whole project by class name: a chain `Grandchild -> Child -> Root`
+    /// split across two files gives depths 2/1/0, and bases that don't resolve to a first-party
+    /// class (`object`, a third-party import) terminate at 0.
+    #[test]
+    fn dit_resolves_first_party_chain_across_files() {
+        let mut base = metrics("class Root(object):\n    pass\n");
+        let mut derived = metrics(
+            "\
+from base import Root
+from third_party import Plugin
+
+
+class Child(Root):
+    pass
+
+class Grandchild(Child):
+    pass
+
+class External(Plugin):
+    pass
+",
+        );
+        resolve_inheritance_depth(&mut [&mut base, &mut derived]);
+
+        let dit = |file: &FileMetrics, name: &str| {
+            file.classes.iter().find(|c| c.name == name).unwrap().dit
+        };
+        assert_eq!(dit(&base, "Root"), 0, "object is external → root");
+        assert_eq!(dit(&derived, "Child"), 1, "Root is first-party");
+        assert_eq!(dit(&derived, "Grandchild"), 2, "Child -> Root");
+        assert_eq!(
+            dit(&derived, "External"),
+            0,
+            "Plugin is third-party → invisible"
+        );
+    }
+
+    #[test]
+    fn dit_takes_longest_path_and_survives_name_cycles() {
+        // Multiple inheritance: D(B, C), B(A), C(A), A. Longest path D->B->A (or D->C->A) = 2.
+        let mut multi = metrics(
+            "\
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    pass
+",
+        );
+        resolve_inheritance_depth(&mut [&mut multi]);
+        let dit = |name: &str| multi.classes.iter().find(|c| c.name == name).unwrap().dit;
+        assert_eq!(dit("D"), 2, "longest path to a root is two hops");
+
+        // A name collision can synthesize a cycle (X(Y), Y(X)); resolution must still halt
+        // rather than recurse forever.
+        let mut cyclic = metrics("class X(Y):\n    pass\n\nclass Y(X):\n    pass\n");
+        resolve_inheritance_depth(&mut [&mut cyclic]);
+        // No assertion on the (ill-defined) depth — the contract is that the pass terminates.
+    }
+
     /// Every documented abstractness signal (#70) is recognized, and a plain concrete class is
     /// not. One class per source so `file.classes[0]` is unambiguous.
     #[test]
@@ -1343,7 +1608,10 @@ class Utils:
             ("empty exception subclass", "class E(ValueError): ...\n"),
             ("ellipsis marker, no base", "class Marker:\n    ...\n"),
             ("pass marker, no base", "class Marker:\n    pass\n"),
-            ("docstring-only marker", "class Marker:\n    \"\"\"just a marker\"\"\"\n"),
+            (
+                "docstring-only marker",
+                "class Marker:\n    \"\"\"just a marker\"\"\"\n",
+            ),
             ("sentinel stub", "class UnsetType: ...\n"),
         ];
         for (label, src) in concrete_cases {
@@ -1393,14 +1661,30 @@ class BaseTransport(ABC):
     fn type_hint_coverage_counts_annotatable_params() {
         let f = |src: &str| {
             let m = &metrics(src).functions[0];
-            (m.typed_params, m.annotatable_params, m.has_return_annotation)
+            (
+                m.typed_params,
+                m.annotatable_params,
+                m.has_return_annotation,
+            )
         };
 
         assert_eq!(f("def g(a, b): ...\n"), (0, 2, false), "no hints");
-        assert_eq!(f("def g(a: int, b) -> str: ...\n"), (1, 2, true), "partial + return");
-        assert_eq!(f("def g(a: int, b: str) -> None: ...\n"), (2, 2, true), "full");
+        assert_eq!(
+            f("def g(a: int, b) -> str: ...\n"),
+            (1, 2, true),
+            "partial + return"
+        );
+        assert_eq!(
+            f("def g(a: int, b: str) -> None: ...\n"),
+            (2, 2, true),
+            "full"
+        );
         // `self` is excluded from the denominator; `cls` likewise.
-        assert_eq!(f("class C:\n    def m(self, a: int): ...\n"), (1, 1, false), "self excluded");
+        assert_eq!(
+            f("class C:\n    def m(self, a: int): ...\n"),
+            (1, 1, false),
+            "self excluded"
+        );
         assert_eq!(
             f("class C:\n    @classmethod\n    def m(cls, a): ...\n"),
             (0, 1, false),
@@ -1413,7 +1697,11 @@ class BaseTransport(ABC):
             "staticmethod first param counts"
         );
         // *args/**kwargs are not annotatable params.
-        assert_eq!(f("def g(a: int, *args, **kwargs): ...\n"), (1, 1, false), "variadics ignored");
+        assert_eq!(
+            f("def g(a: int, *args, **kwargs): ...\n"),
+            (1, 1, false),
+            "variadics ignored"
+        );
         // A positional-only receiver (`self, /`) is still the receiver and is excluded.
         assert_eq!(
             f("class C:\n    def m(self, /, a: int): ...\n"),
@@ -1421,11 +1709,23 @@ class BaseTransport(ABC):
             "positional-only self excluded"
         );
         // Keyword-only params (after a bare `*`) count toward the denominator.
-        assert_eq!(f("def g(*, a: int, b): ...\n"), (1, 2, false), "keyword-only counted");
+        assert_eq!(
+            f("def g(*, a: int, b): ...\n"),
+            (1, 2, false),
+            "keyword-only counted"
+        );
         // `async def` is a function definition too — same treatment.
-        assert_eq!(f("async def g(a: int) -> str: ...\n"), (1, 1, true), "async");
+        assert_eq!(
+            f("async def g(a: int) -> str: ...\n"),
+            (1, 1, true),
+            "async"
+        );
         // No annotatable params: a zero denominator, return type tracked independently.
-        assert_eq!(f("def g() -> int: ...\n"), (0, 0, true), "nullary with return");
+        assert_eq!(
+            f("def g() -> int: ...\n"),
+            (0, 0, true),
+            "nullary with return"
+        );
     }
 
     /// #85: project aggregates — coverage is over the param pool, and the fully-annotated rate

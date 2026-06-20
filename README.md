@@ -187,6 +187,25 @@ itself. The GitHub Action writes them when you set its `badges-dir` input.
 concern (missing types are harder to read and refactor, and weaken tooling) — the bad direction is
 *low* coverage only. Fully-typed code is neutral-to-good and is never itself a slop signal.
 
+### Class metrics
+
+`--format classes` emits one JSONL row per class — the class-level discovery feed: `loc`,
+`methods`, `attributes`, **`lcom4`** cohesion (SLP120), `is_abstract`, and the two CK class
+metrics ([Chidamber & Kemerer 1994][ck]):
+
+- **`wmc`** — Weighted Methods per Class: the sum of the cyclomatic complexity of the class's
+  direct methods. A class-*weight* measure that separates 40 trivial accessors from 40 branchy
+  ones, where a raw method count can't.
+- **`dit`** — Depth of Inheritance Tree: the longest path up to a root through **first-party**
+  bases. Bases that resolve to `object`, the stdlib, or a third party are invisible and end the
+  chain, so `dit` is a deliberate, conservative under-count of the true Python MRO depth.
+
+`--format json` adds the matching aggregates next to the complexity figures: `classes`,
+`max_wmc`, `avg_wmc`, `max_dit`, `avg_dit`. Like the rest, these are descriptive distributions for
+tracking a repo over time, not pass/fail gates.
+
+[ck]: https://doi.org/10.1109/32.295895
+
 ### Package & module architecture metrics
 
 `sloplint metrics` also analyzes the project's **first-party import graph** — the metrics the

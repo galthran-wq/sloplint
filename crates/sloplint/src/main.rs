@@ -840,6 +840,15 @@ fn run_metrics(
         });
     }
 
+    // DIT is a whole-project property: a class's inheritance depth depends on bases defined in
+    // *other* files. Resolve it across the full set before any class-level output reads `dit`.
+    // Only the class and JSON feeds surface it, so skip the pass otherwise.
+    if matches!(format, MetricsFormat::Classes | MetricsFormat::Json) {
+        let mut metrics: Vec<&mut FileMetrics> =
+            per_file.iter_mut().map(|f| &mut f.metrics).collect();
+        sloplint_metrics::resolve_inheritance_depth(&mut metrics);
+    }
+
     if let MetricsFormat::Functions = format {
         print_function_rows(&per_file);
     } else if let MetricsFormat::Classes = format {
@@ -1003,6 +1012,8 @@ fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::
         "methods": class.methods,
         "attributes": class.attributes,
         "lcom4": class.lcom4,
+        "wmc": class.wmc,
+        "dit": class.dit,
         "is_abstract": class.is_abstract,
     })
 }
@@ -1116,6 +1127,14 @@ fn metrics_json(repo: &RepoMetrics, graph: &ImportGraph) -> String {
         // smell; high coverage is neutral (fully-typed code is not slop).
         "param_annotation_coverage": repo.param_annotation_coverage,
         "fully_annotated_function_rate": repo.fully_annotated_function_rate,
+        // CK class metrics (#84): WMC weight and first-party DIT depth, aggregated over all
+        // classes. DIT is a conservative under-count — external (stdlib/third-party) ancestry is
+        // invisible. Per-class rows live in `metrics --format classes`.
+        "classes": repo.classes,
+        "max_wmc": repo.max_wmc,
+        "avg_wmc": repo.avg_wmc,
+        "max_dit": repo.max_dit,
+        "avg_dit": repo.avg_dit,
         // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles +
         // propagation cost + modularity).
         "packages": {
@@ -1431,7 +1450,8 @@ mod tests {
 
     #[test]
     fn function_row_has_features_and_file_comment_density() {
-        let source = "# a comment\ndef f(a: int, b) -> str:\n    if a:\n        return b\n    return a\n";
+        let source =
+            "# a comment\ndef f(a: int, b) -> str:\n    if a:\n        return b\n    return a\n";
         let parsed = parse(source).unwrap();
         let metrics = file_metrics(source, &parsed);
         let row = function_row("pkg/m.py", &metrics, &metrics.functions[0]);
