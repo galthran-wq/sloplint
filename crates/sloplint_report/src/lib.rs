@@ -47,6 +47,25 @@ pub fn to_json(entries: &[ReportEntry]) -> String {
     serde_json::to_string_pretty(&json!({ "findings": findings })).unwrap()
 }
 
+/// A terse one-finding-per-line format for AI coding agents (Claude Code, Cursor, Aider, …).
+///
+/// Each line is `path:line:col: CODE message` — the same shape editors and humans already
+/// parse from Ruff/flake8, so an agent can read it without a JSON parser and act in the same
+/// turn. Findings are emitted in file then source order; a clean run produces an empty string.
+pub fn to_agent(entries: &[ReportEntry]) -> String {
+    let mut out = String::new();
+    for entry in entries {
+        for d in entry.diagnostics {
+            let (line, column) = position(entry, d);
+            out.push_str(&format!(
+                "{}:{}:{}: {} {}\n",
+                entry.path, line, column, d.code, d.message
+            ));
+        }
+    }
+    out
+}
+
 /// SARIF 2.1.0 — uploadable to GitHub code scanning for inline PR annotations.
 pub fn to_sarif(entries: &[ReportEntry]) -> String {
     let results: Vec<Value> = entries
@@ -148,6 +167,29 @@ mod tests {
         let value: Value = serde_json::from_str(&to_sarif(&entries)).unwrap();
         assert_eq!(value["version"], "2.1.0");
         assert_eq!(value["runs"][0]["results"][0]["ruleId"], "SLP050");
+    }
+
+    #[test]
+    fn agent_format_is_one_line_per_finding() {
+        let source = "a = 1\nb = 2\n";
+        let diags = [diag("SLP010", 6), diag("SLP050", 0)];
+        let entries = [ReportEntry {
+            path: "a.py",
+            source,
+            diagnostics: &diags,
+        }];
+        let out = to_agent(&entries);
+        assert_eq!(out, "a.py:2:1: SLP010 msg\na.py:1:1: SLP050 msg\n");
+    }
+
+    #[test]
+    fn agent_format_clean_is_empty() {
+        let entries = [ReportEntry {
+            path: "a.py",
+            source: "a = 1\n",
+            diagnostics: &[],
+        }];
+        assert_eq!(to_agent(&entries), "");
     }
 
     #[test]
