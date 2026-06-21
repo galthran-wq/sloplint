@@ -406,6 +406,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
         // Per-file thresholds: the file's profile deltas over the global limits (#96).
         limits: selector.limits(&display),
         security_extra: &config.security.extra,
+        placeholders_extra: &config.placeholders.extra,
     };
     let diagnostics = check_file(&ctx, &refs);
     if diagnostics.is_empty() {
@@ -581,6 +582,7 @@ fn run_check(
             // Per-file thresholds: the file's profile deltas over the global limits (#96).
             limits: selector.limits(&display),
             security_extra: &config.security.extra,
+            placeholders_extra: &config.placeholders.extra,
         };
         let mut diagnostics = check_file(&ctx, &refs);
         // SLP220 (preview): artifact markers outside strings/comments + prose density, on the parsed

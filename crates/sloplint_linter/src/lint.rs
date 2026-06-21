@@ -24,6 +24,9 @@ pub struct FileContext<'a> {
     /// Extra security-guard names beyond the built-in catalog (`[security] extra` in config),
     /// used by SLP210. Empty by default; non-CLI callers pass `&[]`.
     pub security_extra: &'a [String],
+    /// Extra placeholder literal values beyond the built-in sets (`[placeholders] extra` in config),
+    /// used by SLP230. Empty by default; non-CLI callers pass `&[]`.
+    pub placeholders_extra: &'a [String],
 }
 
 /// A single lint rule. Rules push findings rather than returning them, so one AST/token

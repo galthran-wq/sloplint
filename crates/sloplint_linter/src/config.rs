@@ -39,6 +39,8 @@ pub struct Config {
     pub imports: ImportSettings,
     /// Settings for the security rules (SLP210 phantom security guard).
     pub security: SecuritySettings,
+    /// Settings for the placeholder rules (SLP230 mock/placeholder data).
+    pub placeholders: PlaceholderSettings,
 }
 
 impl Default for Config {
@@ -53,6 +55,7 @@ impl Default for Config {
             badges: BadgeSettings::default(),
             imports: ImportSettings::default(),
             security: SecuritySettings::default(),
+            placeholders: PlaceholderSettings::default(),
         }
     }
 }
@@ -75,6 +78,16 @@ pub struct ImportSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct SecuritySettings {
     /// Extra security-guard names to treat as guards, beyond the built-in catalog.
+    pub extra: Vec<String>,
+}
+
+/// Settings for SLP230 (mock/placeholder data). The check uses built-in placeholder sets;
+/// `extra` adds project-specific placeholder literal values (matched against credential values and
+/// dummy return strings) so an in-house sentinel like `"REPLACE_ME"` is also flagged.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlaceholderSettings {
+    /// Extra placeholder literal values to flag, beyond the built-in sets.
     pub extra: Vec<String>,
 }
 
