@@ -12,6 +12,7 @@ mod imports;
 mod stdlib;
 
 mod corrupted;
+mod ghost;
 mod hook;
 mod init;
 
@@ -541,6 +542,9 @@ fn run_check(
     // SLP180 (preview) is a whole-project rule: collect every file's module-level imports,
     // then resolve them against the manifest after the loop.
     let mut import_scans: Vec<(String, Vec<imports::ImportRef>)> = Vec::new();
+    // SLP240 (preview) is a whole-project rule: collect each file's defs/refs/config keys, then
+    // resolve ghost (unreferenced) scaffolding after the loop.
+    let mut ghost_scans: Vec<ghost::FileScan> = Vec::new();
 
     for path in &files {
         let display = path.to_string_lossy().to_string();
@@ -607,6 +611,7 @@ fn run_check(
         // Collect imports for all files when preview is on; emission is gated per-path later.
         if selector.preview() {
             import_scans.push((display.clone(), imports::scan_imports(&parsed)));
+            ghost_scans.push(ghost::scan(&display, &parsed));
         }
         let suppressions = Suppressions::parse(&source, &parsed);
         results.push(FileResult {
@@ -627,6 +632,7 @@ fn run_check(
             &selector,
             &mut results,
         );
+        attribute_ghost_scaffolding(&ghost_scans, &selector, &mut results);
     }
 
     // Inline `# sloplint: allow` suppression (#94) runs last, so it filters whole-tree findings
@@ -877,6 +883,34 @@ fn attribute_undeclared_imports(
         if let Some(&index) = by_path.get(finding.path.as_str()) {
             results[index].diagnostics.push(Diagnostic::new(
                 "SLP180",
+                finding.message,
+                finding.range,
+                Severity::Warning,
+            ));
+        }
+    }
+}
+
+/// SLP240: flag ghost scaffolding (unreferenced top-level defs + ghost config flags) across the
+/// project. Whole-project like SLP180: scans are collected for every file (so references are
+/// complete), then emission is gated per-path via `is_enabled`.
+fn attribute_ghost_scaffolding(
+    scans: &[ghost::FileScan],
+    selector: &Selector,
+    results: &mut [FileResult],
+) {
+    let by_path: HashMap<String, usize> = results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.path.clone(), i))
+        .collect();
+    for finding in ghost::findings(scans) {
+        if !selector.is_enabled("SLP240", &finding.path) {
+            continue;
+        }
+        if let Some(&index) = by_path.get(finding.path.as_str()) {
+            results[index].diagnostics.push(Diagnostic::new(
+                "SLP240",
                 finding.message,
                 finding.range,
                 Severity::Warning,

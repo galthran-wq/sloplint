@@ -31,6 +31,7 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP210` | preview | Phantom security guards — a call to / decorator of a known security-guard name (`validate_token`, `@requires_auth`, …) that is never defined or imported in the module (fake security control — CWE-693) |
 | `SLP220` | preview | Corrupted / truncated AI output — a leftover ```` ``` ```` fence, merge-conflict marker or `<file …>` tag in code, a file that fails to parse, or a prose-heavy paste (an unparseable `.py` becomes a finding instead of being silently skipped) |
 | `SLP230` | preview | Mock / placeholder data in production code — `@example.com` emails, fake phone numbers, low-entropy/nil UUIDs, weak credentials (`changeme`, `your_api_key`), and dummy returns (`return {"foo": "bar"}` / `"placeholder"`); excludes test paths |
+| `SLP240` | preview | Ghost scaffolding — a top-level class/function defined but **never referenced anywhere** in the project (dangling abstraction), or a `settings.ENABLE_X` config flag read but defined nowhere (whole-project; allowlists exports/base-types/entry-points) |
 
 Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
 McCabe risk tiers, shields **badges**, and a per-PR summary — and **package/module architecture
