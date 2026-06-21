@@ -14,7 +14,7 @@ mod stdlib;
 mod hook;
 mod init;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -23,7 +23,7 @@ use std::{env, fs};
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use ignore::WalkBuilder;
-use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
+use sloplint_clone::{extract_functions, find_clones, CloneConfig, ClonePair, FunctionUnit};
 use sloplint_diagnostics::fix;
 use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::{Diagnostic, Severity};
@@ -991,6 +991,20 @@ fn run_metrics(
     // whole-project pass (like SLP180): collect every file's module-level imports here, then
     // build the graph once after the loop.
     let needs_graph = matches!(format, MetricsFormat::Packages | MetricsFormat::Json);
+    // Duplication density (#123) is surfaced only on the aggregate panels, not the per-unit feeds.
+    let needs_clones = matches!(
+        format,
+        MetricsFormat::Text | MetricsFormat::Json | MetricsFormat::Github
+    );
+    let clone_config = CloneConfig {
+        min_statements: config.clone.min_statements,
+        similarity: config.clone.similarity,
+        ..CloneConfig::default()
+    };
+    // Every function's clone fingerprint plus the profiles of the file it came from, so the SLP020
+    // pass can run once over the whole tree and be filtered per profile afterwards (#123).
+    let mut clone_units: Vec<FunctionUnit> = Vec::new();
+    let mut unit_profiles: Vec<Vec<String>> = Vec::new();
     // Keep path + source alongside metrics so the gate can name offending functions with a
     // resolved `path:line` location.
     let mut per_file: Vec<MeasuredFile> = Vec::new();
@@ -1017,6 +1031,12 @@ fn run_metrics(
             .collect();
         let is_test = profiles.iter().any(|p| p == "tests");
         test_stats.push(test_proxies::file_test_stats(is_test, metrics.loc, &parsed));
+        if needs_clones {
+            for unit in extract_functions(&display, &source, &parsed, clone_config.shingle_k) {
+                clone_units.push(unit);
+                unit_profiles.push(profiles.clone());
+            }
+        }
         if needs_graph {
             if let Some(name) = module_name(&path) {
                 module_inputs.push((
@@ -1070,6 +1090,11 @@ fn run_metrics(
                 .collect(),
         )
     };
+    // SLP020 clone detection, run once over every function (#123). Per-profile density is derived
+    // by keeping only pairs whose *both* functions are in the profile — duplication internal to it,
+    // consistent with how the import graph is scoped.
+    let clone_pairs = find_clones(&clone_units, &clone_config);
+    let clone_of = |name: &str| clone_stats_for(name, &unit_profiles, &clone_pairs);
 
     if let MetricsFormat::Functions = format {
         print_function_rows(&per_file, &scope);
@@ -1099,21 +1124,25 @@ fn run_metrics(
                     // Package module-count concentration (#103) — node distribution, computed from
                     // the panel's own files (edge-free, so no import graph is needed in text mode).
                     print_concentration(&concentration_for(&per_file, name));
+                    // Duplication density (#123): SLP020 clone ratio for the profile's functions.
+                    print_clone_density(&clone_of(name));
                 }
                 print_test_proxies_table(&proxies);
             }
             // JSON is the comprehensive machine feed and ignores `--scope`: a panel for every
             // configured profile under `profiles`, plus the all-files `test_proxies`.
             MetricsFormat::Json => {
-                let panels: Vec<(String, RepoMetrics, ImportGraph)> = profile_names
+                let panels: Vec<(String, RepoMetrics, ImportGraph, CloneStats)> = profile_names
                     .iter()
-                    .map(|name| (name.clone(), panel_of(name), graph_of(name)))
+                    .map(|name| (name.clone(), panel_of(name), graph_of(name), clone_of(name)))
                     .collect();
                 println!("{}", metrics_json(&panels, &proxies));
             }
             MetricsFormat::Github => {
-                let panels: Vec<(&str, RepoMetrics)> =
-                    scoped.iter().map(|name| (*name, panel_of(name))).collect();
+                let panels: Vec<(&str, RepoMetrics, CloneStats)> = scoped
+                    .iter()
+                    .map(|name| (*name, panel_of(name), clone_of(name)))
+                    .collect();
                 println!("{}", metrics_markdown(&panels, &proxies));
             }
             MetricsFormat::Functions | MetricsFormat::Classes | MetricsFormat::Packages => {
@@ -1471,6 +1500,98 @@ fn print_concentration(c: &graph::Concentration) {
     );
 }
 
+/// Production duplication aggregate (#123): SLP020 clone density for one profile's functions —
+/// surfacing the existing clone engine as a descriptive cohort metric, not new detection.
+struct CloneStats {
+    /// Confirmed SLP020 clone pairs whose *both* functions are in the profile.
+    pairs: usize,
+    /// Distinct functions appearing in at least one such pair.
+    functions_in_clones: usize,
+    /// Functions the clone engine considered for the profile — the ratio denominator.
+    total_functions: usize,
+    /// Functions in the largest connected clone cluster (a helper duplicated across N functions);
+    /// 0 when there are no clones.
+    largest_cluster: usize,
+}
+
+impl CloneStats {
+    /// Fraction of the profile's functions that participate in at least one clone pair (0.0 when
+    /// there are none). The headline duplication ratio — high for copy-paste codebases, ≈0 for
+    /// clean ones.
+    fn ratio(&self) -> f64 {
+        if self.total_functions == 0 {
+            0.0
+        } else {
+            self.functions_in_clones as f64 / self.total_functions as f64
+        }
+    }
+}
+
+/// Compute the clone density for `profile` from the project-wide SLP020 `pairs`, keeping only pairs
+/// whose both functions belong to the profile (duplication internal to it). `largest_cluster` is
+/// the biggest connected component of those pairs, via union-find (#123).
+fn clone_stats_for(
+    profile: &str,
+    unit_profiles: &[Vec<String>],
+    pairs: &[ClonePair],
+) -> CloneStats {
+    let in_profile = |idx: usize| unit_profiles[idx].iter().any(|p| p == profile);
+    let total_functions = (0..unit_profiles.len()).filter(|&i| in_profile(i)).count();
+
+    let mut parent: HashMap<usize, usize> = HashMap::new();
+    let mut in_clones: HashSet<usize> = HashSet::new();
+    let mut pair_count = 0usize;
+    for pair in pairs {
+        if in_profile(pair.a) && in_profile(pair.b) {
+            pair_count += 1;
+            in_clones.insert(pair.a);
+            in_clones.insert(pair.b);
+            let ra = dsu_find(&mut parent, pair.a);
+            let rb = dsu_find(&mut parent, pair.b);
+            if ra != rb {
+                parent.insert(ra, rb);
+            }
+        }
+    }
+    // Largest cluster = the biggest union-find component among clone members.
+    let mut sizes: HashMap<usize, usize> = HashMap::new();
+    for &node in &in_clones {
+        let root = dsu_find(&mut parent, node);
+        *sizes.entry(root).or_insert(0) += 1;
+    }
+    CloneStats {
+        pairs: pair_count,
+        functions_in_clones: in_clones.len(),
+        total_functions,
+        largest_cluster: sizes.values().copied().max().unwrap_or(0),
+    }
+}
+
+/// Union-find root of `x` with path compression; inserts `x` (as its own root) on first touch.
+fn dsu_find(parent: &mut HashMap<usize, usize>, x: usize) -> usize {
+    let p = *parent.entry(x).or_insert(x);
+    if p == x {
+        return x;
+    }
+    let root = dsu_find(parent, p);
+    parent.insert(x, root);
+    root
+}
+
+/// Print the duplication-density block (#123) beneath a metric panel: the SLP020 clone ratio plus
+/// the pair count and largest cluster. Descriptive — high duplication is a vibe-slop tell
+/// ("a scraper per site" → copy-paste), but it's a cohort signal, never a per-repo gate.
+fn print_clone_density(c: &CloneStats) {
+    println!(
+        "  clone ratio         {:.2}  ({} fns in clones / {} ; {} pairs, largest cluster {})",
+        c.ratio(),
+        c.functions_in_clones,
+        c.total_functions,
+        c.pairs,
+        c.largest_cluster,
+    );
+}
+
 /// Print the static test proxies block (#86) once, beneath the panel(s). Always the full
 /// project-wide split (production vs test), independent of `--scope` — descriptive only, NOT
 /// coverage and never a gate.
@@ -1501,12 +1622,15 @@ fn opt_ratio(value: Option<f64>) -> String {
 /// Assemble the full JSON feed (#96): a panel for **every** configured profile under `profiles`
 /// (keyed by name), plus the project-wide `test_proxies` split (always over all files). `--scope`
 /// does not affect this feed — it always reports every profile.
-fn metrics_json(panels: &[(String, RepoMetrics, ImportGraph)], proxies: &TestProxies) -> String {
+fn metrics_json(
+    panels: &[(String, RepoMetrics, ImportGraph, CloneStats)],
+    proxies: &TestProxies,
+) -> String {
     let mut profiles = serde_json::Map::new();
-    for (name, repo, graph) in panels {
+    for (name, repo, graph, clone) in panels {
         profiles.insert(
             name.clone(),
-            serde_json::Value::Object(panel_json(repo, graph)),
+            serde_json::Value::Object(panel_json(repo, graph, clone)),
         );
     }
     let mut root = serde_json::Map::new();
@@ -1521,6 +1645,7 @@ fn metrics_json(panels: &[(String, RepoMetrics, ImportGraph)], proxies: &TestPro
 fn panel_json(
     repo: &RepoMetrics,
     graph: &ImportGraph,
+    clone: &CloneStats,
 ) -> serde_json::Map<String, serde_json::Value> {
     let summary = graph.summary();
     let serde_json::Value::Object(map) = serde_json::json!({
@@ -1632,6 +1757,16 @@ fn panel_json(
             // Node-distribution concentration: god-package / flat dumping-ground (issue #103).
             "concentration": concentration_json(graph),
         },
+        // Duplication density (#123): SLP020 clone detection surfaced as a cohort aggregate.
+        // `ratio` = fraction of the profile's functions in ≥1 clone pair; copy-paste codebases
+        // (a scraper per site) score high, clean libraries ≈ 0. Descriptive, never a gate.
+        "duplication": {
+            "clone_ratio": clone.ratio(),
+            "functions_in_clones": clone.functions_in_clones,
+            "functions": clone.total_functions,
+            "clone_pairs": clone.pairs,
+            "largest_clone_cluster": clone.largest_cluster,
+        },
     }) else {
         unreachable!("a json object literal is an object")
     };
@@ -1713,21 +1848,36 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
 /// for each in-scope profile (#96), under its own heading, then the test proxies. `--scope all`
 /// renders one block per profile side by side — never a combined panel that would mix profiles'
 /// norms. Pairs with the `cyclomatic-risk` badge.
-fn metrics_markdown(panels: &[(&str, RepoMetrics)], proxies: &TestProxies) -> String {
+fn metrics_markdown(panels: &[(&str, RepoMetrics, CloneStats)], proxies: &TestProxies) -> String {
     let mut out = String::from("### sloplint metrics\n\n");
-    for (name, repo) in panels {
+    for (name, repo, clone) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
             repo.cognitive_markdown(),
             repo.params_markdown(),
             repo.wmc_markdown(),
             repo.noc_markdown(),
-            repo.module_size_markdown()
+            repo.module_size_markdown(),
+            clone_markdown(clone),
         ));
     }
     out.push_str(&test_proxies_markdown(proxies));
     out
+}
+
+/// A one-line markdown summary of duplication density (#123) — the SLP020 clone ratio with its
+/// pair count and largest cluster. Descriptive cohort signal, never a gate.
+fn clone_markdown(c: &CloneStats) -> String {
+    format!(
+        "**Duplication** — clone ratio {:.2} ({} of {} functions in SLP020 clone pairs; \
+         {} pairs, largest cluster {}). Descriptive, never a gate.\n",
+        c.ratio(),
+        c.functions_in_clones,
+        c.total_functions,
+        c.pairs,
+        c.largest_cluster,
+    )
 }
 
 /// A markdown block for the static test proxies (#86), explicitly captioned as *proxies, not
