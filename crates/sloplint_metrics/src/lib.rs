@@ -1462,10 +1462,7 @@ fn is_branch_token(kind: TokenKind) -> bool {
 /// a ternary or boolean op nested inside another expression is scored at its enclosing
 /// statement's nesting rather than accruing extra intra-expression nesting. The comprehension
 /// generator itself is not counted (only its `if` filters).
-///
-/// `pub(crate)` so [`test_proxies`] can score a test function's own body for the trivial-test
-/// signal (#121) using the same definition the function panel uses.
-pub(crate) fn cognitive(body: &[Stmt]) -> usize {
+fn cognitive(body: &[Stmt]) -> usize {
     let mut scorer = Cognitive::default();
     scorer.block(body, 0);
     scorer.score

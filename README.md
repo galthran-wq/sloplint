@@ -462,18 +462,25 @@ codebase is, computed without running anything:
   "test_functions": 96, "assertions": 311,
   "assertion_density": 3.24,   // assertions per test function (asserts + self.assertX +
                                // pytest.raises + self.fail), null when there are no test fns
-  "trivial_test_functions": 18,
-  "trivial_test_rate": 0.19    // fraction of test fns that are one-liner boilerplate
-                               // (own-body cognitive ≤ 1); null when there are no test fns
+  "assertion_free_tests": 9,
+  "assertion_free_rate": 0.09  // fraction of test fns whose body asserts nothing ("test
+                               // theater"); null when there are no test fns
 }
 ```
 
-The **trivial-test rate** is a *test-substance* counterweight: `test:code` and `assertion_density`
-both reward volume, so a heavily-templated suite of thousands of near-identical one-liner tests —
-the classic shape of LLM-generated test padding — reads as "well-tested". A trivial-test rate near
-1.0 next to a high test:code ratio flags an inflated suite rather than a thorough one. (The
-complementary *empty test scaffolding* form — `tests/` dirs holding only empty `__init__.py` — is
-already caught by `test_code_ratio` = 0.0.)
+The **assertion-free-test rate** is a *test-substance* counterweight: `test:code` and
+`assertion_density` both reward volume, so a suite can read as "well-tested" while individual tests
+verify nothing. It is the fraction of test functions whose body contains **no assertion at all** —
+the shape "test theater" actually takes (print-spam "tests" that exercise code but check nothing,
+assertion-free stubs). A rate near 1.0 next to a high test:code ratio flags a suite that *looks*
+tested but isn't. (The complementary *empty test scaffolding* form — `tests/` dirs holding only
+empty `__init__.py` — is already caught by `test_code_ratio` = 0.0.)
+
+> Earlier releases keyed this on *cognitive complexity* (a "trivial-test rate"), which was
+> backwards — a disciplined arrange-act-assert test is deliberately branch-free, so good tests
+> scored as trivial while assertion-free loops scored as substantive. Fixed in
+> [#127](https://github.com/galthran-wq/sloplint/issues/127): the quality signal is whether a test
+> **asserts**, not whether it **branches**.
 
 Test files are identified by path (`test_*.py`, `*_test.py`, a `tests/` segment, `conftest.py`);
 the figures also appear in the text table and the `--format github` PR summary.
@@ -481,9 +488,9 @@ the figures also appear in the text table and the `--format github` PR summary.
 > [!IMPORTANT]
 > **This is not test coverage.** Real coverage requires *executing* the tests, which a static
 > linter cannot do. These are *proxies*: a low test:code ratio + low assertion density *suggest*
-> under-testing, and a high trivial-test rate *suggests* a padded suite — but they cannot tell a
-> shallow test from a thorough one — a test can carry many asserts and verify nothing, or be a
-> single low-branching assert and be excellent. So they are reported as descriptive
+> under-testing, and a high assertion-free rate *suggests* test theater — but they cannot tell a
+> shallow test from a thorough one — a test can carry many asserts and verify nothing, or assert
+> through a helper and look assertion-free. So they are reported as descriptive
 > cohort statistics and are **never** a pass/fail gate. Their value is across a *cohort* (slop
 > tends to ship far less test code with shallower assertions), not as a per-repo verdict. They
 > are the cohort-level counterpart to the per-file `SLP070` (assertion-free tests) and `SLP160`
