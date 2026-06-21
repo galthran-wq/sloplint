@@ -1609,11 +1609,10 @@ fn print_test_proxies_table(proxies: &TestProxies) {
         proxies.test_functions,
     );
     println!(
-        "  trivial-test rate   {}  ({} of {} test fns ~trivial: cognitive <= {})",
-        opt_ratio(proxies.trivial_test_rate),
-        proxies.trivial_test_functions,
+        "  assertion-free rate {}  ({} of {} test fns assert nothing)",
+        opt_ratio(proxies.assertion_free_rate),
+        proxies.assertion_free_tests,
         proxies.test_functions,
-        test_proxies::TRIVIAL_TEST_MAX_COGNITIVE,
     );
     println!("  (test proxies are static estimates, not coverage — descriptive only)");
 }
@@ -1642,7 +1641,7 @@ fn metrics_json(
     }
     let mut root = serde_json::Map::new();
     root.insert("profiles".to_string(), serde_json::Value::Object(profiles));
-    // Static test proxies (issue #86): test:code ratio + assertion density + trivial-test rate (#121).
+    // Static test proxies (issue #86): test:code ratio + assertion density + assertion-free rate (#121/#127).
     root.insert("test_proxies".to_string(), test_proxies_json(proxies));
     serde_json::to_string_pretty(&serde_json::Value::Object(root)).unwrap()
 }
@@ -1797,10 +1796,10 @@ fn test_proxies_json(proxies: &TestProxies) -> serde_json::Value {
         "test_functions": proxies.test_functions,
         "assertions": proxies.assertions,
         "assertion_density": proxies.assertion_density,
-        // Test-substance (#121): fraction of test functions that are one-liner boilerplate
-        // (cognitive ≤ threshold). High alongside a high test_code_ratio = inflated suite.
-        "trivial_test_functions": proxies.trivial_test_functions,
-        "trivial_test_rate": proxies.trivial_test_rate,
+        // Test-substance (#121/#127): fraction of test functions that assert nothing ("test
+        // theater"). High alongside a high test_code_ratio = a suite that looks tested but isn't.
+        "assertion_free_tests": proxies.assertion_free_tests,
+        "assertion_free_rate": proxies.assertion_free_rate,
     })
 }
 
@@ -1903,9 +1902,9 @@ fn test_proxies_markdown(proxies: &TestProxies) -> String {
     format!(
         "**Test proxies** (static estimates — _not coverage_, descriptive only) — \
          test:code ratio {} ({} test / {} prod LoC), assertion density {} ({} assertions over \
-         {} test functions), trivial-test rate {} ({} of {} test functions ~trivial, cognitive \
-         ≤ {}). A high trivial-test rate next to a high test:code ratio flags an \
-         inflated/templated suite. These suggest under-testing across a cohort; they are never a \
+         {} test functions), assertion-free rate {} ({} of {} test functions assert nothing). A \
+         high assertion-free rate next to a high test:code ratio flags a suite that looks tested \
+         but verifies little. These suggest under-testing across a cohort; they are never a \
          per-repo pass/fail verdict.\n",
         opt_ratio(proxies.test_code_ratio),
         proxies.test_loc,
@@ -1913,10 +1912,9 @@ fn test_proxies_markdown(proxies: &TestProxies) -> String {
         opt_ratio(proxies.assertion_density),
         proxies.assertions,
         proxies.test_functions,
-        opt_ratio(proxies.trivial_test_rate),
-        proxies.trivial_test_functions,
+        opt_ratio(proxies.assertion_free_rate),
+        proxies.assertion_free_tests,
         proxies.test_functions,
-        test_proxies::TRIVIAL_TEST_MAX_COGNITIVE,
     )
 }
 
