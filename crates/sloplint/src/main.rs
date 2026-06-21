@@ -1916,7 +1916,7 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics, CloneStats)], proxies: &TestPr
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo, clone) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
             repo.cognitive_markdown(),
             repo.params_markdown(),
