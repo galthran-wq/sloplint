@@ -14,6 +14,7 @@ pub mod ast_util;
 pub mod checkers;
 pub mod codes;
 pub mod config;
+pub mod detect;
 pub mod lint;
 pub mod registry;
 pub mod rules;
