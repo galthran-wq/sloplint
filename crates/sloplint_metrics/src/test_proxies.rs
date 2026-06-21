@@ -514,6 +514,27 @@ def test_nested(x, y):
     }
 
     #[test]
+    fn trivial_rate_scores_unittest_class_methods() {
+        // The trivial check runs over *every* collected test, including `test*` methods of a
+        // unittest class — a trivial method and a branchy one are classified independently.
+        let source = "\
+class TestThing:
+    def test_trivial(self):
+        self.assertEqual(f(1), 1)
+
+    def test_branchy(self):
+        for x in (0, 1):
+            if x:
+                self.assertTrue(f(x))
+";
+        let parsed = parse_src(source);
+        let stats = file_test_stats(true, source.lines().count(), &parsed);
+        assert_eq!(stats.test_functions, 2);
+        // test_trivial → cognitive 0; test_branchy → for + nested if → cognitive 3.
+        assert_eq!(stats.trivial_test_functions, 1);
+    }
+
+    #[test]
     fn production_file_reports_no_trivial_tests() {
         // Test-shaped contents in a production file are ignored, so it contributes no trivial
         // tests (the denominator stays production-free).

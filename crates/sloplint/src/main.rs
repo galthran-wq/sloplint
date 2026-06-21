@@ -1642,7 +1642,7 @@ fn metrics_json(
     }
     let mut root = serde_json::Map::new();
     root.insert("profiles".to_string(), serde_json::Value::Object(profiles));
-    // Static test proxies (issue #86): test:code ratio + assertion density.
+    // Static test proxies (issue #86): test:code ratio + assertion density + trivial-test rate (#121).
     root.insert("test_proxies".to_string(), test_proxies_json(proxies));
     serde_json::to_string_pretty(&serde_json::Value::Object(root)).unwrap()
 }
