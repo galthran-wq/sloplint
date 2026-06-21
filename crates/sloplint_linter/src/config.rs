@@ -112,6 +112,9 @@ pub struct Limits {
     /// SLP120: minimum methods a class must have before LCOM4 is applied — small classes are
     /// too noisy to judge for cohesion.
     pub lcom4_min_methods: usize,
+    /// SLP220: fraction of a file's token-bearing lines that look like natural-language prose above
+    /// which the file is flagged as pasted LLM explanation (preview). 0.0–1.0.
+    pub corrupted_prose_ratio: f64,
 }
 
 impl Default for Limits {
@@ -124,6 +127,7 @@ impl Default for Limits {
             dir_max_modules: 15,
             lcom4_max_components: 1,
             lcom4_min_methods: 3,
+            corrupted_prose_ratio: 0.5,
         }
     }
 }
@@ -271,6 +275,7 @@ pub struct LimitsPatch {
     pub dir_max_modules: Option<usize>,
     pub lcom4_max_components: Option<usize>,
     pub lcom4_min_methods: Option<usize>,
+    pub corrupted_prose_ratio: Option<f64>,
 }
 
 impl LimitsPatch {
@@ -296,6 +301,9 @@ impl LimitsPatch {
         }
         if let Some(v) = self.lcom4_min_methods {
             base.lcom4_min_methods = v;
+        }
+        if let Some(v) = self.corrupted_prose_ratio {
+            base.corrupted_prose_ratio = v;
         }
         base
     }

@@ -29,6 +29,7 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP120` | preview | Low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups) |
 | `SLP180` | preview | Undeclared third-party imports — a module imported but missing from the project's `pyproject.toml`/`requirements*.txt` (broken on a clean install) |
 | `SLP210` | preview | Phantom security guards — a call to / decorator of a known security-guard name (`validate_token`, `@requires_auth`, …) that is never defined or imported in the module (fake security control — CWE-693) |
+| `SLP220` | preview | Corrupted / truncated AI output — a leftover ```` ``` ```` fence, merge-conflict marker or `<file …>` tag in code, a file that fails to parse, or a prose-heavy paste (an unparseable `.py` becomes a finding instead of being silently skipped) |
 
 Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
 McCabe risk tiers, shields **badges**, and a per-PR summary — and **package/module architecture
@@ -151,6 +152,7 @@ max_identifier_words = 4      # SLP060
 dir_max_modules = 15          # SLP090
 lcom4_max_components = 1       # SLP120 — flag a class that splits into > 1 cohesion group
 lcom4_min_methods = 3         # SLP120 — skip classes smaller than this
+corrupted_prose_ratio = 0.5   # SLP220 — flag a file this fraction natural-language prose lines
 
 [clone]                       # SLP020 near-duplicate detection
 min_statements = 3            # ignore tiny functions

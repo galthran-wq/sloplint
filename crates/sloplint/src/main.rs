@@ -11,6 +11,7 @@
 mod imports;
 mod stdlib;
 
+mod corrupted;
 mod hook;
 mod init;
 
@@ -550,11 +551,24 @@ fn run_check(
                 continue;
             }
         };
+        // SLP220 (preview): an unparseable `.py` is reported as corrupted/truncated AI output
+        // instead of being silently skipped — registry rules never see it, so this is handled here.
+        let slp220 = selector.preview() && selector.is_enabled("SLP220", &display);
         let parsed = match parse(&source) {
             Ok(parsed) => parsed,
             Err(err) => {
-                eprintln!("error: {display}: {err}");
-                had_error = true;
+                if slp220 {
+                    let prose_ratio = selector.limits(&display).corrupted_prose_ratio;
+                    results.push(FileResult {
+                        diagnostics: vec![corrupted::on_parse_error(&source, prose_ratio)],
+                        suppressions: Suppressions::empty(),
+                        path: display,
+                        source,
+                    });
+                } else {
+                    eprintln!("error: {display}: {err}");
+                    had_error = true;
+                }
                 continue;
             }
         };
@@ -568,7 +582,16 @@ fn run_check(
             limits: selector.limits(&display),
             security_extra: &config.security.extra,
         };
-        let diagnostics = check_file(&ctx, &refs);
+        let mut diagnostics = check_file(&ctx, &refs);
+        // SLP220 (preview): artifact markers outside strings/comments + prose density, on the parsed
+        // file (the unparseable case is handled above).
+        if slp220 {
+            diagnostics.extend(corrupted::scan_parsed(
+                &source,
+                &parsed,
+                ctx.limits.corrupted_prose_ratio,
+            ));
+        }
 
         let result_index = results.len();
         // SLP020 is a whole-tree analysis, not a per-file registry rule, so it's gated by
