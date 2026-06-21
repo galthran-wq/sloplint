@@ -3,7 +3,7 @@
 # --- Violations ---
 
 ADMIN_EMAIL = "admin@example.com"  # placeholder email
-support = "Help <help@test.org>"  # placeholder email
+support = "Help <help@example.net>"  # placeholder email
 NIL_ID = "00000000-0000-0000-0000-000000000000"  # nil UUID
 SAMPLE_ID = "11111111-1111-1111-1111-111111111111"  # low-entropy UUID
 CONTACT = "123-456-7890"  # placeholder phone
@@ -40,3 +40,11 @@ def real_logic(x):
 
 def greet(name):
     return f"Hello, {name}"  # real string return
+
+
+def documented():
+    """Send a note to user@example.com as an example.
+
+    A docstring example email is documentation, not slop — not flagged.
+    """
+    return name

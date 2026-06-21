@@ -30,8 +30,13 @@ impl Rule for MockData {
         if is_test_path(ctx.path) {
             return;
         }
+        // Docstrings legitimately contain example emails ("send to user@example.com"); collect
+        // their offsets so the literal scan skips them.
+        let mut docstrings = std::collections::HashSet::new();
+        collect_docstrings(&ctx.parsed.syntax().body, &mut docstrings);
         let mut finder = Finder {
             extra: ctx.placeholders_extra,
+            docstrings,
             found: HashMap::new(),
         };
         for stmt in &ctx.parsed.syntax().body {
@@ -65,8 +70,28 @@ fn is_test_path(path: &str) -> bool {
 struct Finder<'a> {
     /// Extra placeholder literal values from `[placeholders] extra`.
     extra: &'a [String],
+    /// Start offsets of docstring string literals, skipped by the email/UUID/phone scan (example
+    /// emails in docs are legitimate, not slop).
+    docstrings: std::collections::HashSet<u32>,
     /// Deduplicated findings keyed by start offset.
     found: HashMap<u32, (TextRange, String)>,
+}
+
+/// Record the start offset of each docstring (the first statement of a module/function/class body
+/// when it's a bare string literal), recursing into nested defs/classes.
+fn collect_docstrings(body: &[Stmt], out: &mut std::collections::HashSet<u32>) {
+    if let Some(Stmt::Expr(expr)) = body.first() {
+        if let Expr::StringLiteral(string) = expr.value.as_ref() {
+            out.insert(u32::from(string.range().start()));
+        }
+    }
+    for stmt in body {
+        match stmt {
+            Stmt::FunctionDef(func) => collect_docstrings(&func.body, out),
+            Stmt::ClassDef(class) => collect_docstrings(&class.body, out),
+            _ => {}
+        }
+    }
 }
 
 impl<'a> Finder<'a> {
@@ -109,10 +134,13 @@ impl<'a> Visitor<'a> for Finder<'a> {
 
     fn visit_expr(&mut self, expr: &'a Expr) {
         match expr {
-            // Placeholder emails / phones / UUIDs are unambiguous wherever they appear.
+            // Placeholder emails / phones / UUIDs are unambiguous wherever they appear — except in
+            // docstrings, where example emails are legitimate documentation.
             Expr::StringLiteral(string) => {
-                if let Some(message) = classify_literal(string.value.to_str()) {
-                    self.record(string.range(), message);
+                if !self.docstrings.contains(&u32::from(string.range().start())) {
+                    if let Some(message) = classify_literal(string.value.to_str()) {
+                        self.record(string.range(), message);
+                    }
                 }
             }
             // Credential context via keyword: `connect(password="changeme")`.
@@ -194,9 +222,12 @@ impl<'a> Finder<'a> {
                         .contains(&s.value.to_str().trim().to_ascii_lowercase().as_str()),
                     _ => false,
                 };
+                // Require BOTH keys and values to be placeholder tokens so `{"foo": "bar"}` /
+                // `{"key": "value"}` fire but a real `{"value": self.value}` (token key, real value)
+                // does not.
                 let all_keys = dict.items.iter().all(|it| token(it.key.as_ref()));
                 let all_values = dict.items.iter().all(|it| token(Some(&it.value)));
-                if all_keys || all_values {
+                if all_keys && all_values {
                     Some(
                         "production function returns a dummy placeholder dict (e.g. {\"foo\": \
                          \"bar\"}) — likely unfinished"
@@ -228,8 +259,11 @@ fn classify_literal(literal: &str) -> Option<String> {
     None
 }
 
-/// The domain of a placeholder email, if `text` is an email whose domain is in the placeholder set.
-fn placeholder_email_domain(text: &str) -> Option<&'static str> {
+/// The domain of a placeholder email, if `text` is an email whose domain is a documentation
+/// placeholder. Restricted to RFC 2606 reserved names (`example.com/.net/.org`, the `.test`/
+/// `.example`/`.invalid`/`.localhost` TLDs) and unambiguous `your*`/`my*` placeholders — NOT
+/// real, registerable domains like `company.com`/`foo.com`, which legitimate apps may use.
+fn placeholder_email_domain(text: &str) -> Option<String> {
     let at = text.find('@')?;
     let domain_part = &text[at + 1..];
     // Stop at the first character that can't be in a bare domain (so `"a@example.com bob"` works).
@@ -238,10 +272,14 @@ fn placeholder_email_domain(text: &str) -> Option<&'static str> {
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '-')
         .collect::<String>()
         .to_ascii_lowercase();
-    PLACEHOLDER_EMAIL_DOMAINS
+    let reserved_tld = [".test", ".example", ".invalid", ".localhost"]
         .iter()
-        .copied()
-        .find(|&d| domain == d)
+        .any(|tld| domain.ends_with(tld));
+    if PLACEHOLDER_EMAIL_DOMAINS.contains(&domain.as_str()) || reserved_tld {
+        Some(domain)
+    } else {
+        None
+    }
 }
 
 /// Whether `text` is a UUID-shaped string with ≤2 distinct hex digits (all-zero nil UUID,
@@ -285,7 +323,9 @@ fn is_placeholder_phone(text: &str) -> bool {
     if FAKES.iter().any(|f| text.contains(f)) {
         return true;
     }
-    // Phone-shaped: only digits and common separators, and 7/10/11 digits with ≤2 distinct.
+    // Phone-shaped: only digits and common separators, and 7/10/11 digits that are all the same
+    // digit (`000-000-0000`, `111-111-1111`). A single-digit number is unmistakably fake; broader
+    // low-entropy (≤2 distinct) would catch real toll-free numbers like 800-800-8000.
     if !text
         .chars()
         .all(|c| c.is_ascii_digit() || " -.()+".contains(c))
@@ -297,13 +337,16 @@ fn is_placeholder_phone(text: &str) -> bool {
         return false;
     }
     let distinct: std::collections::HashSet<char> = digits.iter().copied().collect();
-    distinct.len() <= 2
+    distinct.len() == 1
 }
 
-/// Whether an identifier names a credential (case-insensitive substring of a curated set).
+/// Whether an identifier names a credential. Matched as a **suffix** (the head noun), so
+/// `password` / `db_password` / `api_key` / `auth_token` match, but `token_pattern` / `tokenizer` /
+/// `password_hint_label` / `api_key_name` (where the credential word isn't the trailing noun) do
+/// not — avoiding false positives on identifiers that merely contain a credential word.
 fn is_credential_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    CREDENTIAL_NAMES.iter().any(|n| lower.contains(n))
+    CREDENTIAL_NAMES.iter().any(|n| lower.ends_with(n))
 }
 
 /// A run of one repeated character of length ≥3 (`xxxx`, `0000`).
@@ -331,18 +374,13 @@ fn truncate(s: &str) -> String {
 }
 
 const PLACEHOLDER_EMAIL_DOMAINS: &[&str] = &[
-    "acme.com",
-    "bar.com",
-    "company.com",
+    // RFC 2606 reserved + unambiguous `your*`/`my*` placeholders only — not real registerable
+    // domains (no `company.com`/`foo.com`/`acme.com`/`test.com`, which legitimate apps may use).
     "domain.com",
     "example.com",
     "example.net",
     "example.org",
-    "foo.com",
     "mycompany.com",
-    "sample.com",
-    "test.com",
-    "test.org",
     "yourcompany.com",
     "yourdomain.com",
 ];
@@ -439,14 +477,34 @@ mod tests {
     fn email_domains() {
         assert_eq!(
             placeholder_email_domain("user@example.com"),
-            Some("example.com")
+            Some("example.com".to_string())
         );
         assert_eq!(
-            placeholder_email_domain("Bob <a@test.org>"),
-            Some("test.org")
+            placeholder_email_domain("Bob <a@example.org>"),
+            Some("example.org".to_string())
         );
+        // RFC 2606 reserved TLD.
+        assert_eq!(
+            placeholder_email_domain("x@foo.test"),
+            Some("foo.test".to_string())
+        );
+        // Real, registerable domains are NOT placeholders (no FP on real contact data).
         assert_eq!(placeholder_email_domain("real@gmail.com"), None);
+        assert_eq!(placeholder_email_domain("help@company.com"), None);
         assert_eq!(placeholder_email_domain("not an email"), None);
+    }
+
+    #[test]
+    fn credential_name_is_suffix_matched() {
+        assert!(is_credential_name("password"));
+        assert!(is_credential_name("db_password"));
+        assert!(is_credential_name("api_key"));
+        assert!(is_credential_name("DB_SECRET"));
+        // Credential word not the trailing noun → not a credential name (no FP on regex/labels).
+        assert!(!is_credential_name("token_pattern"));
+        assert!(!is_credential_name("tokenizer"));
+        assert!(!is_credential_name("password_hint_label"));
+        assert!(!is_credential_name("secretary"));
     }
 
     #[test]
@@ -471,6 +529,7 @@ mod tests {
     fn weak_credential_values() {
         let f = Finder {
             extra: &[],
+            docstrings: std::collections::HashSet::new(),
             found: HashMap::new(),
         };
         assert!(f.is_weak_credential("changeme"));

@@ -3,7 +3,7 @@ source: crates/sloplint_linter/src/rules/placeholders/mod.rs
 expression: rendered
 ---
 5:15 SLP230 [warning] placeholder email address (domain `example.com`) in production code
-6:11 SLP230 [warning] placeholder email address (domain `test.org`) in production code
+6:11 SLP230 [warning] placeholder email address (domain `example.net`) in production code
 7:10 SLP230 [warning] placeholder / low-entropy UUID in production code
 8:13 SLP230 [warning] placeholder / low-entropy UUID in production code
 9:11 SLP230 [warning] placeholder phone number in production code
