@@ -6,5 +6,6 @@
 pub mod cohesion;
 pub mod comments;
 pub mod duplication;
+pub mod placeholders;
 pub mod security;
 pub mod structure;

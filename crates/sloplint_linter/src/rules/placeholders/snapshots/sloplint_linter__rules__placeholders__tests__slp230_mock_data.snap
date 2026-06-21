@@ -1,0 +1,15 @@
+---
+source: crates/sloplint_linter/src/rules/placeholders/mod.rs
+expression: rendered
+---
+5:15 SLP230 [warning] placeholder email address (domain `example.com`) in production code
+6:11 SLP230 [warning] placeholder email address (domain `test.org`) in production code
+7:10 SLP230 [warning] placeholder / low-entropy UUID in production code
+8:13 SLP230 [warning] placeholder / low-entropy UUID in production code
+9:11 SLP230 [warning] placeholder phone number in production code
+11:12 SLP230 [warning] placeholder credential `"changeme"` assigned to a credential-like name `password` — replace before production
+12:11 SLP230 [warning] placeholder credential `"your_api_key"` assigned to a credential-like name `api_key` — replace before production
+13:13 SLP230 [warning] placeholder credential `"password123"` assigned to a credential-like name `DB_SECRET` — replace before production
+17:12 SLP230 [warning] production function returns a dummy placeholder dict (e.g. {"foo": "bar"}) — likely unfinished
+21:12 SLP230 [warning] production function returns the placeholder value "placeholder" — likely unfinished
+25:36 SLP230 [warning] placeholder credential `"test123"` assigned to a credential-like name `password` — replace before production

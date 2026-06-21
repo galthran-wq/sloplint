@@ -45,6 +45,7 @@ mod tests {
             source,
             parsed: &parsed,
             security_extra: &[],
+            placeholders_extra: &[],
             limits: Limits {
                 file_max_lines,
                 ..Limits::default()
