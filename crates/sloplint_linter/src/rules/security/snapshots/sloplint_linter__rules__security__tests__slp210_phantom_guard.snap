@@ -1,0 +1,9 @@
+---
+source: crates/sloplint_linter/src/rules/security/mod.rs
+expression: rendered
+---
+14:12 SLP210 [warning] call to security guard `validate_token` is not defined or imported in this module (phantom security control — the code looks defended but the guard does not exist; CWE-693)
+16:12 SLP210 [warning] call to security guard `sanitize_input` is not defined or imported in this module (phantom security control — the code looks defended but the guard does not exist; CWE-693)
+20:2 SLP210 [warning] decorator `@requires_auth` is not defined or imported in this module (phantom security control — the code looks defended but the guard does not exist; CWE-693)
+25:2 SLP210 [warning] decorator `@rate_limit` is not defined or imported in this module (phantom security control — the code looks defended but the guard does not exist; CWE-693)
+38:12 SLP210 [warning] call to security guard `sanitize` is not defined or imported in this module — likely a typo of `sanitise` (an undefined security control is still broken; CWE-693)

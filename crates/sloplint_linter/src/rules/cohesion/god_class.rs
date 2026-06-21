@@ -155,6 +155,7 @@ mod tests {
             source,
             parsed: &parsed,
             limits,
+            security_extra: &[],
         };
         let mut diagnostics = Vec::new();
         GodClass.check(&ctx, &mut diagnostics);

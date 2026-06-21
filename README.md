@@ -28,6 +28,7 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP084` | preview | Deeply nested data-structure literals (a dict-of-lists-of-dicts blob past a depth — model it with a named type) |
 | `SLP120` | preview | Low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups) |
 | `SLP180` | preview | Undeclared third-party imports — a module imported but missing from the project's `pyproject.toml`/`requirements*.txt` (broken on a clean install) |
+| `SLP210` | preview | Phantom security guards — a call to / decorator of a known security-guard name (`validate_token`, `@requires_auth`, …) that is never defined or imported in the module (fake security control — CWE-693) |
 
 Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
 McCabe risk tiers, shields **badges**, and a per-PR summary — and **package/module architecture
@@ -157,6 +158,9 @@ similarity = 0.85             # Jaccard similarity at/above which a pair is repo
 
 [imports]                     # SLP180 undeclared third-party import
 extra = []                    # extra distribution names to treat as declared (suppress FPs)
+
+[security]                    # SLP210 phantom security guard
+extra = []                    # extra security-guard names beyond the built-in catalog
 
 [badges]                      # which `metrics --badges` files to emit (see Metrics & badges)
 # include = ["cyclomatic-risk"]   # per-metric badges; omit = all, [] = none

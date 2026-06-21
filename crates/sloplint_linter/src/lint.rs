@@ -21,6 +21,9 @@ pub struct FileContext<'a> {
     pub parsed: &'a Parsed<ModModule>,
     /// Tunable thresholds for the structural rules.
     pub limits: Limits,
+    /// Extra security-guard names beyond the built-in catalog (`[security] extra` in config),
+    /// used by SLP210. Empty by default; non-CLI callers pass `&[]`.
+    pub security_extra: &'a [String],
 }
 
 /// A single lint rule. Rules push findings rather than returning them, so one AST/token
