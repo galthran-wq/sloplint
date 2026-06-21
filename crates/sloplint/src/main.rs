@@ -1608,6 +1608,13 @@ fn print_test_proxies_table(proxies: &TestProxies) {
         proxies.assertions,
         proxies.test_functions,
     );
+    println!(
+        "  trivial-test rate   {}  ({} of {} test fns ~trivial: cognitive <= {})",
+        opt_ratio(proxies.trivial_test_rate),
+        proxies.trivial_test_functions,
+        proxies.test_functions,
+        test_proxies::TRIVIAL_TEST_MAX_COGNITIVE,
+    );
     println!("  (test proxies are static estimates, not coverage — descriptive only)");
 }
 
@@ -1790,6 +1797,10 @@ fn test_proxies_json(proxies: &TestProxies) -> serde_json::Value {
         "test_functions": proxies.test_functions,
         "assertions": proxies.assertions,
         "assertion_density": proxies.assertion_density,
+        // Test-substance (#121): fraction of test functions that are one-liner boilerplate
+        // (cognitive ≤ threshold). High alongside a high test_code_ratio = inflated suite.
+        "trivial_test_functions": proxies.trivial_test_functions,
+        "trivial_test_rate": proxies.trivial_test_rate,
     })
 }
 
@@ -1892,7 +1903,9 @@ fn test_proxies_markdown(proxies: &TestProxies) -> String {
     format!(
         "**Test proxies** (static estimates — _not coverage_, descriptive only) — \
          test:code ratio {} ({} test / {} prod LoC), assertion density {} ({} assertions over \
-         {} test functions). These suggest under-testing across a cohort; they are never a \
+         {} test functions), trivial-test rate {} ({} of {} test functions ~trivial, cognitive \
+         ≤ {}). A high trivial-test rate next to a high test:code ratio flags an \
+         inflated/templated suite. These suggest under-testing across a cohort; they are never a \
          per-repo pass/fail verdict.\n",
         opt_ratio(proxies.test_code_ratio),
         proxies.test_loc,
@@ -1900,6 +1913,10 @@ fn test_proxies_markdown(proxies: &TestProxies) -> String {
         opt_ratio(proxies.assertion_density),
         proxies.assertions,
         proxies.test_functions,
+        opt_ratio(proxies.trivial_test_rate),
+        proxies.trivial_test_functions,
+        proxies.test_functions,
+        test_proxies::TRIVIAL_TEST_MAX_COGNITIVE,
     )
 }
 

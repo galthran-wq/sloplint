@@ -1,15 +1,28 @@
-//! Static test proxies (issue #86): **test:code ratio** and **assertion density**.
+//! Static test proxies (issue #86): **test:code ratio** and **assertion density**, plus a
+//! **trivial-test rate** test-substance signal (issue #121).
 //!
 //! ## What this is — and is NOT
 //!
 //! These are *static* heuristics computed without ever running the test suite. They are
 //! **NOT test coverage**: real coverage requires *executing* the tests and recording which
-//! production lines ran, which a static linter cannot do. Treat both numbers as descriptive
-//! *proxies*:
+//! production lines ran, which a static linter cannot do. Treat every number as a descriptive
+//! *proxy*:
 //!
 //! - A low test:code ratio and a low assertion density *suggest* under-testing.
 //! - But they **cannot** reliably tell a shallow test from a thorough one — a test can carry
 //!   many asserts and still verify nothing meaningful, or few asserts and be excellent.
+//!
+//! ## Test-substance: the trivial-test rate (#121)
+//!
+//! `test:code` and `assertion_density` both reward *volume*, so a heavily-templated suite —
+//! thousands of near-identical one-liner tests, the classic shape of LLM-generated test
+//! padding — reads as "well-tested". The **trivial-test rate** is a counterweight: the fraction
+//! of test functions whose own body has cognitive complexity ≤ [`TRIVIAL_TEST_MAX_COGNITIVE`]
+//! (a single linear assert with no branching). A rate near 1.0 means the suite is overwhelmingly
+//! boilerplate — a high test:code ratio paired with a high trivial-test rate is inflated, not
+//! thorough. Like the others it is purely descriptive: a low-branching test can still be
+//! excellent (much good test code *is* a flat sequence of asserts), so a high rate is a prompt
+//! to look, never a verdict.
 //!
 //! Therefore these figures are reported as descriptive cohort statistics and are **never** a
 //! pass/fail gate. Their value is *across a cohort*: the slop side of a corpus tends to ship
@@ -19,9 +32,18 @@
 //! These aggregate *metrics* are the cohort-level counterpart to the per-file
 //! assertion-free-test (SLP070) and test-mirroring (SLP160) *rules*.
 
+use crate::cognitive;
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, ModModule, Stmt, StmtFunctionDef};
 use sloplint_python::parser::Parsed;
+
+/// A test function counts as **trivial** for the trivial-test rate (#121) when the cognitive
+/// complexity of its own body is at or below this. `1` admits a single linear assert (cognitive
+/// 0) and one flat branch (cognitive 1) — i.e. essentially no control flow — while anything that
+/// loops, nests, or branches more lands above it. Chosen to match the issue's "a single linear
+/// assert, no branching" definition; deliberately low so the signal fires only on genuine
+/// one-liner boilerplate, not on ordinary multi-assert tests.
+pub const TRIVIAL_TEST_MAX_COGNITIVE: usize = 1;
 
 /// Classify a file as a test file purely from its path: a `test_*.py` or `*_test.py` filename,
 /// a `conftest.py`, or any `tests/` (or `test/`) directory segment. Path-based on purpose — it
@@ -57,6 +79,10 @@ pub struct FileTestStats {
     pub loc: usize,
     /// `test_*` functions (module-level or methods of any class). Only meaningful for test files.
     pub test_functions: usize,
+    /// Of those test functions, how many are **trivial** — own-body cognitive complexity ≤
+    /// [`TRIVIAL_TEST_MAX_COGNITIVE`] (#121). The numerator for the trivial-test rate. Test files
+    /// only.
+    pub trivial_test_functions: usize,
     /// Assertions inside those test functions: `assert` statements plus assertion calls
     /// (`self.assertX`, `self.fail`, `pytest.raises`/`warns`/`deprecated_call`). Test files only.
     pub assertions: usize,
@@ -72,6 +98,7 @@ pub fn file_test_stats(is_test: bool, loc: usize, parsed: &Parsed<ModModule>) ->
             is_test: false,
             loc,
             test_functions: 0,
+            trivial_test_functions: 0,
             assertions: 0,
         };
     }
@@ -79,11 +106,18 @@ pub fn file_test_stats(is_test: bool, loc: usize, parsed: &Parsed<ModModule>) ->
     let mut tests = Vec::new();
     collect_test_functions(&parsed.syntax().body, &mut tests);
     let assertions = tests.iter().map(|f| count_assertions(&f.body)).sum();
+    // A test is trivial when its own body has cognitive complexity ≤ the threshold — scored with
+    // the same definition the function panel uses, so the two never disagree (#121).
+    let trivial_test_functions = tests
+        .iter()
+        .filter(|f| cognitive(&f.body) <= TRIVIAL_TEST_MAX_COGNITIVE)
+        .count();
 
     FileTestStats {
         is_test: true,
         loc,
         test_functions: tests.len(),
+        trivial_test_functions,
         assertions,
     }
 }
@@ -102,6 +136,14 @@ pub struct TestProxies {
     pub assertions: usize,
     /// `assertions / test_functions`. `None` when there are no test functions (undefined).
     pub assertion_density: Option<f64>,
+    /// Test functions whose own body is trivial — cognitive ≤ [`TRIVIAL_TEST_MAX_COGNITIVE`]
+    /// (#121). The numerator for [`Self::trivial_test_rate`].
+    pub trivial_test_functions: usize,
+    /// `trivial_test_functions / test_functions` (0.0–1.0): the fraction of the suite that is
+    /// one-liner boilerplate. `None` when there are no test functions (undefined). A high value
+    /// alongside a high `test_code_ratio` flags an inflated/templated suite — descriptive, never
+    /// a gate.
+    pub trivial_test_rate: Option<f64>,
 }
 
 /// Roll per-file test signals up into the project-level proxies.
@@ -112,6 +154,7 @@ pub fn aggregate_test_proxies(stats: &[FileTestStats]) -> TestProxies {
             proxies.test_files += 1;
             proxies.test_loc += file.loc;
             proxies.test_functions += file.test_functions;
+            proxies.trivial_test_functions += file.trivial_test_functions;
             proxies.assertions += file.assertions;
         } else {
             proxies.production_files += 1;
@@ -127,6 +170,11 @@ pub fn aggregate_test_proxies(stats: &[FileTestStats]) -> TestProxies {
         None
     } else {
         Some(proxies.assertions as f64 / proxies.test_functions as f64)
+    };
+    proxies.trivial_test_rate = if proxies.test_functions == 0 {
+        None
+    } else {
+        Some(proxies.trivial_test_functions as f64 / proxies.test_functions as f64)
     };
     proxies
 }
@@ -361,18 +409,21 @@ def test_fail_path():
                 is_test: false,
                 loc: 100,
                 test_functions: 0,
+                trivial_test_functions: 0,
                 assertions: 0,
             },
             FileTestStats {
                 is_test: false,
                 loc: 100,
                 test_functions: 0,
+                trivial_test_functions: 0,
                 assertions: 0,
             },
             FileTestStats {
                 is_test: true,
                 loc: 50,
                 test_functions: 4,
+                trivial_test_functions: 3,
                 assertions: 10,
             },
         ];
@@ -385,6 +436,9 @@ def test_fail_path():
         assert_eq!(proxies.test_code_ratio, Some(0.25));
         // 10 / 4 = 2.5.
         assert_eq!(proxies.assertion_density, Some(2.5));
+        // 3 of 4 test functions trivial → 0.75.
+        assert_eq!(proxies.trivial_test_functions, 3);
+        assert_eq!(proxies.trivial_test_rate, Some(0.75));
     }
 
     #[test]
@@ -394,11 +448,78 @@ def test_fail_path():
             is_test: true,
             loc: 30,
             test_functions: 0,
+            trivial_test_functions: 0,
             assertions: 0,
         }];
         let proxies = aggregate_test_proxies(&only_tests);
         assert_eq!(proxies.test_code_ratio, None);
         // No test functions → density undefined.
         assert_eq!(proxies.assertion_density, None);
+        // No test functions → trivial-test rate undefined (never a misleading 0).
+        assert_eq!(proxies.trivial_test_rate, None);
+    }
+
+    #[test]
+    fn trivial_test_rate_counts_low_cognitive_tests() {
+        // A templated/padded suite: three one-liner tests (cognitive 0) and one branchy,
+        // substantive test (a `for` + nested `if` → cognitive 3). Only the latter is non-trivial.
+        let source = "\
+import pytest
+
+def test_a():
+    assert f(1) == 1
+
+def test_b():
+    assert f(2) == 2
+
+def test_raises():
+    with pytest.raises(ValueError):
+        f(-1)
+
+def test_substantive():
+    for x in (0, 1, 2):
+        if x:
+            assert f(x) == x
+";
+        let parsed = parse_src(source);
+        let stats = file_test_stats(true, source.lines().count(), &parsed);
+        assert_eq!(stats.test_functions, 4);
+        // test_a, test_b, test_raises (a bare `with` is cognitive 0) are trivial; test_substantive
+        // is not.
+        assert_eq!(stats.trivial_test_functions, 3);
+
+        let proxies = aggregate_test_proxies(&[stats]);
+        assert_eq!(proxies.trivial_test_rate, Some(0.75));
+    }
+
+    #[test]
+    fn one_flat_branch_is_still_trivial_but_nesting_is_not() {
+        // The threshold (cognitive ≤ 1) admits a single flat `if` (cognitive 1) but not a nested
+        // one (cognitive 3): the boundary the constant documents.
+        let source = "\
+def test_flat_branch(x):
+    if x:
+        assert g(x)
+
+def test_nested(x, y):
+    if x:
+        if y:
+            assert g(x, y)
+";
+        let parsed = parse_src(source);
+        let stats = file_test_stats(true, source.lines().count(), &parsed);
+        assert_eq!(stats.test_functions, 2);
+        // Flat `if` → cognitive 1 → trivial; nested `if` → cognitive 3 → not.
+        assert_eq!(stats.trivial_test_functions, 1);
+    }
+
+    #[test]
+    fn production_file_reports_no_trivial_tests() {
+        // Test-shaped contents in a production file are ignored, so it contributes no trivial
+        // tests (the denominator stays production-free).
+        let source = "def test_looks_like_a_test():\n    assert True\n";
+        let parsed = parse_src(source);
+        let stats = file_test_stats(false, source.lines().count(), &parsed);
+        assert_eq!(stats.trivial_test_functions, 0);
     }
 }

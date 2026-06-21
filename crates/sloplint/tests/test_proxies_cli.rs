@@ -50,15 +50,25 @@ fn json_reports_test_proxies_with_exact_counts() {
     let proxies = &value["test_proxies"];
     assert_eq!(proxies["test_files"], 1);
     assert_eq!(proxies["production_files"], 1);
-    // test_add (2) + test_mul (1) + test_raises (pytest.raises, 1); helper_not_a_test ignored.
-    assert_eq!(proxies["test_functions"], 3);
-    assert_eq!(proxies["assertions"], 4);
+    // test_add, test_mul, test_raises, test_mul_table; helper_not_a_test ignored.
+    assert_eq!(proxies["test_functions"], 4);
+    // test_add (2) + test_mul (1) + test_raises (pytest.raises, 1) + test_mul_table (1).
+    assert_eq!(proxies["assertions"], 5);
 
-    // assertion density = 4 / 3.
+    // assertion density = 5 / 4.
     let density = proxies["assertion_density"].as_f64().unwrap();
     assert!(
-        (density - 4.0 / 3.0).abs() < 1e-9,
+        (density - 5.0 / 4.0).abs() < 1e-9,
         "assertion_density = {density}"
+    );
+
+    // Test-substance (#121): the three one-liner tests are trivial (cognitive ≤ 1); the
+    // doubly-nested test_mul_table is not → trivial-test rate = 3 / 4.
+    assert_eq!(proxies["trivial_test_functions"], 3);
+    let trivial = proxies["trivial_test_rate"].as_f64().unwrap();
+    assert!(
+        (trivial - 3.0 / 4.0).abs() < 1e-9,
+        "trivial_test_rate = {trivial}"
     );
 
     // test:code ratio = test LoC / production LoC, computed from the same line definition.
@@ -99,6 +109,12 @@ fn undefined_ratios_serialize_as_null_not_zero() {
         proxies["assertion_density"].is_null(),
         "density null with no tests"
     );
+    // Same for the trivial-test rate: no test functions → null, not a misleading 0 (#121).
+    assert!(
+        proxies["trivial_test_rate"].is_null(),
+        "trivial_test_rate null with no tests"
+    );
+    assert_eq!(proxies["trivial_test_functions"], 0);
     // There IS production code, so the ratio is a defined 0.0 (no test LoC over some prod LoC).
     assert_eq!(proxies["test_code_ratio"].as_f64().unwrap(), 0.0);
 }
@@ -116,6 +132,10 @@ fn text_and_markdown_label_the_proxies_as_not_coverage() {
         "text table has assertion density:\n{text}"
     );
     assert!(
+        text.contains("trivial-test rate"),
+        "text table has the trivial-test rate (#121):\n{text}"
+    );
+    assert!(
         text.contains("not coverage"),
         "text table keeps the caveat:\n{text}"
     );
@@ -125,6 +145,10 @@ fn text_and_markdown_label_the_proxies_as_not_coverage() {
     assert!(
         md.contains("Test proxies"),
         "markdown has the proxies block:\n{md}"
+    );
+    assert!(
+        md.contains("trivial-test rate"),
+        "markdown surfaces the trivial-test rate (#121):\n{md}"
     );
     assert!(
         md.contains("not coverage"),
