@@ -18,6 +18,11 @@
 //!
 //! Resolution is name-based and over-approximates references (any occurrence counts), so the bias
 //! is firmly toward false negatives — a name that *might* be used is never flagged.
+//!
+//! Known limitation: a class auto-registered purely by subclassing (`__init_subclass__` / a
+//! metaclass registry) and referenced by name nowhere is flagged, since the allowlist covers base
+//! types, not their leaf subclasses. Escape hatches: `__all__`, a per-path `ignore`, or inline
+//! `# noqa: SLP240`. The rule is preview-gated precisely because cross-module analysis has edges.
 
 use std::collections::HashSet;
 
