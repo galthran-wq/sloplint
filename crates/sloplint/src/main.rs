@@ -1035,9 +1035,11 @@ fn run_metrics(
             .map(|s| s.to_string())
             .collect();
         let is_test = profiles.iter().any(|p| p == "tests");
-        // Generated files are excluded from the test:code proxies too (they are neither test nor
-        // human-maintained production, so they must not inflate the production-LoC denominator).
-        if !is_generated {
+        // Generated *production* code is excluded from the test:code proxies (it is not
+        // human-maintained, so it must not inflate the production-LoC denominator). A generated
+        // file that is also a test still counts as a test — the panels claim it under both, so the
+        // proxies must agree rather than dropping it from both sides.
+        if is_test || !is_generated {
             test_stats.push(test_proxies::file_test_stats(is_test, metrics.loc, &parsed));
         }
         if needs_clones {
