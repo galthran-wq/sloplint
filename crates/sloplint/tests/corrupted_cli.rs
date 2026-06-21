@@ -121,6 +121,21 @@ fn prose_heavy_file_classified_as_prose() {
 }
 
 #[test]
+fn assert_heavy_real_code_is_not_prose() {
+    // Regression: a run of `assert X is not None` is punctuation-free with ≥4 words but is real
+    // code, not pasted prose — it must not be flagged.
+    let project = make_project("asserts");
+    let code = "def test_fields():\n    assert status is not None\n    assert headers is not None\n    \
+                assert body is not None\n    assert cookies is not None\n    assert elapsed is not None\n    \
+                assert encoding is not None\n    assert history is not None\n    assert reason is not None\n";
+    write(&project, "a.py", code);
+    assert!(
+        slp220(&project, "a.py", true).is_empty(),
+        "assert statements are code, not prose"
+    );
+}
+
+#[test]
 fn clean_file_and_preview_gating() {
     let project = make_project("clean");
     write(&project, "a.py", "def add(a, b):\n    return a + b\n");

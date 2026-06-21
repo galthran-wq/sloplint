@@ -58,6 +58,9 @@ pub fn on_parse_error(source: &str, prose_ratio: f64) -> Diagnostic {
             ),
         );
     }
+    // No token stream on an unparseable file, so prose counting can't mask string content — a
+    // truncated file whose tail is a big English docstring may read as "prose"; acceptable, since
+    // it's corrupt either way and the alternative message is the generic truncation one below.
     let (prose, total) = prose_stats(source, None);
     if total >= PROSE_MIN_LINES && prose as f64 / total as f64 >= prose_ratio {
         return diag(
@@ -192,16 +195,30 @@ fn prose_stats(source: &str, masked: Option<&HashSet<usize>>) -> (usize, usize) 
     (prose, total)
 }
 
-/// Whether a trimmed line reads as natural-language prose: no code punctuation and several words.
-/// Real Python statements almost always carry `=`/`(`/`:`/`.`-with-call punctuation, so this stays
-/// near-zero on code while catching pasted sentences ("Here is how this function works.").
+/// Whether a trimmed line reads as natural-language prose: no code punctuation, several words, and
+/// not led by a Python statement keyword. Most code carries `=`/`(`/`:` punctuation, but a handful
+/// of keyword statements don't — `assert user is not None`, `raise Error from cause`, `from x import
+/// y` — and have ≥4 "words"; keying out a leading keyword keeps those (common in real test/validation
+/// code) from reading as prose, while genuine sentences ("Here is how this works") still count.
 fn is_prose_line(trimmed: &str) -> bool {
     const CODE_PUNCT: &str = "=(){}[]:;@%<>/\\|*+~`\"";
     if trimmed.chars().any(|c| CODE_PUNCT.contains(c)) {
         return false;
     }
-    trimmed.split_whitespace().count() >= 4
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    if words.len() < 4 {
+        return false;
+    }
+    !PYTHON_STMT_KEYWORDS.contains(&words[0])
 }
+
+/// Statement-leading Python keywords. A code line beginning with one of these (`assert`, `raise`,
+/// `from`, …) is a statement, not prose, even when it carries no code punctuation.
+const PYTHON_STMT_KEYWORDS: &[&str] = &[
+    "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else",
+    "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal",
+    "not", "or", "pass", "raise", "return", "try", "while", "with", "yield", "and",
+];
 
 /// 0-based line indices covered by string-literal or comment tokens — the ranges where a fence or
 /// prose-like text is legitimate content, not a leaked artifact.
@@ -280,6 +297,19 @@ mod tests {
         assert!(!is_prose_line("return self.value")); // < 4 words
         assert!(!is_prose_line("process all the items now()")); // has code punct
         assert!(!is_prose_line("x = 1")); // code punct
+    }
+
+    #[test]
+    fn keyword_statements_are_not_prose() {
+        // Punctuation-free keyword statements common in real test/validation code must not read as
+        // prose (regression: a run of these is not "pasted explanation").
+        assert!(!is_prose_line("assert user is not None"));
+        assert!(!is_prose_line("raise ValueError from original"));
+        assert!(!is_prose_line("from package import a b c"));
+        let asserts = "def t():\n    assert a is not None\n    assert b is not None\n    \
+                       assert c is not None\n    assert d is not None\n";
+        let (prose, _total) = prose_stats(asserts, None);
+        assert_eq!(prose, 0, "assert statements are code, not prose");
     }
 
     #[test]
