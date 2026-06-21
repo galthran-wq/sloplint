@@ -450,7 +450,7 @@ cohort signal, never a per-repo gate.
 
 ### Static test proxies (NOT coverage)
 
-`--format json` also reports a `test_proxies` block — two *static* signals of how (un)tested a
+`--format json` also reports a `test_proxies` block — *static* signals of how (un)tested a
 codebase is, computed without running anything:
 
 ```jsonc
@@ -460,19 +460,30 @@ codebase is, computed without running anything:
   "test_loc": 1840, "production_loc": 5210,
   "test_code_ratio": 0.353,    // test LoC / production LoC
   "test_functions": 96, "assertions": 311,
-  "assertion_density": 3.24    // assertions per test function (asserts + self.assertX +
+  "assertion_density": 3.24,   // assertions per test function (asserts + self.assertX +
                                // pytest.raises + self.fail), null when there are no test fns
+  "trivial_test_functions": 18,
+  "trivial_test_rate": 0.19    // fraction of test fns that are one-liner boilerplate
+                               // (own-body cognitive ≤ 1); null when there are no test fns
 }
 ```
+
+The **trivial-test rate** is a *test-substance* counterweight: `test:code` and `assertion_density`
+both reward volume, so a heavily-templated suite of thousands of near-identical one-liner tests —
+the classic shape of LLM-generated test padding — reads as "well-tested". A trivial-test rate near
+1.0 next to a high test:code ratio flags an inflated suite rather than a thorough one. (The
+complementary *empty test scaffolding* form — `tests/` dirs holding only empty `__init__.py` — is
+already caught by `test_code_ratio` = 0.0.)
 
 Test files are identified by path (`test_*.py`, `*_test.py`, a `tests/` segment, `conftest.py`);
 the figures also appear in the text table and the `--format github` PR summary.
 
 > [!IMPORTANT]
 > **This is not test coverage.** Real coverage requires *executing* the tests, which a static
-> linter cannot do. These are *proxies*: low test:code ratio + low assertion density *suggest*
-> under-testing, but they cannot tell a shallow test from a thorough one — a test can carry many
-> asserts and verify nothing, or few asserts and be excellent. So they are reported as descriptive
+> linter cannot do. These are *proxies*: a low test:code ratio + low assertion density *suggest*
+> under-testing, and a high trivial-test rate *suggests* a padded suite — but they cannot tell a
+> shallow test from a thorough one — a test can carry many asserts and verify nothing, or be a
+> single low-branching assert and be excellent. So they are reported as descriptive
 > cohort statistics and are **never** a pass/fail gate. Their value is across a *cohort* (slop
 > tends to ship far less test code with shallower assertions), not as a per-repo verdict. They
 > are the cohort-level counterpart to the per-file `SLP070` (assertion-free tests) and `SLP160`
