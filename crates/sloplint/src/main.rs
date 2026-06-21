@@ -1842,8 +1842,9 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
         "pct_modules_in_cycles": pct,
         "runtime_tangles": graph.runtime_cycles().tangle_count(),
         // Hard cycles only: module-top-level runtime edges, dropping function-local/deferred imports
-        // (#122). `tangles` high but this ≈ 0 ⇒ cycles were deliberately deferred (milder smell);
-        // > 0 ⇒ genuine load-time circular dependencies that would raise `ImportError`.
+        // (#122). `0` ⇒ every cycle was deliberately deferred (milder smell); `> 0` ⇒ genuine
+        // load-time circular dependencies that can raise `ImportError`. Not a strict subset of
+        // `tangles` by count — dropping edges can split one SCC into several.
         "load_bearing_tangles": graph.load_bearing_cycles().tangle_count(),
         "members": report.tangles,
     })

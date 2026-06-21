@@ -495,12 +495,18 @@ impl ImportGraph {
     }
 
     /// Cyclic-dependency tangles over the **load-bearing** graph — only module-top-level runtime
-    /// edges (#122). Drops `if TYPE_CHECKING:`-only edges (like [`Self::runtime_cycles`]) *and*
+    /// edges (#122). Drops `if TYPE_CHECKING:` edges (like [`Self::runtime_cycles`]) *and*
     /// function-local/deferred imports, which are written inside function bodies precisely to defer
-    /// a back-edge past module load and dodge `ImportError`. A tangle surviving here is a genuine
-    /// load-time circular dependency (it would raise at import); one that disappears was worked
-    /// around with deferred imports — the milder smell. `kind.runtime` is exactly "at least one
-    /// contributing import is neither type-checking-only nor function-local".
+    /// a back-edge past module load. A tangle surviving here is a genuine load-time circular
+    /// dependency that *can* raise `ImportError` at load (notably `from x import name` against a
+    /// partially-initialized module); one that disappears was worked around with deferred imports —
+    /// the milder smell. `kind.runtime` is exactly "at least one contributing import is neither
+    /// type-checking nor function-local".
+    ///
+    /// Note: this is **not** a strict subset of [`Self::cycles`] by *count*. Removing edges can
+    /// split one large SCC into several smaller non-trivial ones, so `load_bearing_cycles().len()`
+    /// can exceed `cycles().len()`. The participating-module *set* only shrinks; the tangle count
+    /// need not. The robust signal is `== 0` (no hard cycles) vs `> 0` (some).
     pub fn load_bearing_cycles(&self) -> CycleReport {
         self.scc(|kind| kind.runtime)
     }
@@ -1383,6 +1389,30 @@ from pkg import *
             g.load_bearing_cycles().tangle_count(),
             1,
             "both edges run at module load → a hard cycle"
+        );
+    }
+
+    #[test]
+    fn load_bearing_count_is_not_a_subset_of_full_tangles() {
+        // Two hard 2-cycles (a<->b, c<->d) bridged into one big SCC by a top-level b->c and a
+        // function-local-only d->a. The full graph is a single tangle; dropping the deferred bridge
+        // SPLITS it into two hard cycles — so load_bearing_tangles (2) > tangles (1). The count is
+        // not a strict subset; only the participating-module set shrinks (#122).
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", "from pkg import a\nfrom pkg import c\n"),
+            ("pkg/c.py", "from pkg import d\n"),
+            (
+                "pkg/d.py",
+                "from pkg import c\ndef f():\n    from pkg import a\n    return a\n",
+            ),
+        ]);
+        assert_eq!(g.cycles().tangle_count(), 1, "one big SCC over all edges");
+        assert_eq!(
+            g.load_bearing_cycles().tangle_count(),
+            2,
+            "dropping the deferred d->a splits it into two hard cycles"
         );
     }
 
