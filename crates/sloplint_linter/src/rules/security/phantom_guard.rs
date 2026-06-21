@@ -230,12 +230,15 @@ impl<'a> Finder<'a> {
 
     /// A bound name within edit distance 1 of `name` (a likely typo/rename), if any. Only
     /// length-similar candidates are compared, both to bound the cost and because a one-edit typo
-    /// can't change length by more than one.
+    /// can't change length by more than one. When several bound names qualify, the lexicographically
+    /// smallest is chosen so the suggestion is **deterministic** — `bound` is a `HashSet` with
+    /// run-varying iteration order, so picking the first match would make the message flap.
     fn near_miss(&self, name: &str) -> Option<String> {
         self.bound
             .iter()
             .filter(|cand| cand.len().abs_diff(name.len()) <= 1 && **cand != name)
-            .find(|cand| within_edit_distance_1(name, cand))
+            .filter(|cand| within_edit_distance_1(name, cand))
+            .min()
             .map(|cand| (*cand).to_string())
     }
 }
@@ -412,5 +415,22 @@ mod tests {
         assert!(within_edit_distance_1("abc", "abc")); // identical
         assert!(!within_edit_distance_1("validate_token", "verify_jwt"));
         assert!(!within_edit_distance_1("abc", "axyz")); // length gap > 1
+    }
+
+    #[test]
+    fn near_miss_is_deterministic_with_multiple_candidates() {
+        // Two bound names are each one edit from `validate_token`; the lexicographically smallest
+        // is chosen so the suggestion never flaps with HashSet iteration order.
+        let bound: std::collections::HashSet<&str> =
+            ["validate_tokens", "validate_toke"].into_iter().collect();
+        let finder = Finder {
+            bound: &bound,
+            extra: &[],
+            found: HashMap::new(),
+        };
+        assert_eq!(
+            finder.near_miss("validate_token").as_deref(),
+            Some("validate_toke")
+        );
     }
 }
