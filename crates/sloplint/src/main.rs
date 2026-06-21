@@ -28,6 +28,7 @@ use sloplint_diagnostics::fix;
 use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::{BadgeSettings, Config, Selector};
+use sloplint_linter::detect;
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_linter::suppression::Suppressions;
@@ -1024,13 +1025,23 @@ fn run_metrics(
             continue;
         };
         let metrics = file_metrics(&source, &parsed);
+        // Machine-generated code (#115) is a third category alongside tests/production: its
+        // structural numbers are codegen artifacts, so it routes into the `generated` profile and
+        // out of the `production` complement. Detection is a cheap header-marker scan.
+        let is_generated = detect::is_generated(&source, &display);
         let profiles: Vec<String> = selector
-            .profiles_for(&display)
+            .profiles_for_file(&display, is_generated)
             .iter()
             .map(|s| s.to_string())
             .collect();
         let is_test = profiles.iter().any(|p| p == "tests");
-        test_stats.push(test_proxies::file_test_stats(is_test, metrics.loc, &parsed));
+        // Generated *production* code is excluded from the test:code proxies (it is not
+        // human-maintained, so it must not inflate the production-LoC denominator). A generated
+        // file that is also a test still counts as a test — the panels claim it under both, so the
+        // proxies must agree rather than dropping it from both sides.
+        if is_test || !is_generated {
+            test_stats.push(test_proxies::file_test_stats(is_test, metrics.loc, &parsed));
+        }
         if needs_clones {
             for unit in extract_functions(&display, &source, &parsed, clone_config.shingle_k) {
                 clone_units.push(unit);

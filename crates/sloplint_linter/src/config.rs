@@ -25,8 +25,8 @@ pub struct Config {
     /// Enable preview-group (unstable) rules. Off by default, like Ruff's `--preview`.
     pub preview: bool,
     /// Named, path-matched profiles (#96). Replaces the old per-path overrides: a profile both
-    /// carries rule deltas and defines a metrics panel. Omitted in TOML ⇒ the built-in `tests` +
-    /// `production` pair ([`default_profiles`]); declaring any replaces that set.
+    /// carries rule deltas and defines a metrics panel. Omitted in TOML ⇒ the built-in `tests` /
+    /// `generated` / `production` trio ([`default_profiles`]); declaring any replaces that set.
     #[serde(default = "default_profiles")]
     pub profiles: Vec<Profile>,
     /// Near-duplicate (clone) detection settings (global defaults; a profile may override).
@@ -157,6 +157,12 @@ pub struct Profile {
     /// one profile should set this.
     #[serde(default)]
     pub default: bool,
+    /// Marks a content-detected profile for machine-generated code (#115). In addition to its
+    /// `match`/`exclude` globs, a `generated = true` profile *also* claims any file whose header
+    /// carries a generated-code marker ([`crate::detect::is_generated`]). The built-in `generated`
+    /// profile uses this; a custom profile can set it to extend the same content detection.
+    #[serde(default)]
+    pub generated: bool,
     /// Code prefixes to additionally ignore for files in this profile (accumulate across all
     /// matching profiles, like the old overrides).
     #[serde(default)]
@@ -173,8 +179,10 @@ pub struct Profile {
 }
 
 /// The built-in profiles when none are configured: `tests` (path heuristic mirroring
-/// [`crate`]'s test classification) and `production` (everything else). Reproduces the
-/// pre-profiles behavior with zero config.
+/// [`crate`]'s test classification), `generated` (content-detected machine-generated code, #115),
+/// and `production` (everything else). Reproduces the pre-profiles behavior with zero config, plus
+/// the generated split. Declared `tests, generated, production` so that production stays the
+/// catch-all complement and both special categories are carved out of it.
 pub fn default_profiles() -> Vec<Profile> {
     vec![
         Profile {
@@ -199,6 +207,28 @@ pub fn default_profiles() -> Vec<Profile> {
             .collect(),
             exclude: Vec::new(),
             default: false,
+            generated: false,
+            ignore: Vec::new(),
+            allow_comments: false,
+            limits: LimitsPatch::default(),
+        },
+        Profile {
+            name: "generated".to_string(),
+            // Machine-generated code is detected by header marker (see `generated = true` below);
+            // these globs add the protobuf/gRPC filename convention so those files classify even
+            // through the path-only `check` resolution.
+            r#match: [
+                "**/*_pb2.py",
+                "*_pb2.py",
+                "**/*_pb2_grpc.py",
+                "*_pb2_grpc.py",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            exclude: Vec::new(),
+            default: false,
+            generated: true,
             ignore: Vec::new(),
             allow_comments: false,
             limits: LimitsPatch::default(),
@@ -208,6 +238,7 @@ pub fn default_profiles() -> Vec<Profile> {
             r#match: Vec::new(),
             exclude: Vec::new(),
             default: true,
+            generated: false,
             ignore: Vec::new(),
             allow_comments: false,
             limits: LimitsPatch::default(),
@@ -319,6 +350,15 @@ impl CompiledProfile<'_> {
         self.include.iter().any(|m| m.is_match(path))
             && !self.exclude.iter().any(|m| m.is_match(path))
     }
+
+    /// Whether this profile claims a file at `path` with the given content classification: its
+    /// globs match, or it is a `generated` profile and the file was detected as generated (#115).
+    /// `is_generated` is `false` for the path-only callers (`check`), so a content-detected
+    /// generated file only routes into the `generated` panel where the caller has scanned its
+    /// header — the `metrics` command.
+    fn matches(&self, path: &str, is_generated: bool) -> bool {
+        (self.profile.generated && is_generated) || self.glob_matches(path)
+    }
 }
 
 /// A config with its profile globs compiled, ready for repeated per-file queries.
@@ -328,15 +368,17 @@ pub struct Selector<'a> {
 }
 
 impl<'a> Selector<'a> {
-    /// Indices (into the profile list, in declaration order) of every profile `path` belongs to.
-    /// A file matches each profile whose globs select it; if none do, it falls to the `default`
-    /// profile (the complement). Empty only when there is neither a glob match nor a default.
-    fn matching_indices(&self, path: &str) -> Vec<usize> {
+    /// Indices (into the profile list, in declaration order) of every profile `path` belongs to,
+    /// given whether its content was detected as machine-generated (#115). A file matches each
+    /// profile whose globs select it (plus the `generated` profile when `is_generated`); if none
+    /// do, it falls to the `default` profile (the complement). Empty only when there is neither a
+    /// match nor a default.
+    fn matching_indices_with(&self, path: &str, is_generated: bool) -> Vec<usize> {
         let matched: Vec<usize> = self
             .profiles
             .iter()
             .enumerate()
-            .filter(|(_, c)| !c.profile.default && c.glob_matches(path))
+            .filter(|(_, c)| !c.profile.default && c.matches(path, is_generated))
             .map(|(i, _)| i)
             .collect();
         if !matched.is_empty() {
@@ -349,10 +391,27 @@ impl<'a> Selector<'a> {
             .collect()
     }
 
-    /// The names of the profiles `path` belongs to, in declaration order. The classification used
-    /// by `metrics` to place a file into one or more panels.
+    /// Path-only classification (no content scan) — the `generated` profile only matches via its
+    /// globs here. Used by `check`'s rule resolution.
+    fn matching_indices(&self, path: &str) -> Vec<usize> {
+        self.matching_indices_with(path, false)
+    }
+
+    /// The names of the profiles `path` belongs to, in declaration order (path-only). The
+    /// classification used where file content has not been scanned.
     pub fn profiles_for(&self, path: &str) -> Vec<&'a str> {
         self.matching_indices(path)
+            .into_iter()
+            .map(|i| self.profiles[i].profile.name.as_str())
+            .collect()
+    }
+
+    /// The names of the profiles a file belongs to, accounting for machine-generated detection
+    /// (#115): pass `is_generated` from [`crate::detect::is_generated`] so a generated file routes
+    /// into the `generated` profile (and thus out of the `production` complement). Used by
+    /// `metrics`, which has the file's content in hand.
+    pub fn profiles_for_file(&self, path: &str, is_generated: bool) -> Vec<&'a str> {
+        self.matching_indices_with(path, is_generated)
             .into_iter()
             .map(|i| self.profiles[i].profile.name.as_str())
             .collect()
@@ -547,6 +606,30 @@ default = true
                 "{prod_path} should be production"
             );
         }
+    }
+
+    #[test]
+    fn generated_profile_claims_marked_files_out_of_production() {
+        let selector_cfg = Config::default();
+        let selector = selector_cfg.prepare().unwrap();
+        // A generated-detected file routes into `generated` and OUT of the `production` complement.
+        assert_eq!(
+            selector.profiles_for_file("src/api/core_v1_api.py", true),
+            ["generated"]
+        );
+        // The same path, NOT detected as generated, stays production.
+        assert_eq!(
+            selector.profiles_for_file("src/api/core_v1_api.py", false),
+            ["production"]
+        );
+        // The protobuf path convention classifies as generated even by the path-only resolution
+        // (`is_generated = false`), via the built-in globs.
+        assert_eq!(selector.profiles_for("proto/thing_pb2.py"), ["generated"]);
+        // A generated file under a tests path is claimed by BOTH (overlap is allowed).
+        assert_eq!(
+            selector.profiles_for_file("tests/test_thing.py", true),
+            ["tests", "generated"]
+        );
     }
 
     #[test]

@@ -164,7 +164,8 @@ summary = []                  # metrics to fold into one combined `sloplint` bad
 
 # Profiles (#96): named, path-matched slices of the tree. Each carries its own rule deltas over
 # the global config AND defines a metrics panel. Omit the section entirely to get the built-in
-# `tests` + `production` pair. The `[limits]` above are the global defaults a profile inherits; a
+# `tests` / `generated` / `production` trio (generated code is content-detected, #115). The
+# `[limits]` above are the global defaults a profile inherits; a
 # profile's `limits` overrides only the per-file thresholds it sets (the cross-file SLP020/SLP090
 # thresholds and `[clone]` stay global). The name `all` is reserved (it's the every-profile scope).
 [[profiles]]
@@ -244,7 +245,21 @@ more repetitive, and less type-annotated; generated code and examples differ aga
 them into one set of aggregates misleads in either direction (a heavy test-support class can
 dominate the "worst class", a thin test suite can drag down the averages). `sloplint metrics`
 reports a panel **per profile** (see [Configuration](#configuration)), in **one run** (#96). With
-zero config that's the built-in `tests` vs `production` split.
+zero config that's the built-in `tests` / `generated` / `production` split.
+
+**Machine-generated code** (#115) is detected and segregated automatically into a built-in
+`generated` profile, kept out of the `production` aggregates by default — exactly as tests are. A
+generated `models/` dump or a 34k-line OpenAPI client manufactures "god-classes", "god-modules",
+concentration, and sync/async clones that are codegen artifacts, not maintainability signal, and
+its 90%-plus generated docstrings would otherwise flatter the production numbers. This is **not**
+"generated code is slop" (provenance isn't badness): the files are regenerated, never hand-edited,
+so their numbers are *noise* in a human-code signal. Detection is a cheap, high-precision header
+scan for the explicit markers generators emit (`@generated`, `DO NOT EDIT`, `openapi-generator`,
+`swagger-codegen`) plus the protobuf `*_pb2.py` / `*_pb2_grpc.py` filename convention. The panel is
+still *reported* (a repo that's 95% generated is worth knowing about, and a file that was *supposed*
+to be generated but got hand-edited is exactly what to surface) — just not folded into production.
+Declaring a custom `generated`-named profile, or setting `generated = true` on any profile, extends
+the same content detection.
 
 - **`--scope <profile>`** (default: the `default` profile, `production` out of the box) selects
   which profile the text view and the per-unit feeds (`--format functions`/`classes`/`packages`)
