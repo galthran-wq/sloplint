@@ -72,6 +72,7 @@ fn shipped_rules() -> Vec<RegisteredRule> {
     let mut rules = crate::rules::comments::rules();
     rules.extend(crate::rules::structure::rules());
     rules.extend(crate::rules::cohesion::rules());
+    rules.extend(crate::rules::security::rules());
     rules
 }
 
@@ -122,6 +123,7 @@ mod tests {
             source,
             parsed: &parsed,
             limits: Default::default(),
+            security_extra: &[],
         };
         let refs: Vec<&dyn Rule> = rules.iter().map(|b| b.as_ref()).collect();
         let diagnostics = check_file(&ctx, &refs);

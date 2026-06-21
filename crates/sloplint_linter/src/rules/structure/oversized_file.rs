@@ -44,6 +44,7 @@ mod tests {
             path: "t.py",
             source,
             parsed: &parsed,
+            security_extra: &[],
             limits: Limits {
                 file_max_lines,
                 ..Limits::default()

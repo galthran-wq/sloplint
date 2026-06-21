@@ -404,6 +404,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
         parsed: &parsed,
         // Per-file thresholds: the file's profile deltas over the global limits (#96).
         limits: selector.limits(&display),
+        security_extra: &config.security.extra,
     };
     let diagnostics = check_file(&ctx, &refs);
     if diagnostics.is_empty() {
@@ -565,6 +566,7 @@ fn run_check(
             parsed: &parsed,
             // Per-file thresholds: the file's profile deltas over the global limits (#96).
             limits: selector.limits(&display),
+            security_extra: &config.security.extra,
         };
         let diagnostics = check_file(&ctx, &refs);
 

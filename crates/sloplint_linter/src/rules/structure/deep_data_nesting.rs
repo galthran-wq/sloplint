@@ -168,6 +168,7 @@ mod tests {
             path: "m.py",
             source,
             parsed: &parsed,
+            security_extra: &[],
             limits: Limits {
                 data_nesting_max_depth: max_depth,
                 ..Default::default()

@@ -70,6 +70,7 @@ macro_rules! test_rule {
                 source: &source,
                 parsed: &parsed,
                 limits: ::core::default::Default::default(),
+                security_extra: &[],
             };
             let diagnostics = $crate::lint::check_file(&ctx, &[&rule as &dyn $crate::lint::Rule]);
             let rendered =

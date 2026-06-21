@@ -37,6 +37,8 @@ pub struct Config {
     pub badges: BadgeSettings,
     /// Settings for the import rules (SLP180 undeclared third-party import).
     pub imports: ImportSettings,
+    /// Settings for the security rules (SLP210 phantom security guard).
+    pub security: SecuritySettings,
 }
 
 impl Default for Config {
@@ -50,6 +52,7 @@ impl Default for Config {
             limits: Limits::default(),
             badges: BadgeSettings::default(),
             imports: ImportSettings::default(),
+            security: SecuritySettings::default(),
         }
     }
 }
@@ -62,6 +65,16 @@ impl Default for Config {
 #[serde(default, deny_unknown_fields)]
 pub struct ImportSettings {
     /// Extra distribution names to treat as declared, beyond the manifest.
+    pub extra: Vec<String>,
+}
+
+/// Settings for SLP210 (phantom security guard). The check uses a built-in catalog of
+/// security-guard names; `extra` adds project-specific guard names (e.g. an in-house
+/// `require_tenant`) so a call to one that isn't defined/imported is also flagged.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SecuritySettings {
+    /// Extra security-guard names to treat as guards, beyond the built-in catalog.
     pub extra: Vec<String>,
 }
 
