@@ -392,6 +392,9 @@ and reproducible — no LLM, no randomness. Two feeds:
       "tangles": 3, "largest_tangle": 9, "modules_in_cycles": 21,
       "pct_modules_in_cycles": 0.051,
       "runtime_tangles": 2,   // dropping `if TYPE_CHECKING:`-only edges (benign at runtime)
+      "load_bearing_tangles": 1, // also dropping function-local/deferred imports — hard load-time
+                                 // cycles only (0 ⇒ every cycle was deferred on purpose; not a
+                                 // strict subset of `tangles` — dropping edges can split an SCC)
       "members": [["pkg.a", "pkg.b", "pkg.c"]]
     },
     "propagation_cost": 0.18, // how far a change ripples (DSM transitive-closure density)
