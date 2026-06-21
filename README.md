@@ -422,6 +422,29 @@ clean-vs-slop reference distributions are the job of the benchmark harness, [#55
 
 [bench]: https://github.com/galthran-wq/sloplint/issues/55
 
+### Duplication density
+
+`--format json` surfaces the SLP020 clone engine as a cohort aggregate (#123) — duplication is
+**disallowed-by-default** and one of the clearest vibe-slop tells ("write a scraper per site" →
+copy-paste), but it was previously only a per-finding lint, invisible in the metrics panel. Per
+profile:
+
+```jsonc
+"duplication": {
+  "clone_ratio": 0.41,          // fraction of the profile's functions in ≥1 clone pair
+  "functions_in_clones": 38, "functions": 92,
+  "clone_pairs": 40,            // confirmed SLP020 pairs internal to the profile
+  "largest_clone_cluster": 9    // a helper duplicated across N functions
+}
+```
+
+`clone_ratio` is near 0 for clean libraries and high for copy-paste codebases. It also explains a
+subtlety the panel otherwise hides: **low propagation cost / zero cycles can be a *symptom* of
+copy-paste** — self-contained duplicated modules don't import each other, so a high clone ratio
+shows the low coupling is duplication, not modularity. Pairs are scoped per profile (production
+duplication is counted over production functions). It reuses the existing detector — descriptive
+cohort signal, never a per-repo gate.
+
 ### Static test proxies (NOT coverage)
 
 `--format json` also reports a `test_proxies` block — two *static* signals of how (un)tested a
