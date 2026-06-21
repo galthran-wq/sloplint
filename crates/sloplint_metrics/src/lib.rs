@@ -505,11 +505,12 @@ pub struct ClassMetrics {
     ///
     /// A class-level coupling measure — "how central is this class" — distinct from WMC (size) and
     /// DIT/NOC (inheritance): a small class wired to 30 collaborators is a fragile hub a change
-    /// ripples out from. Python has no static types, so this is a deterministic **lower bound** —
+    /// ripples out from. Python has no static types, so this is an **approximation, biased low** —
     /// it counts coupling via base classes, instantiations (`ClassName(...)`), `isinstance`/
     /// `issubclass` checks, and type annotations, but **misses duck-typed** coupling
-    /// (`self.axes.foo()` where `axes` is unannotated). Most reliable on well-typed code; an
-    /// undercount in dynamic code (matplotlib's `Axes` is the textbook hub it can only partly see).
+    /// (`self.axes.foo()` where `axes` is unannotated). Resolution is scope-unaware, so a local or
+    /// parameter shadowing a class name can occasionally overcount. Most reliable on well-typed code
+    /// (matplotlib's `Axes` is the textbook hub it can only partly see).
     pub cbo: usize,
     /// Distinct trailing identifiers this class references as a *coupling candidate* — base class
     /// names, instantiation/`isinstance`/`issubclass` callees, and type-annotation names — sorted,
@@ -821,8 +822,8 @@ impl RepoMetrics {
     pub fn cbo_markdown(&self) -> String {
         let risk = self.cbo_risk;
         format!(
-            "**Class coupling (CBO)** — mean {:.1}, p95 {}, max {} _(lower bound — \
-             duck-typed coupling not counted)_.\n\n\
+            "**Class coupling (CBO)** — mean {:.1}, p95 {}, max {} _(approximate — \
+             misses duck-typed coupling)_.\n\n\
              | CBO band | Classes |\n| --- | ---: |\n\
              | low (≤4) | {} |\n| moderate (5–9) | {} |\n\
              | high (10–20) | {} |\n| very high (>20) | {} |\n",
@@ -1358,14 +1359,19 @@ fn collect_type_names(expr: &Expr, out: &mut std::collections::BTreeSet<String>)
 
 /// Walks a class body collecting CBO coupling candidates: annotation type names (handled at the
 /// statement level for defs/`AnnAssign`) and instantiation/`isinstance`/`issubclass` callees
-/// (handled at the expression level). Descends into methods and nested scopes — references anywhere
-/// in the class subtree are this class's coupling.
+/// (handled at the expression level). Descends into methods and their closures, but **not into a
+/// nested class** — a nested class is its own unit with its own CBO row, so its couplings belong to
+/// it, not the enclosing class (matching `class_wmc`/`ncss`/`exit_count`). The enclosing class still
+/// couples to the nested class if it *uses* it (e.g. instantiates it in a method).
 struct CouplingCollector<'a> {
     names: &'a mut std::collections::BTreeSet<String>,
 }
 
 impl Visitor<'_> for CouplingCollector<'_> {
     fn visit_stmt(&mut self, stmt: &Stmt) {
+        if matches!(stmt, Stmt::ClassDef(_)) {
+            return; // nested class — its own unit; don't attribute its coupling to the outer class.
+        }
         match stmt {
             Stmt::FunctionDef(func) => {
                 let params = &func.parameters;
@@ -3004,6 +3010,33 @@ class Hub:
         assert!((repo.avg_cbo - 2.0 / 3.0).abs() < 1e-9, "mean of [0,0,2]");
         assert_eq!(repo.p95_cbo, 2);
         assert_eq!(repo.cbo_risk.low, 3, "all three are ≤4");
+    }
+
+    #[test]
+    fn cbo_does_not_descend_into_nested_classes() {
+        // A nested class is its own unit; its coupling (to Target) belongs to Inner, not Outer.
+        // Outer couples only to what it uses directly (Other, via instantiation in its own method).
+        let mut file = metrics(
+            "\
+class Target:
+    pass
+
+class Other:
+    pass
+
+class Outer:
+    class Inner:
+        def use(self, x: Target) -> Target:
+            return Target()
+
+    def f(self):
+        return Other()
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let cbo = |name: &str| file.classes.iter().find(|c| c.name == name).unwrap().cbo;
+        assert_eq!(cbo("Outer"), 1, "Other only — Target belongs to Inner");
+        assert_eq!(cbo("Inner"), 1, "Target");
     }
 
     #[test]

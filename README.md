@@ -334,11 +334,11 @@ functions to *read* (numeric solvers genuinely take many knobs), not defects.
   coupled to — the class-level coupling counterpart to package `ce`/`ca` (#116). Counts coupling via
   base classes, instantiations (`ClassName(...)`), `isinstance`/`issubclass` checks, and type
   annotations, resolved against the project's first-party class set. A small class wired to dozens of
-  collaborators is a fragile hub WMC/DIT/NOC don't see. **Caveat (read literally):** Python has no
-  static types, so `cbo` is a deterministic **lower bound** — duck-typed coupling (`self.axes.foo()`
-  with no annotation) and string forward-refs are *not* counted, so it undercounts in
-  dynamically-typed code and is most reliable on well-typed codebases. Flags hubs to *review before
-  changing*, never defects.
+  collaborators is a fragile hub WMC/DIT/NOC don't see. **Caveat:** Python has no static types, so
+  `cbo` is an **approximation, biased low** — duck-typed coupling (`self.axes.foo()` with no
+  annotation) and string forward-refs are *not* counted (an undercount), while name resolution is
+  scope-unaware, so a local/parameter shadowing a class name can occasionally overcount. It's most
+  reliable on well-typed codebases. Flags hubs to *review before changing*, never defects.
 
 `--format json` adds the matching aggregates next to the complexity figures: `classes`,
 `max_wmc`, `avg_wmc`, `p95_wmc`, `max_dit`, `avg_dit`, `max_noc`, `avg_noc`, `p95_noc`,
