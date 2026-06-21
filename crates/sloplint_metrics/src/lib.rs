@@ -474,6 +474,29 @@ pub struct FileMetrics {
     /// content), i.e. excluding blank and comment-only lines (#107). The module-size measure;
     /// distinct from the comment-inclusive physical [`Self::loc`].
     pub nloc: usize,
+    /// Exception-handling hygiene counts for this file (#117): total/`bare`/`broad`/`swallow`
+    /// `except` handlers, anywhere in the file (module level or nested).
+    pub exception: ExceptionStats,
+}
+
+/// Exception-handling hygiene counts (#117) — broad-except and silent-swallow are reliable
+/// low-effort / "make-it-work" smells (wrap it in `except Exception` or `except: pass` so the
+/// error disappears). Counted by AST over every `except` handler; aggregated into a *rate* the
+/// per-site lints (Ruff `E722`/`BLE001`) can't express. Descriptive — broad except is sometimes
+/// correct (top-level daemon loops, plugin boundaries) — so it's read as a cohort rate, never a
+/// gate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ExceptionStats {
+    /// Total `except` clauses.
+    pub handlers: usize,
+    /// Bare `except:` (no exception type). Near-extinct in practice (Ruff `E722` catches it).
+    pub bare: usize,
+    /// Broad `except Exception` / `except BaseException` (or a tuple containing one) — the real
+    /// signal default Ruff doesn't aggregate.
+    pub broad: usize,
+    /// Silent-swallow handlers whose body is exactly `pass`, `continue`, or `...` — discarding the
+    /// error with no handling. The strongest sub-signal; rarely justified.
+    pub swallow: usize,
 }
 
 /// Aggregated metrics across many files — what the badges and PR summary report.
@@ -573,6 +596,14 @@ pub struct RepoMetrics {
     /// here. A high ratio flags AI **over-documentation** — verbose docstrings piled onto trivial
     /// code. 0.0 when there are no functions (#83).
     pub docstring_code_ratio: f64,
+    /// Exception-handling hygiene totals across all files (#117): summed [`ExceptionStats`].
+    pub exception: ExceptionStats,
+    /// Broad handlers as a fraction of all handlers (`broad / handlers`); 0.0 with no handlers.
+    /// Low for disciplined libraries, high for "make-it-work" code. Descriptive, never a gate.
+    pub broad_except_rate: f64,
+    /// Swallow handlers as a fraction of all handlers (`swallow / handlers`); 0.0 with no
+    /// handlers. The strongest sub-signal — silently discarding errors is rarely justified.
+    pub swallow_except_rate: f64,
 }
 
 impl RepoMetrics {
@@ -728,6 +759,23 @@ impl RepoMetrics {
             risk.very_high,
         )
     }
+
+    /// A one-line markdown summary of exception-handling hygiene (#117): the broad/swallow rates
+    /// with the underlying counts. Descriptive cohort signal — broad except is sometimes correct
+    /// (daemon loops, plugin boundaries), so it's never a gate.
+    pub fn exception_markdown(&self) -> String {
+        let exc = self.exception;
+        format!(
+            "**Exception handling** — broad-except rate {:.2} ({} of {} handlers), swallow rate \
+             {:.2} ({} `pass`/`continue`/`...`), {} bare. Descriptive, never a gate.\n",
+            self.broad_except_rate,
+            exc.broad,
+            exc.handlers,
+            self.swallow_except_rate,
+            exc.swallow,
+            exc.bare,
+        )
+    }
 }
 
 /// Compute metrics for one parsed file.
@@ -772,6 +820,61 @@ pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {
         loc: source.lines().count(),
         comment_lines,
         nloc: file_nloc(source, parsed),
+        exception: exception_stats(&parsed.syntax().body),
+    }
+}
+
+/// Exception-handling hygiene counts for a module body (#117): every `except` handler, anywhere
+/// (module level or nested in functions/classes), classified bare / broad / swallow. A bare
+/// `except:` has no type; broad catches `Exception`/`BaseException` (or a tuple containing one);
+/// swallow is a body of exactly `pass`, `continue`, or `...`.
+fn exception_stats(body: &[Stmt]) -> ExceptionStats {
+    #[derive(Default)]
+    struct Counter {
+        stats: ExceptionStats,
+    }
+    impl Visitor<'_> for Counter {
+        fn visit_except_handler(&mut self, handler: &ExceptHandler) {
+            let ExceptHandler::ExceptHandler(h) = handler;
+            self.stats.handlers += 1;
+            match &h.type_ {
+                None => self.stats.bare += 1,
+                Some(ty) if is_broad_except(ty) => self.stats.broad += 1,
+                Some(_) => {}
+            }
+            if is_swallow_body(&h.body) {
+                self.stats.swallow += 1;
+            }
+            visitor::walk_except_handler(self, handler);
+        }
+    }
+    let mut counter = Counter::default();
+    for stmt in body {
+        counter.visit_stmt(stmt);
+    }
+    counter.stats
+}
+
+/// Whether an `except` type expression is "broad": it names `Exception`/`BaseException` (by
+/// trailing identifier, so `builtins.Exception` counts too), or is a tuple containing one.
+fn is_broad_except(expr: &Expr) -> bool {
+    match expr {
+        Expr::Tuple(tuple) => tuple.elts.iter().any(is_broad_except),
+        other => matches!(
+            expr_trailing_name(other),
+            Some("Exception" | "BaseException")
+        ),
+    }
+}
+
+/// Whether a handler body silently swallows the error: a single `pass`, `continue`, or `...`
+/// statement and nothing else. (A bare logging-only body is deliberately *not* counted — kept
+/// strict to avoid false positives, per #117.)
+fn is_swallow_body(body: &[Stmt]) -> bool {
+    match body {
+        [Stmt::Pass(_)] | [Stmt::Continue(_)] => true,
+        [Stmt::Expr(expr)] => matches!(expr.value.as_ref(), Expr::EllipsisLiteral(_)),
+        _ => false,
     }
 }
 
@@ -835,6 +938,10 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut ncss_sum = 0usize;
     for file in files {
         repo.total_loc += file.loc;
+        repo.exception.handlers += file.exception.handlers;
+        repo.exception.bare += file.exception.bare;
+        repo.exception.broad += file.exception.broad;
+        repo.exception.swallow += file.exception.swallow;
         module_nloc_sum += file.nloc;
         module_nloc_values.push(file.nloc);
         repo.max_module_nloc = repo.max_module_nloc.max(file.nloc);
@@ -961,6 +1068,17 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         0.0
     } else {
         fn_docstring_lines_sum as f64 / ncss_sum as f64
+    };
+    let handlers = repo.exception.handlers;
+    repo.broad_except_rate = if handlers == 0 {
+        0.0
+    } else {
+        repo.exception.broad as f64 / handlers as f64
+    };
+    repo.swallow_except_rate = if handlers == 0 {
+        0.0
+    } else {
+        repo.exception.swallow as f64 / handlers as f64
     };
     repo
 }
@@ -2229,6 +2347,85 @@ def b(x):
         assert_eq!(repo.functions, 2);
         assert!(repo.max_cyclomatic >= 2);
         assert!(repo.avg_function_loc > 0.0);
+    }
+
+    #[test]
+    fn exception_stats_classify_bare_broad_and_swallow() {
+        let exc = metrics(
+            "\
+def a():
+    try:
+        risky()
+    except Exception:          # broad
+        log()
+
+def b():
+    try:
+        risky()
+    except ValueError:         # narrow — neither broad nor swallow
+        handle()
+
+def c():
+    try:
+        risky()
+    except:                    # bare + swallow
+        pass
+
+def d():
+    try:
+        risky()
+    except (KeyError, BaseException):  # broad via tuple + swallow via ...
+        ...
+
+for item in items:
+    try:
+        top()
+    except builtins.Exception:  # broad via attribute trailing name; continue is swallow
+        continue
+",
+        )
+        .exception;
+        assert_eq!(
+            exc.handlers, 5,
+            "every except clause, module-level included"
+        );
+        assert_eq!(exc.bare, 1, "only `except:`");
+        assert_eq!(
+            exc.broad, 3,
+            "Exception, (…, BaseException), builtins.Exception"
+        );
+        assert_eq!(exc.swallow, 3, "pass, ..., continue");
+    }
+
+    #[test]
+    fn exception_rates_are_fraction_of_handlers() {
+        // 2 handlers: one broad+swallow, one narrow with a real body.
+        let repo = aggregate(&[metrics(
+            "\
+def f():
+    try:
+        x()
+    except Exception:
+        pass
+    try:
+        y()
+    except ValueError:
+        recover()
+",
+        )]);
+        assert_eq!(repo.exception.handlers, 2);
+        assert_eq!(repo.exception.broad, 1);
+        assert_eq!(repo.exception.swallow, 1);
+        assert!((repo.broad_except_rate - 0.5).abs() < 1e-9);
+        assert!((repo.swallow_except_rate - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn exception_rates_zero_without_handlers() {
+        let repo = aggregate(&[metrics("def f():\n    return 1\n")]);
+        assert_eq!(repo.exception, ExceptionStats::default());
+        assert_eq!(repo.broad_except_rate, 0.0);
+        assert_eq!(repo.swallow_except_rate, 0.0);
     }
 
     #[test]
