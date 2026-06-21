@@ -448,6 +448,28 @@ shows the low coupling is duplication, not modularity. Pairs are scoped per prof
 duplication is counted over production functions). It reuses the existing detector — descriptive
 cohort signal, never a per-repo gate.
 
+### Exception-handling hygiene
+
+Over-broad and silently-swallowed exception handling — `except Exception` / `except: pass` to make
+the error disappear — is a reliable "make-it-work" smell, and one of the sharpest cohort
+discriminators (#117). Ruff flags individual sites (`E722`/`BLE001`/`S110`); this is the *rate*
+those per-site lints can't express (and which survives blanket `# noqa`/`# pylint: disable`).
+`--format json` emits, per profile:
+
+```jsonc
+"exception_handling": {
+  "handlers": 412, "bare": 1, "broad": 18, "swallow": 9,
+  "broad_rate": 0.044,   // broad / handlers   (Exception / BaseException, incl. in a tuple)
+  "swallow_rate": 0.022  // swallow / handlers (body is exactly pass / continue / ...)
+}
+```
+
+Measured by AST over every `except` handler (module level or nested). Clean libraries cluster low;
+low-discipline apps run 15–40× higher. The **`swallow_rate`** is the strongest sub-signal —
+silently discarding errors is rarely justified — while broad except is *sometimes* correct
+(top-level daemon loops, plugin boundaries), so like the rest it's read as a rate in context, never
+a gate. Per-1k-LOC rates are derivable from the counts and the panel's `total_loc`.
+
 ### Static test proxies (NOT coverage)
 
 `--format json` also reports a `test_proxies` block — *static* signals of how (un)tested a

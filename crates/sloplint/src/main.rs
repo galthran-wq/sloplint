@@ -1424,6 +1424,17 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         repo.docstring_coverage * 100.0
     );
     println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
+    // Exception-handling hygiene (#117): broad-except / silent-swallow rates.
+    let exc = repo.exception;
+    println!(
+        "  except broad/swallow {:.2} / {:.2}  ({} broad, {} swallow, {} bare / {} handlers)",
+        repo.broad_except_rate,
+        repo.swallow_except_rate,
+        exc.broad,
+        exc.swallow,
+        exc.bare,
+        exc.handlers
+    );
     // Class weight (WMC) distribution (#104): god-class prevalence, not just the worst class.
     println!("  classes             {}", repo.classes);
     println!(
@@ -1748,6 +1759,17 @@ fn panel_json(
         // = AI over-documentation of trivia.
         "docstring_coverage": repo.docstring_coverage,
         "docstring_code_ratio": repo.docstring_code_ratio,
+        // Exception-handling hygiene (#117): broad-except / silent-swallow rates over every
+        // `except` handler. A cohort discriminator default Ruff can't aggregate; `swallow_rate` is
+        // the strongest sub-signal. Descriptive, never a gate.
+        "exception_handling": {
+            "handlers": repo.exception.handlers,
+            "bare": repo.exception.bare,
+            "broad": repo.exception.broad,
+            "swallow": repo.exception.swallow,
+            "broad_rate": repo.broad_except_rate,
+            "swallow_rate": repo.swallow_except_rate,
+        },
         // Per-project import-graph rollup (foundation figures + cyclic-dependency tangles +
         // propagation cost + modularity).
         "packages": {
@@ -1868,13 +1890,14 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics, CloneStats)], proxies: &TestPr
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo, clone) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
             repo.cognitive_markdown(),
             repo.params_markdown(),
             repo.wmc_markdown(),
             repo.noc_markdown(),
             repo.module_size_markdown(),
+            repo.exception_markdown(),
             clone_markdown(clone),
         ));
     }
