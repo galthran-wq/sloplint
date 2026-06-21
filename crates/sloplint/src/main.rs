@@ -1824,8 +1824,9 @@ fn concentration_json(graph: &ImportGraph) -> serde_json::Value {
 }
 
 /// The cyclic-dependency (SCC) rollup for the JSON feed (issue #66): tangle counts over the
-/// full graph, the same count over the runtime graph (TYPE_CHECKING-only edges dropped), the
-/// share of modules in cycles, and the member modules of each tangle.
+/// full graph, the same count over the runtime graph (TYPE_CHECKING-only edges dropped) and over
+/// the load-bearing graph (function-local/deferred edges *also* dropped, #122), the share of
+/// modules in cycles, and the member modules of each tangle.
 fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
     let report = graph.cycles();
     let in_cycles = report.modules_in_cycles();
@@ -1840,6 +1841,10 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
         "modules_in_cycles": in_cycles,
         "pct_modules_in_cycles": pct,
         "runtime_tangles": graph.runtime_cycles().tangle_count(),
+        // Hard cycles only: module-top-level runtime edges, dropping function-local/deferred imports
+        // (#122). `tangles` high but this ≈ 0 ⇒ cycles were deliberately deferred (milder smell);
+        // > 0 ⇒ genuine load-time circular dependencies that would raise `ImportError`.
+        "load_bearing_tangles": graph.load_bearing_cycles().tangle_count(),
         "members": report.tangles,
     })
 }

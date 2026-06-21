@@ -118,6 +118,8 @@ fn json_rollup_reports_cyclic_tangles() {
     );
     // The cycle is built from runtime edges, so it survives dropping TYPE_CHECKING-only edges.
     assert_eq!(cycles["runtime_tangles"], 1);
+    // ...and these are module-top-level imports (not function-local), so it's load-bearing (#122).
+    assert_eq!(cycles["load_bearing_tangles"], 1);
     // 3 of 7 modules participate.
     let pct = cycles["pct_modules_in_cycles"].as_f64().unwrap();
     assert!((pct - 3.0 / 7.0).abs() < 1e-9, "pct = {pct}");

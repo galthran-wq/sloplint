@@ -494,6 +494,17 @@ impl ImportGraph {
         self.scc(|kind| kind.runtime || kind.local)
     }
 
+    /// Cyclic-dependency tangles over the **load-bearing** graph — only module-top-level runtime
+    /// edges (#122). Drops `if TYPE_CHECKING:`-only edges (like [`Self::runtime_cycles`]) *and*
+    /// function-local/deferred imports, which are written inside function bodies precisely to defer
+    /// a back-edge past module load and dodge `ImportError`. A tangle surviving here is a genuine
+    /// load-time circular dependency (it would raise at import); one that disappears was worked
+    /// around with deferred imports — the milder smell. `kind.runtime` is exactly "at least one
+    /// contributing import is neither type-checking-only nor function-local".
+    pub fn load_bearing_cycles(&self) -> CycleReport {
+        self.scc(|kind| kind.runtime)
+    }
+
     /// Run Tarjan SCC over the subgraph whose edges satisfy `keep`, returning the non-trivial
     /// components as a deterministic [`CycleReport`].
     fn scc(&self, keep: impl Fn(&EdgeKind) -> bool) -> CycleReport {
@@ -1350,6 +1361,29 @@ from pkg import *
             ),
         ]);
         assert_eq!(g.runtime_cycles().tangle_count(), 1);
+        // ...but it's deferred, so it is NOT a load-bearing (load-time) cycle (#122).
+        assert_eq!(
+            g.load_bearing_cycles().tangle_count(),
+            0,
+            "the back-edge is a function-local import, deferred past module load"
+        );
+    }
+
+    #[test]
+    fn load_bearing_cycle_is_a_hard_top_level_cycle() {
+        // Both directions are module-top-level runtime imports → a real load-time cycle.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", "from pkg import a\n"),
+        ]);
+        assert_eq!(g.cycles().tangle_count(), 1);
+        assert_eq!(g.runtime_cycles().tangle_count(), 1);
+        assert_eq!(
+            g.load_bearing_cycles().tangle_count(),
+            1,
+            "both edges run at module load → a hard cycle"
+        );
     }
 
     #[test]
