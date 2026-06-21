@@ -330,16 +330,28 @@ functions to *read* (numeric solvers genuinely take many knobs), not defects.
   its children. Often that's good design (a well-used abstraction — yt-dlp's `InfoExtractor` is
   subclassed by ~965 extractors), so it flags bases to *review carefully before changing*, not
   defects.
+- **`cbo`** — Coupling Between Objects: the number of **distinct first-party classes** the class is
+  coupled to — the class-level coupling counterpart to package `ce`/`ca` (#116). Counts coupling via
+  base classes, instantiations (`ClassName(...)`), `isinstance`/`issubclass` checks, and type
+  annotations, resolved against the project's first-party class set. A small class wired to dozens of
+  collaborators is a fragile hub WMC/DIT/NOC don't see. **Caveat (read literally):** Python has no
+  static types, so `cbo` is a deterministic **lower bound** — duck-typed coupling (`self.axes.foo()`
+  with no annotation) and string forward-refs are *not* counted, so it undercounts in
+  dynamically-typed code and is most reliable on well-typed codebases. Flags hubs to *review before
+  changing*, never defects.
 
 `--format json` adds the matching aggregates next to the complexity figures: `classes`,
-`max_wmc`, `avg_wmc`, `p95_wmc`, `max_dit`, `avg_dit`, `max_noc`, `avg_noc`, `p95_noc`, and the
-band histograms **`wmc_risk`** and **`noc_risk`**, mirroring the function `cyclomatic_risk` tiers:
+`max_wmc`, `avg_wmc`, `p95_wmc`, `max_dit`, `avg_dit`, `max_noc`, `avg_noc`, `p95_noc`,
+`max_cbo`, `avg_cbo`, `p95_cbo`, and the band histograms **`wmc_risk`**, **`noc_risk`**, and
+**`cbo_risk`**, mirroring the function `cyclomatic_risk` tiers:
 
 ```jsonc
 "wmc_risk": { "low": 451, "moderate": 23, "high": 15, "very_high": 5 },
 // bands by WMC:  low ≤20   moderate 21–50   high 51–200   very_high >200
-"noc_risk": { "low": 480, "moderate": 9, "high": 4, "very_high": 1 }
+"noc_risk": { "low": 480, "moderate": 9, "high": 4, "very_high": 1 },
 // bands by NOC:  low ≤1   moderate 2–5   high 6–20   very_high >20
+"cbo_risk": { "low": 470, "moderate": 18, "high": 5, "very_high": 1 }
+// bands by CBO:  low ≤4   moderate 5–9   high 10–20   very_high >20  (lower bound — see caveat)
 ```
 
 This is the point of the histogram (#104): `avg`/`max` collapse the distribution, so the same

@@ -1305,6 +1305,9 @@ fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::
         "dit": class.dit,
         // NOC (#113): direct first-party subclasses — inheritance breadth / fragile-base risk.
         "noc": class.noc,
+        // CBO (#116): distinct first-party classes this one couples to — a lower bound in
+        // dynamically-typed code (duck-typed coupling not counted).
+        "cbo": class.cbo,
         "is_abstract": class.is_abstract,
         "has_docstring": class.has_docstring,
         "docstring_lines": class.docstring_lines,
@@ -1455,6 +1458,16 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
     println!(
         "  NOC bands           low {} / moderate {} / high {} / very high {}",
         noc.low, noc.moderate, noc.high, noc.very_high
+    );
+    // Class coupling (CBO) distribution (#116): hub-class prevalence (lower bound in dynamic code).
+    println!(
+        "  avg/p95/max CBO     {:.1} / {} / {}",
+        repo.avg_cbo, repo.p95_cbo, repo.max_cbo
+    );
+    let cbo = repo.cbo_risk;
+    println!(
+        "  CBO bands           low {} / moderate {} / high {} / very high {}",
+        cbo.low, cbo.moderate, cbo.high, cbo.very_high
     );
     // Module size (NLOC) distribution (#107): god-module prevalence — the third size leg.
     println!(
@@ -1754,6 +1767,19 @@ fn panel_json(
             "high": repo.noc_risk.high,
             "very_high": repo.noc_risk.very_high,
         },
+        // CBO (#116): class-to-class coupling — distinct first-party classes a class is wired to
+        // (bases, instantiations, isinstance/issubclass, annotations). The class-level coupling the
+        // package Ce/Ca can't localize; a LOWER BOUND in dynamically-typed code (duck-typed coupling
+        // is invisible). Descriptive bands (≤4 / 5–9 / 10–20 / >20), never a gate.
+        "max_cbo": repo.max_cbo,
+        "avg_cbo": repo.avg_cbo,
+        "p95_cbo": repo.p95_cbo,
+        "cbo_risk": {
+            "low": repo.cbo_risk.low,
+            "moderate": repo.cbo_risk.moderate,
+            "high": repo.cbo_risk.high,
+            "very_high": repo.cbo_risk.very_high,
+        },
         // Documentation coverage (#83) — distinct from comment_density (docstrings, not
         // `#`-comments). Low coverage = under-documented public API; a high docstring/code ratio
         // = AI over-documentation of trivia.
@@ -1896,6 +1922,7 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics, CloneStats)], proxies: &TestPr
             repo.params_markdown(),
             repo.wmc_markdown(),
             repo.noc_markdown(),
+            repo.cbo_markdown(),
             repo.module_size_markdown(),
             repo.exception_markdown(),
             clone_markdown(clone),

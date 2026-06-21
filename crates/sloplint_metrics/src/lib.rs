@@ -180,6 +180,42 @@ impl NocTier {
     }
 }
 
+/// CBO (Coupling Between Objects) bands for hub-class prevalence (#116) — how many distinct
+/// first-party classes a class is coupled to. No canonical CK threshold (literature cites ~14 as a
+/// rough ceiling), so **descriptive** bands calibrated against the cohort, never a pass/fail
+/// standard. Boundaries (inclusive): **≤4 low** (focused), **5–9 moderate**, **10–20 high** (a hub
+/// to review before changing), **>20 very high** (a central god-class — a change ripples to dozens
+/// of collaborators). CBO is a **lower bound** in dynamically-typed Python (see [`ClassMetrics::cbo`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CboTier {
+    Low,
+    Moderate,
+    High,
+    VeryHigh,
+}
+
+impl CboTier {
+    /// Classify a class's CBO into its coupling band.
+    pub fn from_cbo(cbo: usize) -> Self {
+        match cbo {
+            0..=4 => CboTier::Low,
+            5..=9 => CboTier::Moderate,
+            10..=20 => CboTier::High,
+            _ => CboTier::VeryHigh,
+        }
+    }
+
+    /// Short, stable label used in tables and JSON.
+    pub fn label(self) -> &'static str {
+        match self {
+            CboTier::Low => "low",
+            CboTier::Moderate => "moderate",
+            CboTier::High => "high",
+            CboTier::VeryHigh => "very high",
+        }
+    }
+}
+
 /// Module (file) NLOC size bands for god-module prevalence (#107). Like [`WmcTier`], file size has
 /// **no** canonical hard threshold, so these are **descriptive** bands calibrated against the
 /// cohort (SonarQube's ~750–1000-line guidance is the starting point), never a pass/fail standard.
@@ -302,6 +338,16 @@ impl RiskHistogram {
             NocTier::Moderate => self.moderate += 1,
             NocTier::High => self.high += 1,
             NocTier::VeryHigh => self.very_high += 1,
+        }
+    }
+
+    /// Record a class by its CBO band (#116) — class-to-class coupling (hub-class risk).
+    fn record_cbo(&mut self, cbo: usize) {
+        match CboTier::from_cbo(cbo) {
+            CboTier::Low => self.low += 1,
+            CboTier::Moderate => self.moderate += 1,
+            CboTier::High => self.high += 1,
+            CboTier::VeryHigh => self.very_high += 1,
         }
     }
 
@@ -453,6 +499,23 @@ pub struct ClassMetrics {
     /// source order — the raw input to [`resolve_inheritance`]. Unresolved here; whether a base is
     /// first-party is decided project-wide against the full class set.
     pub bases: Vec<String>,
+    /// CBO — Coupling Between Objects (Chidamber & Kemerer 1994): the number of **distinct
+    /// first-party classes** this class is coupled to (#116). Resolved project-wide by
+    /// [`resolve_inheritance`] against the first-party class set (0 until that pass runs).
+    ///
+    /// A class-level coupling measure — "how central is this class" — distinct from WMC (size) and
+    /// DIT/NOC (inheritance): a small class wired to 30 collaborators is a fragile hub a change
+    /// ripples out from. Python has no static types, so this is a deterministic **lower bound** —
+    /// it counts coupling via base classes, instantiations (`ClassName(...)`), `isinstance`/
+    /// `issubclass` checks, and type annotations, but **misses duck-typed** coupling
+    /// (`self.axes.foo()` where `axes` is unannotated). Most reliable on well-typed code; an
+    /// undercount in dynamic code (matplotlib's `Axes` is the textbook hub it can only partly see).
+    pub cbo: usize,
+    /// Distinct trailing identifiers this class references as a *coupling candidate* — base class
+    /// names, instantiation/`isinstance`/`issubclass` callees, and type-annotation names — sorted,
+    /// deduped. The raw input to [`Self::cbo`], resolved against the first-party class set
+    /// project-wide (a candidate that no first-party class claims, e.g. `int`/`list`, is dropped).
+    pub coupled: Vec<String>,
     /// Whether this class counts as "abstract" for Martin's package abstractness ratio (#70).
     /// A documented heuristic ([`class_is_abstract`]), since Python has no interface keyword.
     pub is_abstract: bool,
@@ -585,6 +648,17 @@ pub struct RepoMetrics {
     /// Count of classes in each NOC breadth band (#113) — fragile-base-class *prevalence*.
     /// Descriptive bands ([`NocTier`]), never a gate.
     pub noc_risk: RiskHistogram,
+    /// Most first-party classes any single class couples to (CBO) — the worst hub. Requires
+    /// [`resolve_inheritance`] to have run (#116). A lower bound in dynamically-typed code.
+    pub max_cbo: usize,
+    /// Mean CBO across all classes.
+    pub avg_cbo: f64,
+    /// 95th-percentile class CBO (nearest-rank) — the coupling tail; most classes couple to few,
+    /// so p95 surfaces the hubs the mean buries.
+    pub p95_cbo: usize,
+    /// Count of classes in each CBO coupling band (#116) — hub-class *prevalence*. Descriptive
+    /// bands ([`CboTier`]), never a gate; a lower bound on dynamically-typed code.
+    pub cbo_risk: RiskHistogram,
     /// Docstring coverage: public defs/classes carrying a docstring, as a fraction of all public
     /// defs/classes (0.0–1.0). "Public" = a name not `_`-prefixed. Distinct from
     /// `comment_density` (which counts `#`-comments, not docstrings) — low coverage flags an
@@ -733,6 +807,28 @@ impl RepoMetrics {
             self.avg_noc,
             self.p95_noc,
             self.max_noc,
+            risk.low,
+            risk.moderate,
+            risk.high,
+            risk.very_high,
+        )
+    }
+
+    /// The class-coupling counterpart to [`Self::cyclomatic_markdown`] (#116): mean/p95/max CBO plus
+    /// the hub-class histogram. Descriptive bands ([`CboTier`]) — high `high`/`very high` counts flag
+    /// *hubs to review before changing*, never defects. A **lower bound** in dynamically-typed code
+    /// (duck-typed coupling is invisible), so the caption says so.
+    pub fn cbo_markdown(&self) -> String {
+        let risk = self.cbo_risk;
+        format!(
+            "**Class coupling (CBO)** — mean {:.1}, p95 {}, max {} _(lower bound — \
+             duck-typed coupling not counted)_.\n\n\
+             | CBO band | Classes |\n| --- | ---: |\n\
+             | low (≤4) | {} |\n| moderate (5–9) | {} |\n\
+             | high (10–20) | {} |\n| very high (>20) | {} |\n",
+            self.avg_cbo,
+            self.p95_cbo,
+            self.max_cbo,
             risk.low,
             risk.moderate,
             risk.high,
@@ -925,6 +1021,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut dit_sum = 0usize;
     let mut noc_sum = 0usize;
     let mut noc_values: Vec<usize> = Vec::new();
+    let mut cbo_sum = 0usize;
+    let mut cbo_values: Vec<usize> = Vec::new();
     let mut module_nloc_sum = 0usize;
     let mut module_nloc_values: Vec<usize> = Vec::new();
     // Docstring coverage (#83): every public def/class (functions *and* classes) is in the
@@ -988,9 +1086,13 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             noc_sum += class.noc;
             noc_values.push(class.noc);
             repo.noc_risk.record_noc(class.noc);
+            cbo_sum += class.cbo;
+            cbo_values.push(class.cbo);
+            repo.cbo_risk.record_cbo(class.cbo);
             repo.max_wmc = repo.max_wmc.max(class.wmc);
             repo.max_dit = repo.max_dit.max(class.dit);
             repo.max_noc = repo.max_noc.max(class.noc);
+            repo.max_cbo = repo.max_cbo.max(class.cbo);
             if is_public(&class.name) {
                 public_units += 1;
                 public_documented += usize::from(class.has_docstring);
@@ -1059,6 +1161,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         noc_sum as f64 / repo.classes as f64
     };
     repo.p95_noc = percentile(&mut noc_values, 0.95);
+    repo.avg_cbo = if repo.classes == 0 {
+        0.0
+    } else {
+        cbo_sum as f64 / repo.classes as f64
+    };
+    repo.p95_cbo = percentile(&mut cbo_values, 0.95);
     repo.docstring_coverage = if public_units == 0 {
         0.0
     } else {
@@ -1164,6 +1272,8 @@ fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef)
             .iter()
             .filter_map(|base| expr_trailing_name(base).map(str::to_string))
             .collect(),
+        cbo: 0,
+        coupled: coupling_candidates(class),
         is_abstract: class_is_abstract(class),
         has_docstring: docstring_range(&class.body).is_some(),
         docstring_lines: docstring_lines(source, &class.body),
@@ -1189,6 +1299,117 @@ fn class_wmc(parsed: &Parsed<ModModule>, class: &StmtClassDef) -> usize {
             cyclomatic(parsed, method.range(), &nested_ranges)
         })
         .sum()
+}
+
+/// Collect this class's distinct CBO coupling candidates (#116): the trailing identifiers it
+/// references as a class — base classes, call/`isinstance`/`issubclass` callees (instantiations),
+/// the class arguments of `isinstance`/`issubclass`, and every name appearing in a type annotation
+/// (params, returns, and `x: T` attribute/variable annotations, descending `Optional[T]`, `A | B`,
+/// `list[T]`, tuples). Returned sorted + deduped; resolution to first-party classes (and self
+/// exclusion) happens project-wide in [`resolve_inheritance`]. This is a deterministic lower bound:
+/// duck-typed coupling and string forward-references are deliberately not captured.
+fn coupling_candidates(class: &StmtClassDef) -> Vec<String> {
+    let mut names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // Base classes are coupling.
+    for base in class.bases() {
+        if let Some(name) = expr_trailing_name(base) {
+            names.insert(name.to_string());
+        }
+    }
+    let mut collector = CouplingCollector { names: &mut names };
+    for stmt in &class.body {
+        collector.visit_stmt(stmt);
+    }
+    names.into_iter().collect()
+}
+
+/// Every name in a type-annotation expression is a type reference, so collect them all — recursing
+/// through subscripts (`list[T]`), unions (`A | B`), and tuples (`tuple[A, B]` / `isinstance` arg
+/// tuples). String forward-refs (`"Foo"`) are skipped — part of the documented lower bound.
+fn collect_type_names(expr: &Expr, out: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        Expr::Name(n) => {
+            out.insert(n.id.to_string());
+        }
+        Expr::Attribute(a) => {
+            out.insert(a.attr.to_string());
+        }
+        Expr::Subscript(s) => {
+            collect_type_names(&s.value, out);
+            collect_type_names(&s.slice, out);
+        }
+        Expr::Tuple(t) => {
+            for elt in &t.elts {
+                collect_type_names(elt, out);
+            }
+        }
+        Expr::List(l) => {
+            for elt in &l.elts {
+                collect_type_names(elt, out);
+            }
+        }
+        Expr::BinOp(b) => {
+            collect_type_names(&b.left, out);
+            collect_type_names(&b.right, out);
+        }
+        _ => {}
+    }
+}
+
+/// Walks a class body collecting CBO coupling candidates: annotation type names (handled at the
+/// statement level for defs/`AnnAssign`) and instantiation/`isinstance`/`issubclass` callees
+/// (handled at the expression level). Descends into methods and nested scopes — references anywhere
+/// in the class subtree are this class's coupling.
+struct CouplingCollector<'a> {
+    names: &'a mut std::collections::BTreeSet<String>,
+}
+
+impl Visitor<'_> for CouplingCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::FunctionDef(func) => {
+                let params = &func.parameters;
+                for param in params
+                    .posonlyargs
+                    .iter()
+                    .chain(&params.args)
+                    .chain(&params.kwonlyargs)
+                {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        collect_type_names(annotation, self.names);
+                    }
+                }
+                for variadic in [&params.vararg, &params.kwarg].into_iter().flatten() {
+                    if let Some(annotation) = &variadic.annotation {
+                        collect_type_names(annotation, self.names);
+                    }
+                }
+                if let Some(returns) = &func.returns {
+                    collect_type_names(returns, self.names);
+                }
+            }
+            Stmt::AnnAssign(ann) => collect_type_names(&ann.annotation, self.names),
+            _ => {}
+        }
+        visitor::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) {
+        if let Expr::Call(call) = expr {
+            if let Some(name) = expr_trailing_name(&call.func) {
+                // The callee itself (a class instantiation `Foo(...)`, or the isinstance/issubclass
+                // builtin — the latter trails to a non-class name and is filtered out at resolution).
+                self.names.insert(name.to_string());
+                // For type checks, the class argument(s) are the real coupling.
+                if matches!(name, "isinstance" | "issubclass") {
+                    if let Some(class_arg) = call.arguments.args.get(1) {
+                        collect_type_names(class_arg, self.names);
+                    }
+                }
+            }
+        }
+        visitor::walk_expr(self, expr);
+    }
 }
 
 /// Fill in [`ClassMetrics::dit`] and [`ClassMetrics::noc`] for every class across the project —
@@ -1242,14 +1463,25 @@ pub fn resolve_inheritance(files: &mut [&mut FileMetrics]) {
         }
     }
 
-    // Detach both maps from `bases_of`'s borrow of `files` so we can write them back.
+    // Detach the maps + the first-party class-name set from `bases_of`'s borrow of `files` so we
+    // can write them back. The name set is what CBO (#116) resolves coupling candidates against.
     let depths: HashMap<String, usize> = cache.iter().map(|(k, v)| (k.to_string(), *v)).collect();
     let noc: HashMap<String, usize> = children.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+    let class_names: std::collections::HashSet<String> =
+        bases_of.keys().map(|k| k.to_string()).collect();
 
     for file in files.iter_mut() {
         for class in &mut file.classes {
             class.dit = depths.get(&class.name).copied().unwrap_or(0);
             class.noc = noc.get(&class.name).copied().unwrap_or(0);
+            // CBO (#116): distinct first-party classes this one couples to, excluding itself. The
+            // candidates are pre-deduped, so a plain count of those in the class-name set is the CBO.
+            let cbo = class
+                .coupled
+                .iter()
+                .filter(|name| name.as_str() != class.name && class_names.contains(name.as_str()))
+                .count();
+            class.cbo = cbo;
         }
     }
 }
@@ -2683,6 +2915,103 @@ class Ext(Plugin):
         assert_eq!(n("Root"), 1, "only Mid is a direct child, not Leaf");
         assert_eq!(n("Mid"), 1);
         assert_eq!(n("Leaf"), 0);
+    }
+
+    #[test]
+    fn cbo_tier_boundaries() {
+        assert_eq!(CboTier::from_cbo(0), CboTier::Low);
+        assert_eq!(CboTier::from_cbo(4), CboTier::Low);
+        assert_eq!(CboTier::from_cbo(5), CboTier::Moderate);
+        assert_eq!(CboTier::from_cbo(9), CboTier::Moderate);
+        assert_eq!(CboTier::from_cbo(10), CboTier::High);
+        assert_eq!(CboTier::from_cbo(20), CboTier::High);
+        assert_eq!(CboTier::from_cbo(21), CboTier::VeryHigh);
+    }
+
+    #[test]
+    fn cbo_counts_distinct_first_party_classes_via_all_sources() {
+        // `Hub` couples to first-party classes via: base (Base), annotation (Widget on a param +
+        // Result return), instantiation (Engine()), and isinstance (Plugin). `int`/`list` are not
+        // first-party → dropped. Self-references and third-party names don't count.
+        let mut file = metrics(
+            "\
+class Base:
+    pass
+
+class Widget:
+    pass
+
+class Engine:
+    pass
+
+class Result:
+    pass
+
+class Plugin:
+    pass
+
+class Hub(Base):
+    def run(self, w: Widget, n: int) -> Result:
+        items: list = []
+        e = Engine()
+        if isinstance(w, Plugin):
+            return Result()
+        return Hub()
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let hub = file.classes.iter().find(|c| c.name == "Hub").unwrap();
+        // Base, Widget, Engine, Result, Plugin = 5 distinct first-party classes. `int`/`list`
+        // dropped (not first-party); `Hub` (self) and `Result()` counted once via the annotation.
+        assert_eq!(hub.cbo, 5, "coupled: {:?}", hub.coupled);
+    }
+
+    #[test]
+    fn cbo_resolves_across_files_and_excludes_self_and_external() {
+        let mut a = metrics(
+            "from third_party import External\n\nclass Service:\n    def make(self) -> 'Helper':\n        return Helper()\n",
+        );
+        // Helper lives in another file — cross-file resolution must see it.
+        let mut b = metrics("class Helper:\n    pass\n");
+        resolve_inheritance(&mut [&mut a, &mut b]);
+        let service = a.classes.iter().find(|c| c.name == "Service").unwrap();
+        // Helper() instantiation resolves first-party; External is third-party (dropped); the
+        // 'Helper' string forward-ref in the return annotation is NOT counted (documented lower
+        // bound) but the Helper() call is, so cbo = 1.
+        assert_eq!(service.cbo, 1, "coupled: {:?}", service.coupled);
+    }
+
+    #[test]
+    fn aggregate_reports_cbo_distribution() {
+        // Hub couples to 2 others (low band); the two leaves couple to nothing.
+        let mut file = metrics(
+            "\
+class A:
+    pass
+
+class B:
+    pass
+
+class Hub:
+    def f(self, a: A) -> B:
+        return B()
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let repo = aggregate(&[file]);
+        assert_eq!(repo.classes, 3);
+        assert_eq!(repo.max_cbo, 2, "Hub couples to A and B");
+        assert!((repo.avg_cbo - 2.0 / 3.0).abs() < 1e-9, "mean of [0,0,2]");
+        assert_eq!(repo.p95_cbo, 2);
+        assert_eq!(repo.cbo_risk.low, 3, "all three are ≤4");
+    }
+
+    #[test]
+    fn cbo_is_zero_before_resolution() {
+        // Like DIT/NOC, CBO needs the project-wide pass; a bare file_metrics leaves it 0.
+        let file =
+            metrics("class A:\n    pass\n\nclass B:\n    def f(self) -> A:\n        return A()\n");
+        assert_eq!(file.classes.iter().find(|c| c.name == "B").unwrap().cbo, 0);
     }
 
     #[test]
