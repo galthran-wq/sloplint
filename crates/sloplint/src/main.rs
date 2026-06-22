@@ -1468,7 +1468,10 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
     println!("  functions           {}", repo.functions);
     println!("  total lines         {}", repo.total_loc);
     println!("  avg function LoC    {:.1}", repo.avg_function_loc);
-    println!("  max function LoC    {}", repo.max_function_loc);
+    println!(
+        "  max function LoC    {}  (logic {})",
+        repo.max_function_loc, repo.max_logic_function_loc
+    );
     println!("  avg cyclomatic      {:.1}", repo.avg_cyclomatic);
     println!("  p95 cyclomatic      {}", repo.p95_cyclomatic);
     println!("  max cyclomatic      {}", repo.max_cyclomatic);
@@ -1767,6 +1770,10 @@ fn panel_json(
         "total_loc": repo.total_loc,
         "avg_function_loc": repo.avg_function_loc,
         "max_function_loc": repo.max_function_loc,
+        // Longest *logic* function (#155): excludes data/config-init blobs (cognitive < 5) so the
+        // god-function signal isn't crowned by a giant assignment run that `max_function_loc` ranks
+        // first. Report both — LoC is only meaningful next to complexity.
+        "max_logic_function_loc": repo.max_logic_function_loc,
         "avg_cyclomatic": repo.avg_cyclomatic,
         "p95_cyclomatic": repo.p95_cyclomatic,
         "max_cyclomatic": repo.max_cyclomatic,

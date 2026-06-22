@@ -579,6 +579,11 @@ pub struct RepoMetrics {
     pub total_loc: usize,
     pub avg_function_loc: f64,
     pub max_function_loc: usize,
+    /// Longest function whose cognitive complexity is ≥ [`LOGIC_FUNCTION_MIN_COGNITIVE`] (#155) —
+    /// the longest *logic* function, excluding straight-line data/config-init blobs (a 2,733-line
+    /// `__init__` of `self.x = …` assignments has cognitive ~1 and is left out). This is the
+    /// god-function signal `max_function_loc` mis-ranks; report both.
+    pub max_logic_function_loc: usize,
     pub max_cyclomatic: usize,
     /// Mean cyclomatic complexity across all functions.
     pub avg_cyclomatic: f64,
@@ -1121,6 +1126,11 @@ fn file_nloc(source: &str, parsed: &Parsed<ModModule>) -> usize {
 }
 
 /// Aggregate per-file metrics into repo-level figures.
+/// Minimum cognitive complexity for a function to count toward [`RepoMetrics::max_logic_function_loc`]
+/// (#155). Excludes straight-line data/config-init blobs (cognitive ≈ 0–1) from the "longest logic
+/// function" signal, so a 2,733-line `__init__` of assignments doesn't outrank a real god-function.
+pub const LOGIC_FUNCTION_MIN_COGNITIVE: usize = 5;
+
 /// Minimum module-scope logic statements for a module to be considered for the undecomposed flag
 /// (#141) — small scripts / entry points legitimately have a little top-level code.
 pub const TOP_LEVEL_MIN_LOGIC: usize = 15;
@@ -1199,6 +1209,11 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             repo.param_count_risk.record_arity(function.arity);
             repo.max_params = repo.max_params.max(function.arity);
             repo.max_function_loc = repo.max_function_loc.max(function.loc);
+            // Longest *logic* function (#155): ignore data/config-init blobs (very low cognitive)
+            // so the god-function signal isn't crowned by a 2,733-line assignment run.
+            if function.cognitive >= LOGIC_FUNCTION_MIN_COGNITIVE {
+                repo.max_logic_function_loc = repo.max_logic_function_loc.max(function.loc);
+            }
             repo.max_cyclomatic = repo.max_cyclomatic.max(function.cyclomatic);
             repo.max_cognitive = repo.max_cognitive.max(function.cognitive);
             cognitive_sum += function.cognitive;
@@ -2803,6 +2818,26 @@ def b(x):
         assert_eq!(repo.functions, 2);
         assert!(repo.max_cyclomatic >= 2);
         assert!(repo.avg_function_loc > 0.0);
+    }
+
+    #[test]
+    fn max_logic_function_loc_excludes_data_init_blobs() {
+        // A long data-init blob (cognitive ~0) vs. a short but logic-dense function. `max_function_loc`
+        // is crowned by the blob; `max_logic_function_loc` correctly points at the logic function.
+        let blob = (0..20)
+            .map(|i| format!("    a{i} = {i}\n"))
+            .collect::<String>();
+        let source = format!(
+            "def blob():\n{blob}    return None\n\n\ndef logic(xs):\n    for x in xs:\n        if x > 0:\n            while x:\n                x -= 1\n    return 0\n"
+        );
+        let repo = aggregate(&[metrics(&source)]);
+        // blob: def + 20 assigns + return = 22 lines, cognitive 0 → excluded.
+        assert_eq!(repo.max_function_loc, 22, "blob is the longest by raw LoC");
+        // logic: def + for + if + while + x-=1 + return = 6 lines, cognitive 6 (≥5) → counted.
+        assert_eq!(
+            repo.max_logic_function_loc, 6,
+            "longest *logic* function is the 6-line one, not the 22-line blob"
+        );
     }
 
     #[test]

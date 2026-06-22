@@ -45,6 +45,14 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
 
     assert_eq!(prod["functions"], 3);
     assert_eq!(prod["max_cyclomatic"], 12);
+    // max_logic_function_loc (#155) is reported and never exceeds the raw max (it's a subset of
+    // functions — those with cognitive ≥ 5); the fixture's `moderate` qualifies, so it's > 0.
+    let max_loc = prod["max_function_loc"].as_u64().unwrap();
+    let max_logic = prod["max_logic_function_loc"].as_u64().unwrap();
+    assert!(
+        max_logic > 0 && max_logic <= max_loc,
+        "logic {max_logic} <= max {max_loc}"
+    );
     // p95 (nearest-rank over [1, 3, 12]) lands on the worst function.
     assert_eq!(prod["p95_cyclomatic"], 12);
     // mean = (1 + 3 + 12) / 3.
