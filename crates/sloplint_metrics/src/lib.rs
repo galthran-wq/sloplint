@@ -2304,48 +2304,22 @@ mod tests {
     }
 
     #[test]
-    fn complexity_and_nesting_grow_with_branches() {
-        let source = "\
-def f(xs):
-    total = 0
-    for x in xs:
-        if x and x > 0:
-            total += x
-    return total
-";
-        let f = &metrics(source).functions[0];
-        // for + if + and  => 1 + 3
-        assert_eq!(f.cyclomatic, 4);
-        assert_eq!(f.max_nesting, 2);
-        assert!(f.cognitive >= 3);
-    }
-
-    #[test]
-    fn keywords_in_strings_do_not_inflate_complexity() {
-        // Regression: branch keywords inside a string literal must not be counted.
-        let source = "def f():\n    msg = \"if and or while for except\"\n    return msg\n";
-        assert_eq!(metrics(source).functions[0].cyclomatic, 1);
-    }
-
-    #[test]
-    fn nested_function_logic_not_double_counted() {
-        let source = "\
-def outer(xs):
-    def inner(x):
-        if x:
-            return 1
-        return 0
-    return [inner(x) for x in xs]
-";
-        let file = metrics(source);
-        let outer = file.functions.iter().find(|f| f.name == "outer").unwrap();
-        let inner = file.functions.iter().find(|f| f.name == "inner").unwrap();
-        // inner owns the `if`; outer owns only the comprehension `for`.
-        assert_eq!(inner.cyclomatic, 2);
-        assert_eq!(outer.cyclomatic, 2);
-        // outer's cognitive must not absorb inner's branch.
-        assert_eq!(outer.cognitive, 0);
-        assert!(inner.cognitive >= 1);
+    fn cyclomatic_and_nesting() {
+        // Per-function cyclomatic/cognitive/max_nesting over the fixture (nested functions get
+        // their own rows). Pins: branchy = 4/·/2; string keywords don't inflate (1); and an
+        // outer function does not absorb a nested function's branch (outer cognitive 0).
+        use std::fmt::Write;
+        let source = fixture_source("complexity/cyclomatic.py");
+        let mut out = String::new();
+        for function in &metrics(&source).functions {
+            writeln!(
+                out,
+                "{}: cyclomatic={} cognitive={} max_nesting={}",
+                function.name, function.cyclomatic, function.cognitive, function.max_nesting
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(out);
     }
 
     #[test]
