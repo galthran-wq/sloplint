@@ -172,9 +172,14 @@ const DEFERRAL: &[&str] = &[
     "would be implemented",
     "would go here",
     "in practice you would",
-    "for simplicity",
-    "to keep it simple",
-    "placeholder",
+    // "placeholder" is heavily overloaded (HTML/form/image/SQL placeholders), so match only the
+    // phrase forms that carry deferral intent — not the bare noun.
+    "placeholder implementation",
+    "placeholder value",
+    "placeholder for now",
+    "just a placeholder",
+    "return a placeholder",
+    "placeholder until",
     "not implemented yet",
     "left as an exercise",
     "in a real app",
@@ -183,8 +188,11 @@ const DEFERRAL: &[&str] = &[
     "simplified version",
 ];
 
-/// Hedging / uncertainty phrases (warning severity).
+/// Hedging / uncertainty phrases (warning severity). Includes "simplicity" rationales, which are
+/// often a legitimate design note rather than an unfinished corner — kept at warning, not error.
 const HEDGING: &[&str] = &[
+    "for simplicity",
+    "to keep it simple",
     "should work",
     "hopefully",
     "not sure if",
@@ -210,9 +218,7 @@ const NARRATOR: &[&str] = &[
     "this class",
     "this module",
     "this script",
-    "this code",
     "we are going to",
-    "we will ",
 ];
 
 #[cfg(test)]
@@ -248,7 +254,22 @@ mod tests {
         assert!(class("==========").is_some());
         assert!(class("- - - - -").is_some());
         assert!(class("This function handles the request").is_some());
-        assert!(class("we will iterate over the rows").is_some());
+        assert!(class("we are going to load the data").is_some());
+    }
+
+    #[test]
+    fn deferral_placeholder_needs_intent_phrase() {
+        // Bare "placeholder" (UI/SQL/image) is NOT a tell …
+        assert!(class("set the placeholder attribute on the input").is_none());
+        assert!(class("render a placeholder image while loading").is_none());
+        // … but the deferral phrase forms are (error).
+        assert_eq!(
+            class("this is a placeholder until the real impl lands")
+                .unwrap()
+                .0,
+            Severity::Error
+        );
+        assert_eq!(class("just a placeholder").unwrap().0, Severity::Error);
     }
 
     #[test]
@@ -265,6 +286,9 @@ mod tests {
         assert!(class("the following must stay sorted").is_none());
         assert!(class("this is the fast path, the slow one is below").is_none());
         assert!(class("---> see the helper below").is_none());
+        // Dropped narrator over-matches: "this code" / "we will" begin legitimate WHY-notes.
+        assert!(class("this code path is hot, avoid allocations").is_none());
+        assert!(class("we will need to revisit when load increases").is_none());
     }
 
     #[test]

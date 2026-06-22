@@ -4,7 +4,7 @@ expression: rendered
 ---
 4:8 SLP004 [error] deferral/incompleteness language in a comment ("for now") — signals a corner was cut, not finished work
 5:8 SLP004 [error] deferral/incompleteness language in a comment ("in production this would") — signals a corner was cut, not finished work
-6:8 SLP004 [error] deferral/incompleteness language in a comment ("placeholder") — signals a corner was cut, not finished work
+6:8 SLP004 [error] deferral/incompleteness language in a comment ("placeholder until") — signals a corner was cut, not finished work
 8:8 SLP004 [warning] hedging/uncertainty language in a comment ("should work")
 9:8 SLP004 [warning] hedging/uncertainty language in a comment ("probably")
 11:1 SLP004 [warning] step-narration comment (`Step N:` / `Phase N`) — narrating the code, not documenting it
