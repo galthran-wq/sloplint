@@ -15,7 +15,10 @@ mod hook;
 mod init;
 mod output;
 use badges::write_badges;
-use output::{class_row, function_row, metrics_json, metrics_markdown, opt_ratio, package_row};
+use output::{
+    class_row, function_row, metrics_json, metrics_markdown, opt_ratio, package_row,
+    print_metrics_panel,
+};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, Read, Write};
@@ -1378,123 +1381,6 @@ fn print_package_rows(graph: &ImportGraph) {
     for row in graph.package_rows() {
         let _ = writeln!(out, "{}", package_row(&row));
     }
-}
-
-/// Print one labeled metric panel — the per-partition aggregates, without the test
-/// proxies (those are the project-wide split and are printed once, after the panel(s)).
-fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
-    println!("sloplint metrics — {label}");
-    println!("  files               {}", repo.files);
-    println!("  functions           {}", repo.functions);
-    println!("  total lines         {}", repo.total_loc);
-    println!("  avg function LoC    {:.1}", repo.avg_function_loc);
-    println!(
-        "  max function LoC    {}  (logic {})",
-        repo.max_function_loc, repo.max_logic_function_loc
-    );
-    println!("  avg cyclomatic      {:.1}", repo.avg_cyclomatic);
-    println!("  p95 cyclomatic      {}", repo.p95_cyclomatic);
-    println!("  max cyclomatic      {}", repo.max_cyclomatic);
-    let risk = repo.cyclomatic_risk;
-    println!(
-        "  CC risk tiers       low {} / moderate {} / high {} / very high {}",
-        risk.low, risk.moderate, risk.high, risk.very_high
-    );
-    // Parameter count (caller-facing arity) distribution: Long-Parameter-List prevalence.
-    println!(
-        "  avg/p95/max params  {:.1} / {} / {}",
-        repo.avg_params, repo.p95_params, repo.max_params
-    );
-    let params = repo.param_count_risk;
-    println!(
-        "  arity bands         low {} / moderate {} / high {} / very high {}",
-        params.low, params.moderate, params.high, params.very_high
-    );
-    // Cognitive complexity at parity with cyclomatic — the better readability signal.
-    println!("  avg cognitive       {:.1}", repo.avg_cognitive);
-    println!("  p95 cognitive       {}", repo.p95_cognitive);
-    println!("  max cognitive       {}", repo.max_cognitive);
-    let cog = repo.cognitive_risk;
-    println!(
-        "  CoCo risk tiers     low {} / moderate {} / high {} / very high {}",
-        cog.low, cog.moderate, cog.high, cog.very_high
-    );
-    println!("  max nesting         {}", repo.max_nesting);
-    println!("  comment density     {:.1}%", repo.comment_density * 100.0);
-    println!(
-        "  docstring coverage  {:.1}%",
-        repo.docstring_coverage * 100.0
-    );
-    println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
-    // Exception-handling hygiene: broad-except / silent-swallow rates.
-    let exc = repo.exception;
-    println!(
-        "  except broad/swallow {:.2} / {:.2}  ({} broad, {} swallow, {} bare / {} handlers)",
-        repo.broad_except_rate,
-        repo.swallow_except_rate,
-        exc.broad,
-        exc.swallow,
-        exc.bare,
-        exc.handlers
-    );
-    // Class weight (WMC) distribution: god-class prevalence, not just the worst class.
-    println!("  classes             {}", repo.classes);
-    println!(
-        "  avg/p95/max WMC     {:.1} / {} / {}",
-        repo.avg_wmc, repo.p95_wmc, repo.max_wmc
-    );
-    let wmc = repo.wmc_risk;
-    println!(
-        "  WMC bands           low {} / moderate {} / high {} / very high {}",
-        wmc.low, wmc.moderate, wmc.high, wmc.very_high
-    );
-    // Inheritance breadth (NOC) distribution: fragile-base-class prevalence.
-    println!(
-        "  avg/p95/max NOC     {:.1} / {} / {}",
-        repo.avg_noc, repo.p95_noc, repo.max_noc
-    );
-    let noc = repo.noc_risk;
-    println!(
-        "  NOC bands           low {} / moderate {} / high {} / very high {}",
-        noc.low, noc.moderate, noc.high, noc.very_high
-    );
-    // Class coupling (CBO) distribution: hub-class prevalence (lower bound in dynamic code).
-    println!(
-        "  avg/p95/max CBO     {:.1} / {} / {}",
-        repo.avg_cbo, repo.p95_cbo, repo.max_cbo
-    );
-    let cbo = repo.cbo_risk;
-    println!(
-        "  CBO bands           low {} / moderate {} / high {} / very high {}",
-        cbo.low, cbo.moderate, cbo.high, cbo.very_high
-    );
-    // Module size (NLOC) distribution: god-module prevalence — the third size leg.
-    println!(
-        "  avg/p95/max module  {:.1} / {} / {}  NLOC",
-        repo.avg_module_nloc, repo.p95_module_nloc, repo.max_module_nloc
-    );
-    let module = repo.module_size_risk;
-    println!(
-        "  module NLOC bands   low {} / moderate {} / high {} / very high {}",
-        module.low, module.moderate, module.high, module.very_high
-    );
-    // Top-level-code ratio: undecomposed script-dump modules complexity/size metrics miss.
-    println!(
-        "  top-level code      avg {:.0}% / max {:.0}%  ({} undecomposed module(s))",
-        repo.avg_top_level_ratio * 100.0,
-        repo.max_top_level_ratio * 100.0,
-        repo.undecomposed_modules,
-    );
-    // God-unit tail: the very-high-tier outliers per-unit averages wash out.
-    let god = repo.god_units();
-    println!(
-        "  god-unit tail       {}  (cognitive {} / cyclomatic {} / WMC {} / module {})",
-        god.total(),
-        god.cognitive_functions,
-        god.cyclomatic_functions,
-        god.wmc_classes,
-        god.size_modules,
-    );
 }
 
 /// The package module-count concentration for one profile's files. Edge-free — it needs
