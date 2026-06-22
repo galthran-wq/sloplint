@@ -1,6 +1,8 @@
 """Fixture for SLP120 low-cohesion 'god class' detection (violations + non-violations)."""
 
 import dataclasses
+
+import attrs
 from typing import Protocol
 
 
@@ -19,6 +21,47 @@ class Utils:
 
     def export(self, node):
         return self.formatter.write(node)
+
+
+# --- violation: a bare user `@frozen` is not an allowlist (only @dataclass/attr[s] are) ---
+
+
+@frozen
+class FrozenUtils:
+    def parse(self, text):
+        return self.parser.run(text)
+
+    def tokenize(self, text):
+        return self.parser.split(text)
+
+    def render(self, node):
+        return self.formatter.render(node)
+
+
+# --- non-violation: two unrelated methods, but under the lcom4_min_methods floor ---
+
+
+class Pair:
+    def left(self):
+        return self.a
+
+    def right(self):
+        return self.b
+
+
+# --- non-violation: @attrs.define marks a data container, not a god class ---
+
+
+@attrs.define
+class DataBag:
+    def parse(self, text):
+        return self.parser.run(text)
+
+    def tokenize(self, text):
+        return self.parser.split(text)
+
+    def render(self, node):
+        return self.formatter.render(node)
 
 
 # --- non-violation: cohesive class, all methods revolve around shared state ---

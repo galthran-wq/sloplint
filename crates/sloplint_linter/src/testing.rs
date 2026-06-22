@@ -40,9 +40,15 @@ impl Rule for ExampleTodo {
 /// Define a snapshot test for a rule against its fixture.
 ///
 /// `test_rule!(test_name, RuleExpr, "category", "SLP0xx")` reads
-/// `resources/test/fixtures/<category>/<SLP0xx>.py`, runs the rule, and snapshots the
-/// rendered diagnostics. The fixture should contain both violations and non-violations
-/// so the snapshot pins down false-positive behavior too.
+/// `resources/test/fixtures/<category>/<SLP0xx>.py`, runs the rule at the default
+/// [`Limits`](crate::config::Limits), and snapshots the rendered diagnostics. The fixture
+/// should contain both violations and non-violations so the snapshot pins down
+/// false-positive behavior too.
+///
+/// A fifth argument supplies a custom `Limits` so threshold-sensitive rules (SLP080/120/084)
+/// can pin their configurable behavior in snapshots instead of hand-written assertions —
+/// point several tests at one tiny fixture with different limits to document the threshold
+/// sweep. The caller must `use crate::config::Limits;` for that form.
 ///
 /// Like Ruff, rule tests live in this crate alongside the rules, so this is primarily an
 /// in-crate macro. If ever used from another crate, that crate must depend on
@@ -51,6 +57,15 @@ impl Rule for ExampleTodo {
 #[macro_export]
 macro_rules! test_rule {
     ($name:ident, $rule:expr, $category:literal, $code:literal) => {
+        $crate::test_rule!(
+            $name,
+            $rule,
+            $category,
+            $code,
+            ::core::default::Default::default()
+        );
+    };
+    ($name:ident, $rule:expr, $category:literal, $code:literal, $limits:expr) => {
         #[test]
         fn $name() {
             const FIXTURE: &str = concat!(
@@ -69,7 +84,7 @@ macro_rules! test_rule {
                 path: FIXTURE,
                 source: &source,
                 parsed: &parsed,
-                limits: ::core::default::Default::default(),
+                limits: $limits,
                 security_extra: &[],
                 placeholders_extra: &[],
                 comment_phrases_extra: &[],
