@@ -1,0 +1,14 @@
+---
+source: crates/sloplint_metrics/src/lib.rs
+expression: out
+---
+simple_add: params=2 arity=2 ncss=1 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=2
+free: params=3 arity=3 ncss=1 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=2
+method: params=3 arity=2 ncss=1 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=2
+stat: params=2 arity=2 ncss=1 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=3
+variadic: params=3 arity=2 ncss=1 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=2
+ncss_body: params=2 arity=1 ncss=4 exits=2 cyclomatic=2 cognitive=1 max_nesting=1 loc=6
+ncss_outer: params=0 arity=0 ncss=2 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=6
+helper: params=0 arity=0 ncss=2 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=3
+exits_demo: params=1 arity=1 ncss=5 exits=3 cyclomatic=2 cognitive=1 max_nesting=1 loc=8
+nested: params=0 arity=0 ncss=1 exits=1 cyclomatic=1 cognitive=0 max_nesting=0 loc=2
