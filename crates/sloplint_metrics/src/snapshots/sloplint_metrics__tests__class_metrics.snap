@@ -1,0 +1,9 @@
+---
+source: crates/sloplint_metrics/src/lib.rs
+expression: out
+---
+Counter: methods=3 attributes=2 lcom4=1 wmc=3 loc=10
+Utils: methods=2 attributes=2 lcom4=2 wmc=2 loc=6
+WmcDemo: methods=2 attributes=0 lcom4=2 wmc=4 loc=8
+Empty: methods=0 attributes=0 lcom4=0 wmc=0 loc=2
+WmcNested: methods=1 attributes=0 lcom4=1 wmc=2 loc=10

@@ -2802,57 +2802,24 @@ def f():
     }
 
     #[test]
-    fn class_metrics_report_size_and_lcom4() {
-        let file = metrics(
-            "\
-class Counter:
-    def __init__(self):
-        self.total = 0
-        self.name = 'c'
-    def add(self, n):
-        self.total += n
-    def show(self):
-        return self.total
-
-class Utils:
-    def parse(self, t):
-        return self.parser.run(t)
-    def render(self, n):
-        return self.formatter.go(n)
-",
-        );
-        let counter = &file.classes[0];
-        assert_eq!(counter.name, "Counter");
-        assert_eq!(counter.methods, 3);
-        assert_eq!(counter.attributes, 2); // total, name
-        assert_eq!(counter.lcom4, 1, "all methods share self.total");
-
-        let utils = &file.classes[1];
-        assert_eq!(utils.methods, 2);
-        assert_eq!(utils.lcom4, 2, "parse/render touch disjoint attributes");
-    }
-
-    #[test]
-    fn wmc_sums_method_cyclomatic() {
-        // calc: CC 1; check: `if` (+1) + `and` (+1) over base 1 = 3. WMC = 1 + 3 = 4. The bare
-        // `Empty` class contributes 0 (no methods).
-        let file = metrics(
-            "\
-class C:
-    def calc(self):
-        return 1
-    def check(self, x):
-        if x and x > 0:
-            return True
-        return False
-
-class Empty:
-    pass
-",
-        );
-        let c = &file.classes[0];
-        assert_eq!(c.wmc, 4, "1 (calc) + 3 (check: if + and)");
-        assert_eq!(file.classes[1].wmc, 0, "no methods → no weight");
+    fn class_metrics() {
+        // Per-class size/cohesion/weight over the fixture (single-file, so cross-file
+        // dit/noc/cbo are 0 and omitted here). Pins methods/attributes/lcom4/wmc/loc: Counter is
+        // cohesive (lcom4 1), Utils splits (lcom4 2), WmcDemo sums method cyclomatic to 4, Empty
+        // has no weight, and WmcNested counts only m's own-body `if` (wmc 2, nested helper
+        // excluded).
+        use std::fmt::Write;
+        let source = fixture_source("complexity/class_metrics.py");
+        let mut out = String::new();
+        for c in &metrics(&source).classes {
+            writeln!(
+                out,
+                "{}: methods={} attributes={} lcom4={} wmc={} loc={}",
+                c.name, c.methods, c.attributes, c.lcom4, c.wmc, c.loc
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(out);
     }
 
     #[test]
@@ -2889,30 +2856,6 @@ class Empty:
         assert_eq!(repo.classes, 0);
         assert_eq!(repo.wmc_risk, RiskHistogram::default());
         assert_eq!(repo.p95_wmc, 0);
-    }
-
-    #[test]
-    fn wmc_excludes_nested_helper_complexity() {
-        // A method's WMC contribution is its *own-body* cyclomatic, like FunctionMetrics: the
-        // nested `inner`'s branch belongs to `inner`, not to `m`. m's own body: just the `if`
-        // guarding the def → CC 2. inner's `for`+`if` are excluded.
-        let file = metrics(
-            "\
-class C:
-    def m(self, flag):
-        def inner(xs):
-            for x in xs:
-                if x:
-                    return x
-        if flag:
-            return inner([])
-        return None
-",
-        );
-        assert_eq!(
-            file.classes[0].wmc, 2,
-            "only m's own `if` counts, not inner's"
-        );
     }
 
     /// DIT resolves over the whole project by class name: a chain `Grandchild -> Child -> Root`
