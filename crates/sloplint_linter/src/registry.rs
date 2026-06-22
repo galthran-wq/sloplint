@@ -44,8 +44,7 @@ impl Registry {
         Self { rules }
     }
 
-    /// All rules that ship with sloplint. Empty until rules land in later slices; each
-    /// rule slice appends its entries here.
+    /// All rules that ship with sloplint, aggregated from every category.
     pub fn shipped() -> Self {
         Self::new(shipped_rules())
     }

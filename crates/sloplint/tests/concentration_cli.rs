@@ -1,4 +1,4 @@
-//! End-to-end tests for the package module-count concentration metric (issue #103), running the
+//! End-to-end tests for the package module-count concentration metric, running the
 //! real built binary. A "god package" (one directory holding most modules) is invisible to the
 //! edge-based architecture metrics; these assert it shows up in the node-distribution rollup, in
 //! both the JSON feed and the human text view, and that it's scoped to the production profile.
@@ -129,8 +129,8 @@ fn text_and_json_agree_when_a_file_collides_with_a_package() {
 
 #[test]
 fn concentration_is_scoped_to_the_production_profile() {
-    // Test files live in the `tests` profile, so they must not count toward production concentration
-    // (#96). Production here is just the 2-module `app` package + root main.py = 3 modules.
+    // Test files live in the `tests` profile, so they must not count toward production concentration.
+    // Production here is just the 2-module `app` package + root main.py = 3 modules.
     let project = make_project("scope");
     write(&project, "app/__init__.py", "");
     write(&project, "app/core.py", "x = 1\n");

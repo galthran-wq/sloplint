@@ -1,4 +1,4 @@
-//! End-to-end tests for the parameter-count distribution (#108): Long-Parameter-List prevalence
+//! End-to-end tests for the parameter-count distribution: Long-Parameter-List prevalence
 //! (caller-facing function arity) in the metrics aggregate — the fourth size/arity tier family,
 //! mirroring the function `cyclomatic_risk`, class `wmc_risk`, and module `module_size_risk`.
 //! Exercises the real binary in JSON, text, and the GitHub markdown.

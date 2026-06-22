@@ -1,5 +1,5 @@
 //! End-to-end tests for the abstractness / distance-from-main-sequence columns of
-//! `sloplint metrics --format packages` (issue #70), run against a committed fixture with three
+//! `sloplint metrics --format packages`, run against a committed fixture with three
 //! packages deliberately placed on and off Martin's "main sequence":
 //!
 //! - `iface` — two pure interfaces (an `abc.ABC` + a `typing.Protocol`): fully abstract, depended
@@ -21,7 +21,7 @@ fn fixture() -> PathBuf {
 
 /// Parse the JSONL package feed into rows keyed by package name. Run from *inside* the fixture
 /// dir so the classified paths are project-relative and count as production — from the repo root
-/// a `tests/fixtures/` ancestor would classify the whole fixture as test code (#96) and empty the
+/// a `tests/fixtures/` ancestor would classify the whole fixture as test code and empty the
 /// production package feed.
 fn package_rows() -> std::collections::HashMap<String, Value> {
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))

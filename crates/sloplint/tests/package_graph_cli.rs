@@ -1,5 +1,5 @@
 //! End-to-end tests for `sloplint metrics --format packages` and the per-project import-graph
-//! rollup in `--format json` (issue #65), run against a committed multi-package Python fixture
+//! rollup in `--format json`, run against a committed multi-package Python fixture
 //! tree with a known import structure (including a `proj` ↔ `proj.sub` package cycle).
 
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ fn fixture() -> PathBuf {
 /// Run `sloplint metrics . --format <format>` from *inside* the fixture dir, so the classified
 /// paths are project-relative (`proj/a.py`, …) and count as production. Running from the repo
 /// root would put a `tests/fixtures/` ancestor in every path and classify the whole fixture as
-/// test code (#96), emptying the production import graph this feed reports. Module names are
+/// test code, emptying the production import graph this feed reports. Module names are
 /// unaffected — `module_name` derives the package root from the `__init__.py` walk, not the cwd.
 fn run(format: &str) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
@@ -118,7 +118,7 @@ fn json_rollup_reports_cyclic_tangles() {
     );
     // The cycle is built from runtime edges, so it survives dropping TYPE_CHECKING-only edges.
     assert_eq!(cycles["runtime_tangles"], 1);
-    // ...and these are module-top-level imports (not function-local), so it's load-bearing (#122).
+    // ...and these are module-top-level imports (not function-local), so it's load-bearing.
     assert_eq!(cycles["load_bearing_tangles"], 1);
     // 3 of 7 modules participate.
     let pct = cycles["pct_modules_in_cycles"].as_f64().unwrap();

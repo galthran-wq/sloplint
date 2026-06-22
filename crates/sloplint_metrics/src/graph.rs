@@ -1,4 +1,4 @@
-//! First-party module import dependency graph (issue #65).
+//! First-party module import dependency graph.
 //!
 //! Builds the project's own import graph — nodes are modules (`.py` files), edges are imports
 //! that resolve to another first-party module — then collapses module→module edges to
@@ -72,11 +72,11 @@ pub struct RawImport {
 pub struct ModuleInput {
     pub name: ModuleName,
     pub imports: Vec<RawImport>,
-    /// Physical lines of code in the module file, summed into the owning package's `loc` (#67).
+    /// Physical lines of code in the module file, summed into the owning package's `loc`.
     pub loc: usize,
-    /// Classes defined in this module, summed into the owning package's `classes` (#70).
+    /// Classes defined in this module, summed into the owning package's `classes`.
     pub classes: usize,
-    /// Of those, the ones counted as abstract (see `class_is_abstract`), summed per package (#70).
+    /// Of those, the ones counted as abstract (see `class_is_abstract`), summed per package.
     pub abstract_classes: usize,
 }
 
@@ -104,7 +104,7 @@ impl EdgeKind {
 
 /// One row of the `metrics --format packages` feed: a package (directory) and its first-party
 /// coupling. `imports`/`imported_by` are the distinct *packages* this one depends on / is
-/// depended on by; their sizes are the efferent/afferent coupling that drive `instability` (#67).
+/// depended on by; their sizes are the efferent/afferent coupling that drive `instability`.
 ///
 /// Counting *distinct packages* (not individual module-to-module dependencies) for Ce/Ca mirrors
 /// JDepend's `efferentCoupling()`/`afferentCoupling()` (`efferents.size()`/`afferents.size()`),
@@ -127,14 +127,14 @@ pub struct PackageRow {
     /// Martin's instability `I = Ce / (Ce + Ca)` ∈ [0, 1], or `0.0` when `Ce + Ca == 0`
     /// (a package with no first-party coupling is treated as maximally stable, as in JDepend).
     pub instability: f64,
-    /// Total classes defined across this package's modules (#70).
+    /// Total classes defined across this package's modules.
     pub classes: usize,
-    /// Of those, the ones counted as abstract by the heuristic (#70).
+    /// Of those, the ones counted as abstract by the heuristic.
     pub abstract_classes: usize,
     /// Martin's abstractness `A = abstract_classes / classes` ∈ [0, 1], or `0.0` when there are
     /// no classes (matching JDepend). A *heuristic* in Python — see `class_is_abstract`.
     pub abstractness: f64,
-    /// Distance from the main sequence `D = |A + I − 1|` ∈ [0, 1] (#70). High `D` flags the
+    /// Distance from the main sequence `D = |A + I − 1|` ∈ [0, 1]. High `D` flags the
     /// "zone of pain" (concrete + heavily depended on) or "zone of uselessness" (abstract +
     /// unused). Weakly validated — design guidance more than a defect signal.
     pub distance: f64,
@@ -168,7 +168,7 @@ pub fn distance(abstractness: f64, instability: f64) -> f64 {
     (abstractness + instability - 1.0).abs()
 }
 
-/// Node-distribution concentration of modules across packages (issue #103) — the first
+/// Node-distribution concentration of modules across packages — the first
 /// architecture metric over *nodes* rather than *edges*. It surfaces a "god-package" / flat
 /// dumping-ground (one directory holding most of the repo), a shape the coupling metrics
 /// structurally cannot see: independent leaf modules have near-zero coupling no matter how many
@@ -247,7 +247,7 @@ fn gini(values: &[usize]) -> f64 {
 }
 
 /// Cyclic-dependency tangles found by running Tarjan's SCC over the module import graph
-/// (issue #66) — being inside a large cycle is one of the best-validated module-level defect
+/// — being inside a large cycle is one of the best-validated module-level defect
 /// predictors. Each tangle is a strongly-connected component of size > 1 (a 2-module mutual
 /// import is the minimal cycle); a lone module is not a tangle.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -275,8 +275,8 @@ impl CycleReport {
     }
 }
 
-/// Per-project rollup placed in `metrics --format json` — the foundation figures. Cycles,
-/// propagation cost, and modularity (issues #66–#69) will extend this struct.
+/// Per-project rollup placed in `metrics --format json`: the foundation figures over the
+/// module import graph.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProjectImportSummary {
     /// First-party modules (`.py` files) discovered.
@@ -468,7 +468,7 @@ impl ImportGraph {
         }
     }
 
-    /// Module-count [`Concentration`] of this graph's modules across their packages (issue #103).
+    /// Module-count [`Concentration`] of this graph's modules across their packages.
     /// Edge-free — it reads only the node→package mapping, so it's meaningful even on a graph with
     /// no resolved imports.
     pub fn concentration(&self) -> Concentration {
@@ -495,7 +495,7 @@ impl ImportGraph {
     }
 
     /// Cyclic-dependency tangles over the **load-bearing** graph — only module-top-level runtime
-    /// edges (#122). Drops `if TYPE_CHECKING:` edges (like [`Self::runtime_cycles`]) *and*
+    /// edges. Drops `if TYPE_CHECKING:` edges (like [`Self::runtime_cycles`]) *and*
     /// function-local/deferred imports, which are written inside function bodies precisely to defer
     /// a back-edge past module load. A tangle surviving here is a genuine load-time circular
     /// dependency that *can* raise `ImportError` at load (notably `from x import name` against a
@@ -567,7 +567,7 @@ impl ImportGraph {
         reachable_pairs as f64 / (n as f64 * n as f64)
     }
 
-    /// Newman–Girvan modularity (issue #69): Q of the declared package partition vs. Q of the
+    /// Newman–Girvan modularity: Q of the declared package partition vs. Q of the
     /// Louvain-detected community structure, over the undirected projection of the module graph.
     /// The gap between them flags packages-in-name-only. See [`crate::modularity`].
     pub fn modularity(&self) -> crate::modularity::ModularityReport {
@@ -1367,7 +1367,7 @@ from pkg import *
             ),
         ]);
         assert_eq!(g.runtime_cycles().tangle_count(), 1);
-        // ...but it's deferred, so it is NOT a load-bearing (load-time) cycle (#122).
+        // ...but it's deferred, so it is NOT a load-bearing (load-time) cycle.
         assert_eq!(
             g.load_bearing_cycles().tangle_count(),
             0,
@@ -1397,7 +1397,7 @@ from pkg import *
         // Two hard 2-cycles (a<->b, c<->d) bridged into one big SCC by a top-level b->c and a
         // function-local-only d->a. The full graph is a single tangle; dropping the deferred bridge
         // SPLITS it into two hard cycles — so load_bearing_tangles (2) > tangles (1). The count is
-        // not a strict subset; only the participating-module set shrinks (#122).
+        // not a strict subset; only the participating-module set shrinks.
         let g = graph_of(&[
             ("pkg/__init__.py", ""),
             ("pkg/a.py", "from pkg import b\n"),

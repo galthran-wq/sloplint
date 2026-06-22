@@ -63,7 +63,7 @@ impl RiskTier {
     }
 }
 
-/// Cognitive-complexity bands (#110), anchored on SonarSource's per-function guidance of **15**.
+/// Cognitive-complexity bands, anchored on SonarSource's per-function guidance of **15**.
 /// Cognitive complexity is the better *readability* signal than cyclomatic — it adds a nesting
 /// penalty and charges for breaks in linear flow — so these bands track "how hard is this to read".
 /// Boundaries (inclusive): **≤5 low** (trivial), **6–15 moderate** (SonarSource's ceiling), **16–40
@@ -109,7 +109,7 @@ impl CognitiveTier {
     }
 }
 
-/// WMC (Weighted Methods per Class) size bands for god-class prevalence (#104). Unlike the
+/// WMC (Weighted Methods per Class) size bands for god-class prevalence. Unlike the
 /// cyclomatic [`RiskTier`], WMC has **no** McCabe-equivalent canonical threshold, so these are
 /// **descriptive** bands calibrated against the cohort, never a pass/fail standard. Boundaries
 /// (inclusive): **≤20 low** (ordinary class), **21–50 moderate** (large but fine), **51–200
@@ -145,7 +145,7 @@ impl WmcTier {
     }
 }
 
-/// NOC (Number of Children) breadth bands for fragile-base-class risk (#113) — how many direct
+/// NOC (Number of Children) breadth bands for fragile-base-class risk — how many direct
 /// first-party subclasses a class has. No canonical CK threshold, so **descriptive** bands
 /// calibrated against the cohort, never a pass/fail standard. Boundaries (inclusive): **≤1 low**
 /// (a leaf or lightly-extended class), **2–5 moderate**, **6–20 high** (a well-used base),
@@ -180,7 +180,7 @@ impl NocTier {
     }
 }
 
-/// CBO (Coupling Between Objects) bands for hub-class prevalence (#116) — how many distinct
+/// CBO (Coupling Between Objects) bands for hub-class prevalence — how many distinct
 /// first-party classes a class is coupled to. No canonical CK threshold (literature cites ~14 as a
 /// rough ceiling), so **descriptive** bands calibrated against the cohort, never a pass/fail
 /// standard. Boundaries (inclusive): **≤4 low** (focused), **5–9 moderate**, **10–20 high** (a hub
@@ -216,7 +216,7 @@ impl CboTier {
     }
 }
 
-/// Module (file) NLOC size bands for god-module prevalence (#107). Like [`WmcTier`], file size has
+/// Module (file) NLOC size bands for god-module prevalence. Like [`WmcTier`], file size has
 /// **no** canonical hard threshold, so these are **descriptive** bands calibrated against the
 /// cohort (SonarQube's ~750–1000-line guidance is the starting point), never a pass/fail standard.
 /// Boundaries (inclusive), in NLOC (non-comment, non-blank lines): **≤250 low** (ordinary module),
@@ -252,7 +252,7 @@ impl ModuleSizeTier {
     }
 }
 
-/// Function-arity bands for the Long Parameter List smell (#108) — Fowler's canonical signal that
+/// Function-arity bands for the Long Parameter List smell — Fowler's canonical signal that
 /// parameters want bundling into an object. Counts caller-facing [`FunctionMetrics::arity`], not
 /// raw params. No canonical hard threshold (Fowler/Martin suggest keeping arguments ≤3–4), so
 /// **descriptive** bands, never a pass/fail standard. Boundaries (inclusive): **≤4 low**,
@@ -288,8 +288,8 @@ impl ParamCountTier {
 }
 
 /// A four-band tier histogram: how many units fall into each `{low, moderate, high, very_high}`
-/// band. Shared by the function cyclomatic tiers (#10), the class WMC tiers (#104), the module
-/// NLOC tiers (#107), and the function-arity tiers (#108) — the bands differ per metric (see
+/// band. Shared by the function cyclomatic tiers, the class WMC tiers, the module
+/// NLOC tiers, and the function-arity tiers — the bands differ per metric (see
 /// [`RiskTier`] / [`WmcTier`] / [`ModuleSizeTier`] / [`ParamCountTier`]); the bucket shape does
 /// not.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -310,7 +310,7 @@ impl RiskHistogram {
         }
     }
 
-    /// Record a function by its cognitive band (#110) — the readability counterpart to
+    /// Record a function by its cognitive band — the readability counterpart to
     /// [`Self::record`] (which buckets by cyclomatic).
     fn record_cognitive(&mut self, cognitive: usize) {
         match CognitiveTier::from_cognitive(cognitive) {
@@ -321,7 +321,7 @@ impl RiskHistogram {
         }
     }
 
-    /// Record a class by its WMC band (#104) — the class-side counterpart to [`Self::record`].
+    /// Record a class by its WMC band — the class-side counterpart to [`Self::record`].
     fn record_wmc(&mut self, wmc: usize) {
         match WmcTier::from_wmc(wmc) {
             WmcTier::Low => self.low += 1,
@@ -331,7 +331,7 @@ impl RiskHistogram {
         }
     }
 
-    /// Record a class by its NOC band (#113) — inheritance breadth (fragile-base-class risk).
+    /// Record a class by its NOC band — inheritance breadth (fragile-base-class risk).
     fn record_noc(&mut self, noc: usize) {
         match NocTier::from_noc(noc) {
             NocTier::Low => self.low += 1,
@@ -341,7 +341,7 @@ impl RiskHistogram {
         }
     }
 
-    /// Record a class by its CBO band (#116) — class-to-class coupling (hub-class risk).
+    /// Record a class by its CBO band — class-to-class coupling (hub-class risk).
     fn record_cbo(&mut self, cbo: usize) {
         match CboTier::from_cbo(cbo) {
             CboTier::Low => self.low += 1,
@@ -351,7 +351,7 @@ impl RiskHistogram {
         }
     }
 
-    /// Record a module by its NLOC band (#107) — the file-side counterpart to [`Self::record`].
+    /// Record a module by its NLOC band — the file-side counterpart to [`Self::record`].
     fn record_module_size(&mut self, nloc: usize) {
         match ModuleSizeTier::from_nloc(nloc) {
             ModuleSizeTier::Low => self.low += 1,
@@ -361,7 +361,7 @@ impl RiskHistogram {
         }
     }
 
-    /// Record a function by its arity band (#108) — the Long-Parameter-List counterpart to
+    /// Record a function by its arity band — the Long-Parameter-List counterpart to
     /// [`Self::record`].
     fn record_arity(&mut self, arity: usize) {
         match ParamCountTier::from_arity(arity) {
@@ -389,7 +389,7 @@ impl RiskHistogram {
     }
 
     /// The worst occupied band as a [`CognitiveTier`] — the cognitive counterpart to
-    /// [`Self::worst_tier`], for the cognitive badge/markdown (#110). `None` only when empty.
+    /// [`Self::worst_tier`], for the cognitive badge/markdown. `None` only when empty.
     pub fn worst_cognitive_tier(self) -> Option<CognitiveTier> {
         if self.very_high > 0 {
             Some(CognitiveTier::VeryHigh)
@@ -426,7 +426,7 @@ pub struct FunctionMetrics {
     /// (each variadic counted once). The raw signature width; see [`Self::arity`] for the
     /// caller-facing count the long-parameter-list metric uses.
     pub params: usize,
-    /// Caller-facing arity (#108): [`Self::params`] minus the `self`/`cls` receiver — the
+    /// Caller-facing arity: [`Self::params`] minus the `self`/`cls` receiver — the
     /// parameters a caller actually passes. `*args`/`**kwargs` each count once (a `**kwargs` sink
     /// is the *opposite* of a long parameter list, so it must not inflate the count). The input to
     /// the Long-Parameter-List bands ([`ParamCountTier`]).
@@ -443,7 +443,7 @@ pub struct FunctionMetrics {
     /// `raise` inside an `except` (error translation) is a counted exit — by design, this is the
     /// syntactic count of exit points, not a judgment about which are idiomatic.
     pub exits: usize,
-    /// Type-hint coverage (#85): parameters carrying an annotation, out of [`Self::annotatable_params`].
+    /// Type-hint coverage: parameters carrying an annotation, out of [`Self::annotatable_params`].
     pub typed_params: usize,
     /// Parameters eligible for an annotation — positional and keyword params, excluding the
     /// `self`/`cls` receiver and `*args`/`**kwargs`. The denominator for parameter annotation
@@ -452,7 +452,7 @@ pub struct FunctionMetrics {
     /// Whether the function declares a return-type annotation (`-> T`).
     pub has_return_annotation: bool,
     /// Whether the function's first body statement is a bare string literal (a docstring). A
-    /// `StringLiteral` token, not a `Comment`, so this is orthogonal to `comment_density` (#83).
+    /// `StringLiteral` token, not a `Comment`, so this is orthogonal to `comment_density`.
     pub has_docstring: bool,
     /// Physical lines spanned by the docstring, or 0 if there is none. A verbose docstring on a
     /// trivial (low-`ncss`) function is the AI **over-documentation** signal that a bare
@@ -487,20 +487,20 @@ pub struct ClassMetrics {
     /// class to a root through its bases, counting **first-party** bases only. Resolved
     /// project-wide by [`resolve_inheritance`] (0 until that pass runs). Bases that resolve
     /// to `object`, the stdlib, or a third party are invisible and terminate the chain, so this
-    /// is a conservative under-count of the true Python MRO depth (#84).
+    /// is a conservative under-count of the true Python MRO depth.
     pub dit: usize,
     /// NOC — Number of Children (Chidamber & Kemerer 1994): how many **direct** subclasses this
     /// class has within first-party code — the inheritance *breadth* that pairs with [`Self::dit`]
     /// depth. The in-degree of the same class graph, resolved project-wide by
     /// [`resolve_inheritance`] (0 until that pass runs). A high-NOC base is a change-amplifier
-    /// (fragile-base-class risk); often it's a well-used abstraction (#113).
+    /// (fragile-base-class risk); often it's a well-used abstraction.
     pub noc: usize,
     /// Trailing identifiers of this class's base expressions (`Base` from `pkg.mod.Base`), in
     /// source order — the raw input to [`resolve_inheritance`]. Unresolved here; whether a base is
     /// first-party is decided project-wide against the full class set.
     pub bases: Vec<String>,
     /// CBO — Coupling Between Objects (Chidamber & Kemerer 1994): the number of **distinct
-    /// first-party classes** this class is coupled to (#116). Resolved project-wide by
+    /// first-party classes** this class is coupled to. Resolved project-wide by
     /// [`resolve_inheritance`] against the first-party class set (0 until that pass runs).
     ///
     /// A class-level coupling measure — "how central is this class" — distinct from WMC (size) and
@@ -517,11 +517,11 @@ pub struct ClassMetrics {
     /// deduped. The raw input to [`Self::cbo`], resolved against the first-party class set
     /// project-wide (a candidate that no first-party class claims, e.g. `int`/`list`, is dropped).
     pub coupled: Vec<String>,
-    /// Whether this class counts as "abstract" for Martin's package abstractness ratio (#70).
+    /// Whether this class counts as "abstract" for Martin's package abstractness ratio.
     /// A documented heuristic ([`class_is_abstract`]), since Python has no interface keyword.
     pub is_abstract: bool,
     /// Whether the class's first body statement is a bare string literal (a docstring). See
-    /// [`FunctionMetrics::has_docstring`] — same rule, applied to the class body (#83).
+    /// [`FunctionMetrics::has_docstring`] — same rule, applied to the class body.
     pub has_docstring: bool,
     /// Physical lines spanned by the class docstring, or 0 if there is none.
     pub docstring_lines: usize,
@@ -535,23 +535,23 @@ pub struct FileMetrics {
     pub loc: usize,
     pub comment_lines: usize,
     /// NLOC — physical lines bearing a non-comment, non-trivia token (code or string-literal
-    /// content), i.e. excluding blank and comment-only lines (#107). The module-size measure;
+    /// content), i.e. excluding blank and comment-only lines. The module-size measure;
     /// distinct from the comment-inclusive physical [`Self::loc`].
     pub nloc: usize,
-    /// Exception-handling hygiene counts for this file (#117): total/`bare`/`broad`/`swallow`
+    /// Exception-handling hygiene counts for this file: total/`bare`/`broad`/`swallow`
     /// `except` handlers, anywhere in the file (module level or nested).
     pub exception: ExceptionStats,
     /// Executable-logic statements at **module scope** — not inside any function/method, and
     /// excluding imports, the module docstring, the `if __name__ == "__main__":` guard, class-body
-    /// declarations, and pure constant assignments (#141). The "logic dumped at top level" count.
+    /// declarations, and pure constant assignments. The "logic dumped at top level" count.
     pub top_level_code: usize,
-    /// Executable-logic statements **inside** functions/methods (#141). With [`Self::top_level_code`]
+    /// Executable-logic statements **inside** functions/methods. With [`Self::top_level_code`]
     /// these give the top-level-code ratio = `top_level_code / (top_level_code + function_code)` —
     /// how much of a module's logic lives at module scope vs. organized into functions.
     pub function_code: usize,
 }
 
-/// Exception-handling hygiene counts (#117) — broad-except and silent-swallow are reliable
+/// Exception-handling hygiene counts — broad-except and silent-swallow are reliable
 /// low-effort / "make-it-work" smells (wrap it in `except Exception` or `except: pass` so the
 /// error disappears). Counted by AST over every `except` handler; aggregated into a *rate* the
 /// per-site lints (Ruff `E722`/`BLE001`) can't express. Descriptive — broad except is sometimes
@@ -579,7 +579,7 @@ pub struct RepoMetrics {
     pub total_loc: usize,
     pub avg_function_loc: f64,
     pub max_function_loc: usize,
-    /// Longest function whose cognitive complexity is ≥ [`LOGIC_FUNCTION_MIN_COGNITIVE`] (#155) —
+    /// Longest function whose cognitive complexity is ≥ [`LOGIC_FUNCTION_MIN_COGNITIVE`] —
     /// the longest *logic* function, excluding straight-line data/config-init blobs (a 2,733-line
     /// `__init__` of `self.x = …` assignments has cognitive ~1 and is left out). This is the
     /// god-function signal `max_function_loc` mis-ranks; report both.
@@ -592,54 +592,54 @@ pub struct RepoMetrics {
     pub p95_cyclomatic: usize,
     /// Count of functions in each McCabe risk tier.
     pub cyclomatic_risk: RiskHistogram,
-    /// Mean caller-facing arity across all functions ([`FunctionMetrics::arity`]) (#108).
+    /// Mean caller-facing arity across all functions ([`FunctionMetrics::arity`]).
     pub avg_params: f64,
     /// Highest caller-facing arity — the worst Long Parameter List, which the mean hides.
     pub max_params: usize,
     /// 95th-percentile caller-facing arity (nearest-rank) — the heavy tail, mirroring
     /// [`Self::p95_cyclomatic`].
     pub p95_params: usize,
-    /// Count of functions in each arity band (#108) — Long-Parameter-List *prevalence*. Counts
+    /// Count of functions in each arity band — Long-Parameter-List *prevalence*. Counts
     /// caller-facing arity (`self`/`cls` excluded, `*args`/`**kwargs` once). Descriptive bands
     /// ([`ParamCountTier`]), never a gate.
     pub param_count_risk: RiskHistogram,
     pub max_cognitive: usize,
-    /// Mean cognitive complexity across all functions (#110).
+    /// Mean cognitive complexity across all functions.
     pub avg_cognitive: f64,
     /// 95th-percentile cognitive complexity (nearest-rank) — the "hard-to-read tail", mirroring
-    /// [`Self::p95_cyclomatic`] (#110).
+    /// [`Self::p95_cyclomatic`].
     pub p95_cognitive: usize,
-    /// Count of functions in each cognitive readability band ([`CognitiveTier`], #110). Brings
+    /// Count of functions in each cognitive readability band ([`CognitiveTier`]). Brings
     /// cognitive to parity with cyclomatic, which already has full distribution + tiers; cognitive
     /// is the better readability signal, so its distribution (not just the max) is the one to watch.
     pub cognitive_risk: RiskHistogram,
     pub max_nesting: usize,
     /// Comment lines as a fraction of total lines (0.0–1.0).
     pub comment_density: f64,
-    /// Type-hint coverage (#85): annotated params / annotatable params across all functions
+    /// Type-hint coverage: annotated params / annotatable params across all functions
     /// (0.0–1.0). Low coverage flags under-annotation; high coverage is neutral, never a smell.
     pub param_annotation_coverage: f64,
     /// Fraction of functions that are fully annotated — every annotatable param plus the return
     /// type (0.0–1.0).
     pub fully_annotated_function_rate: f64,
-    /// Mean module NLOC across all files — the size triad's third leg (#107).
+    /// Mean module NLOC across all files — the size triad's third leg.
     pub avg_module_nloc: f64,
     /// Largest module by NLOC. The single god-module the repo sum/`avg` would otherwise hide.
     pub max_module_nloc: usize,
     /// 95th-percentile module NLOC (nearest-rank) — the heavy tail, mirroring
     /// [`Self::p95_cyclomatic`]/[`Self::p95_wmc`].
     pub p95_module_nloc: usize,
-    /// Count of files in each module-size band (#107) — god-module *prevalence*, which the repo
+    /// Count of files in each module-size band — god-module *prevalence*, which the repo
     /// `total_loc` sum and the `avg` collapse. Descriptive bands ([`ModuleSizeTier`]), never a
     /// gate.
     pub module_size_risk: RiskHistogram,
-    /// Mean top-level-code ratio across modules that contain executable logic (#141) — how
+    /// Mean top-level-code ratio across modules that contain executable logic — how
     /// undecomposed the code is on average. Modules with no logic (pure libraries) are excluded so
     /// they don't dilute the signal. `0.0` when no module has logic.
     pub avg_top_level_ratio: f64,
-    /// Highest top-level-code ratio of any module (#141) — the most script-like file.
+    /// Highest top-level-code ratio of any module — the most script-like file.
     pub max_top_level_ratio: f64,
-    /// Count of **undecomposed** modules (#141): non-trivial modules (≥ [`TOP_LEVEL_MIN_LOGIC`]
+    /// Count of **undecomposed** modules: non-trivial modules (≥ [`TOP_LEVEL_MIN_LOGIC`]
     /// logic statements) whose top-level-code ratio is ≥ [`TOP_LEVEL_RATIO_THRESHOLD`] — procedural
     /// script-dumps that complexity and module-size metrics miss. Descriptive, never a gate.
     pub undecomposed_modules: usize,
@@ -650,9 +650,9 @@ pub struct RepoMetrics {
     /// Mean WMC across all classes.
     pub avg_wmc: f64,
     /// 95th-percentile class WMC (nearest-rank). Surfaces the heavy tail even when the mean is
-    /// pulled down by many tiny classes — the WMC counterpart to [`Self::p95_cyclomatic`] (#104).
+    /// pulled down by many tiny classes — the WMC counterpart to [`Self::p95_cyclomatic`].
     pub p95_wmc: usize,
-    /// Count of classes in each WMC size band (#104) — god-class *prevalence*, which `avg`/`max`
+    /// Count of classes in each WMC size band — god-class *prevalence*, which `avg`/`max`
     /// alone hide: the same `max_wmc` can come from one justified hub or many. Descriptive bands
     /// ([`WmcTier`]), never a gate.
     pub wmc_risk: RiskHistogram,
@@ -662,39 +662,39 @@ pub struct RepoMetrics {
     /// Mean DIT across all classes.
     pub avg_dit: f64,
     /// Most direct first-party subclasses any class has (NOC) — the worst fragile-base-class
-    /// blast radius. Requires [`resolve_inheritance`] to have run (#113).
+    /// blast radius. Requires [`resolve_inheritance`] to have run.
     pub max_noc: usize,
     /// Mean NOC across all classes.
     pub avg_noc: f64,
     /// 95th-percentile class NOC (nearest-rank) — the breadth tail; most classes are leaves
     /// (NOC 0), so p95 surfaces the hubs the mean buries.
     pub p95_noc: usize,
-    /// Count of classes in each NOC breadth band (#113) — fragile-base-class *prevalence*.
+    /// Count of classes in each NOC breadth band — fragile-base-class *prevalence*.
     /// Descriptive bands ([`NocTier`]), never a gate.
     pub noc_risk: RiskHistogram,
     /// Most first-party classes any single class couples to (CBO) — the worst hub. Requires
-    /// [`resolve_inheritance`] to have run (#116). A lower bound in dynamically-typed code.
+    /// [`resolve_inheritance`] to have run. A lower bound in dynamically-typed code.
     pub max_cbo: usize,
     /// Mean CBO across all classes.
     pub avg_cbo: f64,
     /// 95th-percentile class CBO (nearest-rank) — the coupling tail; most classes couple to few,
     /// so p95 surfaces the hubs the mean buries.
     pub p95_cbo: usize,
-    /// Count of classes in each CBO coupling band (#116) — hub-class *prevalence*. Descriptive
+    /// Count of classes in each CBO coupling band — hub-class *prevalence*. Descriptive
     /// bands ([`CboTier`]), never a gate; a lower bound on dynamically-typed code.
     pub cbo_risk: RiskHistogram,
     /// Docstring coverage: public defs/classes carrying a docstring, as a fraction of all public
     /// defs/classes (0.0–1.0). "Public" = a name not `_`-prefixed. Distinct from
     /// `comment_density` (which counts `#`-comments, not docstrings) — low coverage flags an
-    /// under-documented public API. 0.0 when there are no public units (#83).
+    /// under-documented public API. 0.0 when there are no public units.
     pub docstring_coverage: f64,
     /// Docstring-to-code ratio: total **function** docstring lines over total **function** NCSS
     /// (which counts the docstring's own expression statement). Function-scoped on both sides so
     /// the ratio has one unit — class docstrings count toward [`Self::docstring_coverage`], not
     /// here. A high ratio flags AI **over-documentation** — verbose docstrings piled onto trivial
-    /// code. 0.0 when there are no functions (#83).
+    /// code. 0.0 when there are no functions.
     pub docstring_code_ratio: f64,
-    /// Exception-handling hygiene totals across all files (#117): summed [`ExceptionStats`].
+    /// Exception-handling hygiene totals across all files: summed [`ExceptionStats`].
     pub exception: ExceptionStats,
     /// Broad handlers as a fraction of all handlers (`broad / handlers`); 0.0 with no handlers.
     /// Low for disciplined libraries, high for "make-it-work" code. Descriptive, never a gate.
@@ -705,7 +705,7 @@ pub struct RepoMetrics {
 }
 
 /// Counts of units in the worst (`very_high`) band of each distribution — the "god-unit tail"
-/// (#152) that per-unit averages hide. Descriptive; never a gate.
+/// that per-unit averages hide. Descriptive; never a gate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GodUnits {
     /// Functions with `very_high` cognitive complexity (the hardest to read).
@@ -726,7 +726,7 @@ impl GodUnits {
 }
 
 impl RepoMetrics {
-    /// The god-unit **tail** (#152): how many units land in the worst (`very_high`) band of each
+    /// The god-unit **tail**: how many units land in the worst (`very_high`) band of each
     /// distribution. Per-unit *averages* wash these outliers out — a repo can have a dozen
     /// god-modules and a cognitive-172 god-function yet a clean `avg_cognitive` because they're
     /// diluted across thousands of units — so the count of very-high-tier units is the signal that
@@ -774,7 +774,7 @@ impl RepoMetrics {
         )
     }
 
-    /// The arity counterpart to [`Self::cyclomatic_markdown`] (#108): mean/p95/max parameters plus
+    /// The arity counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max parameters plus
     /// the Long-Parameter-List histogram. Caller-facing arity (`self`/`cls` excluded). Descriptive
     /// bands ([`ParamCountTier`]) — high `high`/`very high` counts flag *functions to read*, never
     /// defects.
@@ -795,7 +795,7 @@ impl RepoMetrics {
         )
     }
 
-    /// A badge summarizing cognitive-complexity risk (#110): the worst occupied band plus the peak
+    /// A badge summarizing cognitive-complexity risk: the worst occupied band plus the peak
     /// value, colored by that band (`max cognitive: 145 (very high)`). The cognitive counterpart to
     /// [`Self::cyclomatic_badge`] — and the more readability-relevant of the two.
     pub fn cognitive_badge(&self) -> Badge {
@@ -809,7 +809,7 @@ impl RepoMetrics {
         }
     }
 
-    /// The cognitive counterpart to [`Self::cyclomatic_markdown`] (#110): mean/p95/max cognitive plus
+    /// The cognitive counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max cognitive plus
     /// the readability-band histogram, anchored on SonarSource's 15/function guidance. Descriptive
     /// bands ([`CognitiveTier`]) — high `high`/`very high` counts flag functions to *read*, not
     /// defects.
@@ -833,7 +833,7 @@ impl RepoMetrics {
         )
     }
 
-    /// The class-size counterpart to [`Self::cyclomatic_markdown`] (#104): mean/p95/max WMC plus
+    /// The class-size counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max WMC plus
     /// the god-class-prevalence histogram. Descriptive bands ([`WmcTier`]) — high `high`/`very
     /// high` counts flag *candidates to read*, never defects.
     pub fn wmc_markdown(&self) -> String {
@@ -853,7 +853,7 @@ impl RepoMetrics {
         )
     }
 
-    /// The inheritance-breadth counterpart to [`Self::cyclomatic_markdown`] (#113): mean/p95/max
+    /// The inheritance-breadth counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max
     /// NOC plus the fragile-base-class histogram. Descriptive bands ([`NocTier`]) — high
     /// `high`/`very high` counts flag *bases to review before changing*, never defects.
     pub fn noc_markdown(&self) -> String {
@@ -873,7 +873,7 @@ impl RepoMetrics {
         )
     }
 
-    /// The class-coupling counterpart to [`Self::cyclomatic_markdown`] (#116): mean/p95/max CBO plus
+    /// The class-coupling counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max CBO plus
     /// the hub-class histogram. Descriptive bands ([`CboTier`]) — high `high`/`very high` counts flag
     /// *hubs to review before changing*, never defects. A **lower bound** in dynamically-typed code
     /// (duck-typed coupling is invisible), so the caption says so.
@@ -895,7 +895,7 @@ impl RepoMetrics {
         )
     }
 
-    /// The module-size counterpart to [`Self::cyclomatic_markdown`] (#107): mean/p95/max NLOC plus
+    /// The module-size counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max NLOC plus
     /// the god-module-prevalence histogram. Descriptive NLOC bands ([`ModuleSizeTier`]) — high
     /// `high`/`very high` counts flag *files to read*, never defects.
     pub fn module_size_markdown(&self) -> String {
@@ -915,7 +915,7 @@ impl RepoMetrics {
         )
     }
 
-    /// A one-line markdown summary of exception-handling hygiene (#117): the broad/swallow rates
+    /// A one-line markdown summary of exception-handling hygiene: the broad/swallow rates
     /// with the underlying counts. Descriptive cohort signal — broad except is sometimes correct
     /// (daemon loops, plugin boundaries), so it's never a gate.
     pub fn exception_markdown(&self) -> String {
@@ -981,7 +981,7 @@ pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {
     }
 }
 
-/// Executable-logic statements at module scope (#141): statements in the module body that are not
+/// Executable-logic statements at module scope: statements in the module body that are not
 /// imports, the module docstring, the `__main__` guard, a def/class declaration, or a pure constant
 /// assignment — counted recursively through compound statements (a top-level `for`/`if`/`with`
 /// counts its nested body too) but stopping at function/class boundaries.
@@ -1005,7 +1005,7 @@ fn top_level_logic(body: &[Stmt]) -> usize {
     total
 }
 
-/// Executable-logic statements inside all functions/methods (#141) — the sum of each function's own
+/// Executable-logic statements inside all functions/methods — the sum of each function's own
 /// body NCSS (nested-def bodies belong to their own function, counted there), across every function
 /// anywhere in the module.
 fn function_logic(body: &[Stmt]) -> usize {
@@ -1080,7 +1080,7 @@ fn is_constant_expr(expr: &Expr) -> bool {
     }
 }
 
-/// Exception-handling hygiene counts for a module body (#117): every `except` handler, anywhere
+/// Exception-handling hygiene counts for a module body: every `except` handler, anywhere
 /// (module level or nested in functions/classes), classified bare / broad / swallow. A bare
 /// `except:` has no type; broad catches `Exception`/`BaseException` (or a tuple containing one);
 /// swallow is a body of exactly `pass`, `continue`, or `...`.
@@ -1125,7 +1125,7 @@ fn is_broad_except(expr: &Expr) -> bool {
 
 /// Whether a handler body silently swallows the error: a single `pass`, `continue`, or `...`
 /// statement and nothing else. (A bare logging-only body is deliberately *not* counted — kept
-/// strict to avoid false positives, per #117.)
+/// strict to avoid false positives.)
 fn is_swallow_body(body: &[Stmt]) -> bool {
     match body {
         [Stmt::Pass(_)] | [Stmt::Continue(_)] => true,
@@ -1134,7 +1134,7 @@ fn is_swallow_body(body: &[Stmt]) -> bool {
     }
 }
 
-/// NLOC for a file (#107): the count of physical lines that carry at least one non-comment,
+/// NLOC for a file: the count of physical lines that carry at least one non-comment,
 /// non-trivia token. A line is counted if it bears code or string-literal content; blank lines
 /// (no token) and comment-only lines (only a `Comment` token, which `is_trivia`) are not. Lines
 /// spanned by a multi-line string literal count as code — consistent with "non-comment,
@@ -1161,16 +1161,16 @@ fn file_nloc(source: &str, parsed: &Parsed<ModModule>) -> usize {
 }
 
 /// Aggregate per-file metrics into repo-level figures.
-/// Minimum cognitive complexity for a function to count toward [`RepoMetrics::max_logic_function_loc`]
-/// (#155). Excludes straight-line data/config-init blobs (cognitive ≈ 0–1) from the "longest logic
+/// Minimum cognitive complexity for a function to count toward [`RepoMetrics::max_logic_function_loc`].
+/// Excludes straight-line data/config-init blobs (cognitive ≈ 0–1) from the "longest logic
 /// function" signal, so a 2,733-line `__init__` of assignments doesn't outrank a real god-function.
 pub const LOGIC_FUNCTION_MIN_COGNITIVE: usize = 5;
 
 /// Minimum module-scope logic statements for a module to be considered for the undecomposed flag
-/// (#141) — small scripts / entry points legitimately have a little top-level code.
+/// — small scripts / entry points legitimately have a little top-level code.
 pub const TOP_LEVEL_MIN_LOGIC: usize = 15;
 
-/// Top-level-code ratio at/above which a non-trivial module is "undecomposed" (#141) — a procedural
+/// Top-level-code ratio at/above which a non-trivial module is "undecomposed" — a procedural
 /// script-dump. Descriptive, calibrated; never a gate.
 pub const TOP_LEVEL_RATIO_THRESHOLD: f64 = 0.6;
 
@@ -1198,10 +1198,10 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut cbo_values: Vec<usize> = Vec::new();
     let mut module_nloc_sum = 0usize;
     let mut module_nloc_values: Vec<usize> = Vec::new();
-    // Top-level-code ratio (#141): averaged only over modules that contain executable logic.
+    // Top-level-code ratio: averaged only over modules that contain executable logic.
     let mut top_level_ratio_sum = 0f64;
     let mut modules_with_logic = 0usize;
-    // Docstring coverage (#83): every public def/class (functions *and* classes) is in the
+    // Docstring coverage: every public def/class (functions *and* classes) is in the
     // denominator, those carrying a docstring in the numerator. The docstring/code ratio is
     // kept strictly function-scoped — function docstring lines over function NCSS — so its two
     // sides share one unit (NCSS exists only for functions). Class docstrings drive coverage,
@@ -1220,7 +1220,7 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         module_nloc_values.push(file.nloc);
         repo.max_module_nloc = repo.max_module_nloc.max(file.nloc);
         repo.module_size_risk.record_module_size(file.nloc);
-        // Top-level-code ratio (#141): only meaningful for modules that contain executable logic.
+        // Top-level-code ratio: only meaningful for modules that contain executable logic.
         let module_logic = file.top_level_code + file.function_code;
         if module_logic > 0 {
             let ratio = file.top_level_code as f64 / module_logic as f64;
@@ -1244,7 +1244,7 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             repo.param_count_risk.record_arity(function.arity);
             repo.max_params = repo.max_params.max(function.arity);
             repo.max_function_loc = repo.max_function_loc.max(function.loc);
-            // Longest *logic* function (#155): ignore data/config-init blobs (very low cognitive)
+            // Longest *logic* function: ignore data/config-init blobs (very low cognitive)
             // so the god-function signal isn't crowned by a 2,733-line assignment run.
             if function.cognitive >= LOGIC_FUNCTION_MIN_COGNITIVE {
                 repo.max_logic_function_loc = repo.max_logic_function_loc.max(function.loc);
@@ -1390,7 +1390,7 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     repo
 }
 
-/// Whether a def/class name is "public" for docstring coverage — i.e. not `_`-prefixed (#83).
+/// Whether a def/class name is "public" for docstring coverage — i.e. not `_`-prefixed.
 /// Dunder methods (`__init__`, `__repr__`) start with `_`, so they are treated as non-public and
 /// excluded from the coverage denominator, matching the convention that documentation effort
 /// targets the public API. The test is purely a name-prefix check applied to *every* collected
@@ -1430,7 +1430,7 @@ fn function_metrics(
 /// Range of a body's docstring — the first statement, when it is a bare string-literal
 /// expression (PEP 257). `None` for any other leading statement. Used for both functions and
 /// classes; a docstring is a `StringLiteral`, never a `Comment`, so it is invisible to
-/// `comment_density` and this metric is purely additive (#83).
+/// `comment_density` and this metric is purely additive.
 fn docstring_range(body: &[Stmt]) -> Option<TextRange> {
     match body.first() {
         Some(Stmt::Expr(expr)) => match expr.value.as_ref() {
@@ -1500,7 +1500,7 @@ fn class_wmc(parsed: &Parsed<ModModule>, class: &StmtClassDef) -> usize {
         .sum()
 }
 
-/// Collect this class's distinct CBO coupling candidates (#116): the trailing identifiers it
+/// Collect this class's distinct CBO coupling candidates: the trailing identifiers it
 /// references as a class — base classes, call/`isinstance`/`issubclass` callees (instantiations),
 /// the class arguments of `isinstance`/`issubclass`, and every name appearing in a type annotation
 /// (params, returns, and `x: T` attribute/variable annotations, descending `Optional[T]`, `A | B`,
@@ -1617,7 +1617,7 @@ impl Visitor<'_> for CouplingCollector<'_> {
 }
 
 /// Fill in [`ClassMetrics::dit`] and [`ClassMetrics::noc`] for every class across the project —
-/// the CK inheritance pair (#84 depth, #113 breadth). Both resolve bases by **trailing class
+/// the CK inheritance pair: DIT (depth) and NOC (breadth). Both resolve bases by **trailing class
 /// name** against the set of first-party classes in `files`; a base that doesn't resolve —
 /// `object`, the stdlib, a third party, or any name no first-party class claims — is invisible.
 ///
@@ -1668,7 +1668,7 @@ pub fn resolve_inheritance(files: &mut [&mut FileMetrics]) {
     }
 
     // Detach the maps + the first-party class-name set from `bases_of`'s borrow of `files` so we
-    // can write them back. The name set is what CBO (#116) resolves coupling candidates against.
+    // can write them back. The name set is what CBO resolves coupling candidates against.
     let depths: HashMap<String, usize> = cache.iter().map(|(k, v)| (k.to_string(), *v)).collect();
     let noc: HashMap<String, usize> = children.iter().map(|(k, v)| (k.to_string(), *v)).collect();
     let class_names: std::collections::HashSet<String> =
@@ -1678,7 +1678,7 @@ pub fn resolve_inheritance(files: &mut [&mut FileMetrics]) {
         for class in &mut file.classes {
             class.dit = depths.get(&class.name).copied().unwrap_or(0);
             class.noc = noc.get(&class.name).copied().unwrap_or(0);
-            // CBO (#116): distinct first-party classes this one couples to, excluding itself. The
+            // CBO: distinct first-party classes this one couples to, excluding itself. The
             // candidates are pre-deduped, so a plain count of those in the class-name set is the CBO.
             let cbo = class
                 .coupled
@@ -1726,7 +1726,7 @@ fn dit_of<'a>(
     best
 }
 
-/// Heuristic for whether a class is "abstract" for Martin's package abstractness ratio (#70).
+/// Heuristic for whether a class is "abstract" for Martin's package abstractness ratio.
 /// Python has no interface keyword, so this approximates — a class counts as abstract if it:
 ///
 /// - subclasses `ABC` / `abc.ABC` or `Protocol` / `typing.Protocol` (incl. subscripted
@@ -1735,13 +1735,13 @@ fn dit_of<'a>(
 /// - has any method decorated with `@abstractmethod` (or the `abstractproperty` /
 ///   `abstractclassmethod` / `abstractstaticmethod` family).
 ///
-/// This is deliberately an approximation — abstractness is fuzzy in Python, and #70 ships the
-/// derived metric clearly labeled as heuristic — but it only fires on the genuine abstract-base /
+/// This is deliberately an approximation — abstractness is fuzzy in Python, and the derived
+/// metric ships clearly labeled as heuristic — but it only fires on the genuine abstract-base /
 /// protocol idioms. We pointedly do *not* treat a stub body (`class Foo(Bar): ...`) as a signal:
 /// such a class has no `def`, so a whole-class stub is always a concrete leaf/marker — an empty
 /// exception subclass (`class ReadError(NetworkError): ...`) or a sentinel (`class UnsetType: ...`),
 /// not an interface. Counting those inflated Abstractness ~5× on exception-heavy modules and skewed
-/// Distance `D` (#81).
+/// Distance `D`.
 fn class_is_abstract(class: &StmtClassDef) -> bool {
     let abstract_base = class
         .bases()
@@ -1876,7 +1876,7 @@ fn param_count(parameters: &Parameters) -> usize {
 /// Whether the function's first positional parameter is a `self`/`cls` receiver (`1`) or not
 /// (`0`). A non-static method whose first parameter (positional-only first, else the first regular
 /// arg) is named `self`/`cls` carries one. Caller-invisible, so it counts toward neither annotation
-/// coverage (#85) nor arity (#108).
+/// coverage nor arity.
 fn receiver_count(function: &StmtFunctionDef) -> usize {
     let params = &function.parameters;
     usize::from(
@@ -1889,7 +1889,7 @@ fn receiver_count(function: &StmtFunctionDef) -> usize {
     )
 }
 
-/// Caller-facing arity (#108): every declared parameter a caller passes — positional-only,
+/// Caller-facing arity: every declared parameter a caller passes — positional-only,
 /// regular, keyword-only, and `*args`/`**kwargs` (each variadic once) — minus the `self`/`cls`
 /// receiver. The input to the Long-Parameter-List bands.
 fn caller_arity(function: &StmtFunctionDef) -> usize {
@@ -1906,7 +1906,7 @@ fn is_staticmethod(function: &StmtFunctionDef) -> bool {
         .any(|name| name == "staticmethod")
 }
 
-/// Type-hint coverage for one function signature (#85): `(typed_params, annotatable_params,
+/// Type-hint coverage for one function signature: `(typed_params, annotatable_params,
 /// has_return_annotation)`.
 ///
 /// *Annotatable* params are the positional and keyword params (positional-only + regular +
@@ -2482,7 +2482,7 @@ def outer(xs):
 
     #[test]
     fn wmc_tier_boundaries() {
-        // Descriptive bands (#104): ≤20 low, 21–50 moderate, 51–200 high, >200 very high.
+        // Descriptive bands: ≤20 low, 21–50 moderate, 51–200 high, >200 very high.
         assert_eq!(WmcTier::from_wmc(0), WmcTier::Low);
         assert_eq!(WmcTier::from_wmc(20), WmcTier::Low);
         assert_eq!(WmcTier::from_wmc(21), WmcTier::Moderate);
@@ -2494,7 +2494,7 @@ def outer(xs):
 
     #[test]
     fn noc_tier_boundaries() {
-        // Descriptive breadth bands (#113): ≤1 low, 2–5 moderate, 6–20 high, >20 very high.
+        // Descriptive breadth bands: ≤1 low, 2–5 moderate, 6–20 high, >20 very high.
         assert_eq!(NocTier::from_noc(0), NocTier::Low);
         assert_eq!(NocTier::from_noc(1), NocTier::Low);
         assert_eq!(NocTier::from_noc(2), NocTier::Moderate);
@@ -2506,7 +2506,7 @@ def outer(xs):
 
     #[test]
     fn module_size_tier_boundaries() {
-        // Descriptive NLOC bands (#107): ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
+        // Descriptive NLOC bands: ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
         assert_eq!(ModuleSizeTier::from_nloc(0), ModuleSizeTier::Low);
         assert_eq!(ModuleSizeTier::from_nloc(250), ModuleSizeTier::Low);
         assert_eq!(ModuleSizeTier::from_nloc(251), ModuleSizeTier::Moderate);
@@ -2518,7 +2518,7 @@ def outer(xs):
 
     #[test]
     fn param_count_tier_boundaries() {
-        // Descriptive arity bands (#108): ≤4 low, 5–6 moderate, 7–10 high, >10 very high.
+        // Descriptive arity bands: ≤4 low, 5–6 moderate, 7–10 high, >10 very high.
         assert_eq!(ParamCountTier::from_arity(0), ParamCountTier::Low);
         assert_eq!(ParamCountTier::from_arity(4), ParamCountTier::Low);
         assert_eq!(ParamCountTier::from_arity(5), ParamCountTier::Moderate);
@@ -3537,7 +3537,7 @@ def getter(self):
         assert_eq!(repo.docstring_code_ratio, 2.0);
     }
 
-    /// Every documented abstractness signal (#70) is recognized, and a plain concrete class is
+    /// Every documented abstractness signal is recognized, and a plain concrete class is
     /// not. One class per source so `file.classes[0]` is unambiguous.
     #[test]
     fn class_is_abstract_recognizes_each_signal() {
@@ -3574,7 +3574,7 @@ def getter(self):
                 "non-metaclass keyword",
                 "class A(foo=1):\n    def f(self): return 1\n",
             ),
-            // #81: a whole-class stub is a concrete leaf/marker, not an abstraction. A stub body
+            // A whole-class stub is a concrete leaf/marker, not an abstraction. A stub body
             // has no `def`, so these can never be interfaces.
             ("empty exception subclass", "class E(ValueError): ...\n"),
             ("ellipsis marker, no base", "class Marker:\n    ...\n"),
@@ -3595,7 +3595,7 @@ def getter(self):
         }
     }
 
-    /// #81: an exception-heavy module (the httpx idiom) must not read as nearly-all-abstract. Only
+    /// An exception-heavy module (the httpx idiom) must not read as nearly-all-abstract. Only
     /// the genuine ABC counts; the empty exception subclasses and the sentinel are concrete, so
     /// Abstractness here is 1/6, not 6/6.
     #[test]
@@ -3626,7 +3626,7 @@ class BaseTransport(ABC):
         );
     }
 
-    /// #85: type-hint coverage on a single signature — the receiver is excluded, `*args`/`**kwargs`
+    /// Type-hint coverage on a single signature — the receiver is excluded, `*args`/`**kwargs`
     /// don't count, and the return annotation is reported separately.
     #[test]
     fn type_hint_coverage_counts_annotatable_params() {
@@ -3699,7 +3699,7 @@ class BaseTransport(ABC):
         );
     }
 
-    /// #85: project aggregates — coverage is over the param pool, and the fully-annotated rate
+    /// Project aggregates — coverage is over the param pool, and the fully-annotated rate
     /// requires every annotatable param *and* a return type.
     #[test]
     fn type_hint_aggregates_over_the_project() {

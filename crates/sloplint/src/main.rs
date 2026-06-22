@@ -122,7 +122,7 @@ enum Command {
         /// gate, not a diagnostic). SonarSource suggests 15 per function.
         #[arg(long)]
         max_cognitive: Option<usize>,
-        /// Which profile the human/text view and the per-unit feeds report (#96). A profile is a
+        /// Which profile the human/text view and the per-unit feeds report. A profile is a
         /// named, path-matched slice of the tree (`[[profiles]]` in `sloplint.toml`); they're
         /// measured separately because, e.g., test and production code have different healthy
         /// norms. Pass a profile name, or `all` for every profile panel. Defaults to the
@@ -189,7 +189,7 @@ enum MetricsFormat {
     Packages,
 }
 
-/// Which profile(s) the text view and the per-unit feeds report (#96): one named profile, or
+/// Which profile(s) the text view and the per-unit feeds report: one named profile, or
 /// every profile (`all`). Resolved from the `--scope` flag against the configured profiles.
 enum Scope {
     /// Every configured profile (text prints one panel each; feeds emit all files).
@@ -404,7 +404,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
         path: &display,
         source: &source,
         parsed: &parsed,
-        // Per-file thresholds: the file's profile deltas over the global limits (#96).
+        // Per-file thresholds: the file's profile deltas over the global limits.
         limits: selector.limits(&display),
         security_extra: &config.security.extra,
         placeholders_extra: &config.placeholders.extra,
@@ -585,7 +585,7 @@ fn run_check(
             path: &display,
             source: &source,
             parsed: &parsed,
-            // Per-file thresholds: the file's profile deltas over the global limits (#96).
+            // Per-file thresholds: the file's profile deltas over the global limits.
             limits: selector.limits(&display),
             security_extra: &config.security.extra,
             placeholders_extra: &config.placeholders.extra,
@@ -639,7 +639,7 @@ fn run_check(
         attribute_ghost_scaffolding(&ghost_scans, &selector, &mut results);
     }
 
-    // Inline `# sloplint: allow` suppression (#94) runs last, so it filters whole-tree findings
+    // Inline `# sloplint: allow` suppression runs last, so it filters whole-tree findings
     // (SLP020 clones, SLP090 fanout, SLP180 imports) as well as the per-file rules.
     for result in &mut results {
         result.suppressions.filter(&mut result.diagnostics);
@@ -741,7 +741,7 @@ struct FileResult {
     path: String,
     source: String,
     diagnostics: Vec<Diagnostic>,
-    /// Inline `# sloplint: allow` directives for this file (#94). Parsed up front while the tree
+    /// Inline `# sloplint: allow` directives for this file. Parsed up front while the tree
     /// is in scope, then applied once at the end so it filters whole-tree findings (SLP020) too.
     suppressions: Suppressions,
 }
@@ -1057,7 +1057,7 @@ fn run_metrics(
     // whole-project pass (like SLP180): collect every file's module-level imports here, then
     // build the graph once after the loop.
     let needs_graph = matches!(format, MetricsFormat::Packages | MetricsFormat::Json);
-    // Duplication density (#123) is surfaced only on the aggregate panels, not the per-unit feeds.
+    // Duplication density is surfaced only on the aggregate panels, not the per-unit feeds.
     let needs_clones = matches!(
         format,
         MetricsFormat::Text | MetricsFormat::Json | MetricsFormat::Github
@@ -1068,18 +1068,18 @@ fn run_metrics(
         ..CloneConfig::default()
     };
     // Every function's clone fingerprint plus the profiles of the file it came from, so the SLP020
-    // pass can run once over the whole tree and be filtered per profile afterwards (#123).
+    // pass can run once over the whole tree and be filtered per profile afterwards.
     let mut clone_units: Vec<FunctionUnit> = Vec::new();
     let mut unit_profiles: Vec<Vec<String>> = Vec::new();
     // Keep path + source alongside metrics so the gate can name offending functions with a
     // resolved `path:line` location.
     let mut per_file: Vec<MeasuredFile> = Vec::new();
     // Each module input carries its file's profile membership so the import graph can be built
-    // per profile (#96) — one profile importing another must not manufacture coupling in the
+    // per profile — one profile importing another must not manufacture coupling in the
     // first profile's architecture metrics.
     let mut module_inputs: Vec<(ModuleInput, Vec<String>)> = Vec::new();
-    // Static test proxies (#86): one per file. The test/production split is bound to the `tests`
-    // profile (#96) so the proxies and the panels agree.
+    // Static test proxies: one per file. The test/production split is bound to the `tests`
+    // profile so the proxies and the panels agree.
     let mut test_stats: Vec<FileTestStats> = Vec::new();
     for path in files {
         let display = path.to_string_lossy().to_string();
@@ -1090,7 +1090,7 @@ fn run_metrics(
             continue;
         };
         let metrics = file_metrics(&source, &parsed);
-        // Machine-generated code (#115) is a third category alongside tests/production: its
+        // Machine-generated code is a third category alongside tests/production: its
         // structural numbers are codegen artifacts, so it routes into the `generated` profile and
         // out of the `production` complement. Detection is a cheap header-marker scan.
         let is_generated = detect::is_generated(&source, &display);
@@ -1166,7 +1166,7 @@ fn run_metrics(
                 .collect(),
         )
     };
-    // SLP020 clone detection, run once over every function (#123). Per-profile density is derived
+    // SLP020 clone detection, run once over every function. Per-profile density is derived
     // by keeping only pairs whose *both* functions are in the profile — duplication internal to it,
     // consistent with how the import graph is scoped.
     let clone_pairs = find_clones(&clone_units, &clone_config);
@@ -1197,10 +1197,10 @@ fn run_metrics(
                 // One panel per in-scope profile; the proxies (always the full split) follow once.
                 for name in &scoped {
                     print_metrics_panel(name, &panel_of(name));
-                    // Package module-count concentration (#103) — node distribution, computed from
+                    // Package module-count concentration — node distribution, computed from
                     // the panel's own files (edge-free, so no import graph is needed in text mode).
                     print_concentration(&concentration_for(&per_file, name));
-                    // Duplication density (#123): SLP020 clone ratio for the profile's functions.
+                    // Duplication density: SLP020 clone ratio for the profile's functions.
                     print_clone_density(&clone_of(name));
                 }
                 print_test_proxies_table(&proxies);
@@ -1301,7 +1301,7 @@ fn gate(
 }
 
 /// A measured file: its display path, source, per-function metrics, and the names of the profiles
-/// its path belongs to (#96 — used to place it into one or more metric panels).
+/// its path belongs to (used to place it into one or more metric panels).
 struct MeasuredFile {
     path: String,
     source: String,
@@ -1379,9 +1379,9 @@ fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::
         "lcom4": class.lcom4,
         "wmc": class.wmc,
         "dit": class.dit,
-        // NOC (#113): direct first-party subclasses — inheritance breadth / fragile-base risk.
+        // NOC: direct first-party subclasses — inheritance breadth / fragile-base risk.
         "noc": class.noc,
-        // CBO (#116): distinct first-party classes this one couples to — a lower bound in
+        // CBO: distinct first-party classes this one couples to — a lower bound in
         // dynamically-typed code (duck-typed coupling not counted).
         "cbo": class.cbo,
         "is_abstract": class.is_abstract,
@@ -1403,8 +1403,8 @@ fn print_package_rows(graph: &ImportGraph) {
 /// Build the JSONL row for one package. Split out so its shape can be unit-tested.
 ///
 /// `ce`/`ca` are Martin's efferent/afferent coupling (the counts of distinct first-party packages
-/// in `imports`/`imported_by`); `instability` is `ce / (ce + ca)` (#67). `abstractness` and
-/// `distance` are Martin's `A` and `D = |A + I − 1|` (#70, heuristic in Python). The named-package
+/// in `imports`/`imported_by`); `instability` is `ce / (ce + ca)`. `abstractness` and
+/// `distance` are Martin's `A` and `D = |A + I − 1|` (heuristic in Python). The named-package
 /// lists are kept so a consumer can see *which* packages couple, not just how many.
 fn package_row(row: &PackageRow) -> serde_json::Value {
     serde_json::json!({
@@ -1444,11 +1444,11 @@ fn function_row(
         "cognitive": function.cognitive,
         "max_nesting": function.max_nesting,
         "params": function.params,
-        // Caller-facing arity (#108): params minus the self/cls receiver — the Long-Parameter-List
+        // Caller-facing arity: params minus the self/cls receiver — the Long-Parameter-List
         // signal. `*args`/`**kwargs` each count once.
         "arity": function.arity,
         "exits": function.exits,
-        // Type-hint coverage (#85): annotated vs. annotatable params, and whether a return type is
+        // Type-hint coverage: annotated vs. annotatable params, and whether a return type is
         // declared. `annotatable_params` excludes the self/cls receiver and *args/**kwargs.
         "typed_params": function.typed_params,
         "annotatable_params": function.annotatable_params,
@@ -1460,7 +1460,7 @@ fn function_row(
     })
 }
 
-/// Print one labeled metric panel (#96) — the per-partition aggregates, without the test
+/// Print one labeled metric panel — the per-partition aggregates, without the test
 /// proxies (those are the project-wide split and are printed once, after the panel(s)).
 fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
     println!("sloplint metrics — {label}");
@@ -1480,7 +1480,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  CC risk tiers       low {} / moderate {} / high {} / very high {}",
         risk.low, risk.moderate, risk.high, risk.very_high
     );
-    // Parameter count (caller-facing arity) distribution (#108): Long-Parameter-List prevalence.
+    // Parameter count (caller-facing arity) distribution: Long-Parameter-List prevalence.
     println!(
         "  avg/p95/max params  {:.1} / {} / {}",
         repo.avg_params, repo.p95_params, repo.max_params
@@ -1490,7 +1490,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  arity bands         low {} / moderate {} / high {} / very high {}",
         params.low, params.moderate, params.high, params.very_high
     );
-    // Cognitive complexity at parity with cyclomatic (#110) — the better readability signal.
+    // Cognitive complexity at parity with cyclomatic — the better readability signal.
     println!("  avg cognitive       {:.1}", repo.avg_cognitive);
     println!("  p95 cognitive       {}", repo.p95_cognitive);
     println!("  max cognitive       {}", repo.max_cognitive);
@@ -1506,7 +1506,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         repo.docstring_coverage * 100.0
     );
     println!("  docstring/code      {:.2}", repo.docstring_code_ratio);
-    // Exception-handling hygiene (#117): broad-except / silent-swallow rates.
+    // Exception-handling hygiene: broad-except / silent-swallow rates.
     let exc = repo.exception;
     println!(
         "  except broad/swallow {:.2} / {:.2}  ({} broad, {} swallow, {} bare / {} handlers)",
@@ -1517,7 +1517,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         exc.bare,
         exc.handlers
     );
-    // Class weight (WMC) distribution (#104): god-class prevalence, not just the worst class.
+    // Class weight (WMC) distribution: god-class prevalence, not just the worst class.
     println!("  classes             {}", repo.classes);
     println!(
         "  avg/p95/max WMC     {:.1} / {} / {}",
@@ -1528,7 +1528,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  WMC bands           low {} / moderate {} / high {} / very high {}",
         wmc.low, wmc.moderate, wmc.high, wmc.very_high
     );
-    // Inheritance breadth (NOC) distribution (#113): fragile-base-class prevalence.
+    // Inheritance breadth (NOC) distribution: fragile-base-class prevalence.
     println!(
         "  avg/p95/max NOC     {:.1} / {} / {}",
         repo.avg_noc, repo.p95_noc, repo.max_noc
@@ -1538,7 +1538,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  NOC bands           low {} / moderate {} / high {} / very high {}",
         noc.low, noc.moderate, noc.high, noc.very_high
     );
-    // Class coupling (CBO) distribution (#116): hub-class prevalence (lower bound in dynamic code).
+    // Class coupling (CBO) distribution: hub-class prevalence (lower bound in dynamic code).
     println!(
         "  avg/p95/max CBO     {:.1} / {} / {}",
         repo.avg_cbo, repo.p95_cbo, repo.max_cbo
@@ -1548,7 +1548,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  CBO bands           low {} / moderate {} / high {} / very high {}",
         cbo.low, cbo.moderate, cbo.high, cbo.very_high
     );
-    // Module size (NLOC) distribution (#107): god-module prevalence — the third size leg.
+    // Module size (NLOC) distribution: god-module prevalence — the third size leg.
     println!(
         "  avg/p95/max module  {:.1} / {} / {}  NLOC",
         repo.avg_module_nloc, repo.p95_module_nloc, repo.max_module_nloc
@@ -1558,14 +1558,14 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  module NLOC bands   low {} / moderate {} / high {} / very high {}",
         module.low, module.moderate, module.high, module.very_high
     );
-    // Top-level-code ratio (#141): undecomposed script-dump modules complexity/size metrics miss.
+    // Top-level-code ratio: undecomposed script-dump modules complexity/size metrics miss.
     println!(
         "  top-level code      avg {:.0}% / max {:.0}%  ({} undecomposed module(s))",
         repo.avg_top_level_ratio * 100.0,
         repo.max_top_level_ratio * 100.0,
         repo.undecomposed_modules,
     );
-    // God-unit tail (#152): the very-high-tier outliers per-unit averages wash out.
+    // God-unit tail: the very-high-tier outliers per-unit averages wash out.
     let god = repo.god_units();
     println!(
         "  god-unit tail       {}  (cognitive {} / cyclomatic {} / WMC {} / module {})",
@@ -1577,7 +1577,7 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
     );
 }
 
-/// The package module-count concentration (#103) for one profile's files. Edge-free — it needs
+/// The package module-count concentration for one profile's files. Edge-free — it needs
 /// only each module's package, so the text view computes it without building the import graph
 /// (which would require an extra import-scan pass per file).
 ///
@@ -1602,7 +1602,7 @@ fn concentration_for(per_file: &[MeasuredFile], profile: &str) -> graph::Concent
     graph::concentration(&packages)
 }
 
-/// Print the package module-count concentration block (#103) beneath a metric panel: how piled the
+/// Print the package module-count concentration block beneath a metric panel: how piled the
 /// modules are across packages, and which package holds the most. A descriptive distribution
 /// statistic — never a gate (a small repo's one main package scores high and that's fine).
 fn print_concentration(c: &graph::Concentration) {
@@ -1620,7 +1620,7 @@ fn print_concentration(c: &graph::Concentration) {
     );
 }
 
-/// Production duplication aggregate (#123): SLP020 clone density for one profile's functions —
+/// Production duplication aggregate: SLP020 clone density for one profile's functions —
 /// surfacing the existing clone engine as a descriptive cohort metric, not new detection.
 struct CloneStats {
     /// Confirmed SLP020 clone pairs whose *both* functions are in the profile.
@@ -1649,7 +1649,7 @@ impl CloneStats {
 
 /// Compute the clone density for `profile` from the project-wide SLP020 `pairs`, keeping only pairs
 /// whose both functions belong to the profile (duplication internal to it). `largest_cluster` is
-/// the biggest connected component of those pairs, via union-find (#123).
+/// the biggest connected component of those pairs, via union-find.
 fn clone_stats_for(
     profile: &str,
     unit_profiles: &[Vec<String>],
@@ -1698,7 +1698,7 @@ fn dsu_find(parent: &mut HashMap<usize, usize>, x: usize) -> usize {
     root
 }
 
-/// Print the duplication-density block (#123) beneath a metric panel: the SLP020 clone ratio plus
+/// Print the duplication-density block beneath a metric panel: the SLP020 clone ratio plus
 /// the pair count and largest cluster. Descriptive — high duplication is a vibe-slop tell
 /// ("a scraper per site" → copy-paste), but it's a cohort signal, never a per-repo gate.
 fn print_clone_density(c: &CloneStats) {
@@ -1712,7 +1712,7 @@ fn print_clone_density(c: &CloneStats) {
     );
 }
 
-/// Print the static test proxies block (#86) once, beneath the panel(s). Always the full
+/// Print the static test proxies block once, beneath the panel(s). Always the full
 /// project-wide split (production vs test), independent of `--scope` — descriptive only, NOT
 /// coverage and never a gate.
 fn print_test_proxies_table(proxies: &TestProxies) {
@@ -1745,7 +1745,7 @@ fn opt_ratio(value: Option<f64>) -> String {
     }
 }
 
-/// Assemble the full JSON feed (#96): a panel for **every** configured profile under `profiles`
+/// Assemble the full JSON feed: a panel for **every** configured profile under `profiles`
 /// (keyed by name), plus the project-wide `test_proxies` split (always over all files). `--scope`
 /// does not affect this feed — it always reports every profile.
 fn metrics_json(
@@ -1761,12 +1761,12 @@ fn metrics_json(
     }
     let mut root = serde_json::Map::new();
     root.insert("profiles".to_string(), serde_json::Value::Object(profiles));
-    // Static test proxies (issue #86): test:code ratio + assertion density + assertion-free rate (#121/#127).
+    // Static test proxies: test:code ratio + assertion density + assertion-free rate.
     root.insert("test_proxies".to_string(), test_proxies_json(proxies));
     serde_json::to_string_pretty(&serde_json::Value::Object(root)).unwrap()
 }
 
-/// One metric panel as a JSON object (#96): every aggregate plus the import-graph rollup for the
+/// One metric panel as a JSON object: every aggregate plus the import-graph rollup for the
 /// panel's file set. Shared by every profile section so they stay identical in shape.
 fn panel_json(
     repo: &RepoMetrics,
@@ -1781,7 +1781,7 @@ fn panel_json(
         "total_loc": repo.total_loc,
         "avg_function_loc": repo.avg_function_loc,
         "max_function_loc": repo.max_function_loc,
-        // Longest *logic* function (#155): excludes data/config-init blobs (cognitive < 5) so the
+        // Longest *logic* function: excludes data/config-init blobs (cognitive < 5) so the
         // god-function signal isn't crowned by a giant assignment run that `max_function_loc` ranks
         // first. Report both — LoC is only meaningful next to complexity.
         "max_logic_function_loc": repo.max_logic_function_loc,
@@ -1794,7 +1794,7 @@ fn panel_json(
             "high": repo.cyclomatic_risk.high,
             "very_high": repo.cyclomatic_risk.very_high,
         },
-        // Parameter-count distribution (#108): Long Parameter List prevalence, which `avg` hides.
+        // Parameter-count distribution: Long Parameter List prevalence, which `avg` hides.
         // Caller-facing arity (self/cls excluded, *args/**kwargs once). Bands ≤4 / 5–6 / 7–10 / >10,
         // descriptive, never a gate.
         "params": {
@@ -1808,7 +1808,7 @@ fn panel_json(
             "high": repo.param_count_risk.high,
             "very_high": repo.param_count_risk.very_high,
         },
-        // Cognitive complexity at parity with cyclomatic (#110): the readability distribution, not
+        // Cognitive complexity at parity with cyclomatic: the readability distribution, not
         // just the max. The more readability-relevant of the two complexity metrics.
         "avg_cognitive": repo.avg_cognitive,
         "p95_cognitive": repo.p95_cognitive,
@@ -1821,11 +1821,11 @@ fn panel_json(
         },
         "max_nesting": repo.max_nesting,
         "comment_density": repo.comment_density,
-        // Type-hint coverage (#85): a quality proxy for under-annotation. Low coverage is the
+        // Type-hint coverage: a quality proxy for under-annotation. Low coverage is the
         // smell; high coverage is neutral (fully-typed code is not slop).
         "param_annotation_coverage": repo.param_annotation_coverage,
         "fully_annotated_function_rate": repo.fully_annotated_function_rate,
-        // Module size distribution (#107): the third size leg. NLOC = non-comment, non-blank
+        // Module size distribution: the third size leg. NLOC = non-comment, non-blank
         // lines per file; the band counts surface god-module *prevalence*, which `total_loc` and
         // `avg` collapse. Bands (≤250 / 251–500 / 501–1000 / >1000), descriptive, never a gate.
         "module_nloc": {
@@ -1839,7 +1839,7 @@ fn panel_json(
             "high": repo.module_size_risk.high,
             "very_high": repo.module_size_risk.very_high,
         },
-        // Top-level-code ratio (#141): fraction of a module's executable logic at module scope vs.
+        // Top-level-code ratio: fraction of a module's executable logic at module scope vs.
         // inside functions — catches undecomposed procedural script-dumps (Streamlit/Dash/notebook
         // exports) that complexity (linear code) and module-size (moderate) both miss. `avg` is over
         // modules with logic; `undecomposed` counts non-trivial modules above the ratio threshold.
@@ -1848,7 +1848,7 @@ fn panel_json(
             "max_ratio": repo.max_top_level_ratio,
             "undecomposed_modules": repo.undecomposed_modules,
         },
-        // God-unit tail (#152): counts of very-high-tier units that per-unit *averages* wash out —
+        // God-unit tail: counts of very-high-tier units that per-unit *averages* wash out —
         // a repo can have a dozen god-modules and a cognitive-172 god-function yet a clean
         // `avg_cognitive`. This is the tail term that surfaces the outliers (over-engineering as a
         // whole is a documented static-analysis limitation; this is the part we *can* measure).
@@ -1859,13 +1859,13 @@ fn panel_json(
             "very_high_size_modules": god.size_modules,
             "total": god.total(),
         },
-        // CK class metrics (#84): WMC weight and first-party DIT depth, aggregated over all
+        // CK class metrics: WMC weight and first-party DIT depth, aggregated over all
         // classes. DIT is a conservative under-count — external (stdlib/third-party) ancestry is
         // invisible. Per-class rows live in `metrics --format classes`.
         "classes": repo.classes,
         "max_wmc": repo.max_wmc,
         "avg_wmc": repo.avg_wmc,
-        // WMC size-band counts (#104): god-class *prevalence*, which avg/max collapse. Descriptive
+        // WMC size-band counts: god-class *prevalence*, which avg/max collapse. Descriptive
         // bands (≤20 / 21–50 / 51–200 / >200), never a gate. p95 surfaces the heavy tail.
         "p95_wmc": repo.p95_wmc,
         "wmc_risk": {
@@ -1876,7 +1876,7 @@ fn panel_json(
         },
         "max_dit": repo.max_dit,
         "avg_dit": repo.avg_dit,
-        // NOC (#113): inheritance breadth — direct first-party subclasses per class. The
+        // NOC: inheritance breadth — direct first-party subclasses per class. The
         // fragile-base-class signal DIT (depth) can't see; band counts flag high-leverage bases.
         // Descriptive bands (≤1 / 2–5 / 6–20 / >20), never a gate.
         "max_noc": repo.max_noc,
@@ -1888,7 +1888,7 @@ fn panel_json(
             "high": repo.noc_risk.high,
             "very_high": repo.noc_risk.very_high,
         },
-        // CBO (#116): class-to-class coupling — distinct first-party classes a class is wired to
+        // CBO: class-to-class coupling — distinct first-party classes a class is wired to
         // (bases, instantiations, isinstance/issubclass, annotations). The class-level coupling the
         // package Ce/Ca can't localize; a LOWER BOUND in dynamically-typed code (duck-typed coupling
         // is invisible). Descriptive bands (≤4 / 5–9 / 10–20 / >20), never a gate.
@@ -1901,12 +1901,12 @@ fn panel_json(
             "high": repo.cbo_risk.high,
             "very_high": repo.cbo_risk.very_high,
         },
-        // Documentation coverage (#83) — distinct from comment_density (docstrings, not
+        // Documentation coverage — distinct from comment_density (docstrings, not
         // `#`-comments). Low coverage = under-documented public API; a high docstring/code ratio
         // = AI over-documentation of trivia.
         "docstring_coverage": repo.docstring_coverage,
         "docstring_code_ratio": repo.docstring_code_ratio,
-        // Exception-handling hygiene (#117): broad-except / silent-swallow rates over every
+        // Exception-handling hygiene: broad-except / silent-swallow rates over every
         // `except` handler. A cohort discriminator default Ruff can't aggregate; `swallow_rate` is
         // the strongest sub-signal. Descriptive, never a gate.
         "exception_handling": {
@@ -1925,14 +1925,14 @@ fn panel_json(
             "module_edges": summary.module_edges,
             "package_edges": summary.package_edges,
             "cycles": cycles_json(graph, summary.modules),
-            // Whole-system coupling: density of the module reachability matrix (issue #68).
+            // Whole-system coupling: density of the module reachability matrix.
             "propagation_cost": graph.propagation_cost(),
-            // Newman–Girvan modularity: declared package partition vs. detected (issue #69).
+            // Newman–Girvan modularity: declared package partition vs. detected.
             "modularity": modularity_json(graph),
-            // Node-distribution concentration: god-package / flat dumping-ground (issue #103).
+            // Node-distribution concentration: god-package / flat dumping-ground.
             "concentration": concentration_json(graph),
         },
-        // Duplication density (#123): SLP020 clone detection surfaced as a cohort aggregate.
+        // Duplication density: SLP020 clone detection surfaced as a cohort aggregate.
         // `ratio` = fraction of the profile's functions in ≥1 clone pair; copy-paste codebases
         // (a scraper per site) score high, clean libraries ≈ 0. Descriptive, never a gate.
         "duplication": {
@@ -1948,7 +1948,7 @@ fn panel_json(
     map
 }
 
-/// The test-proxies rollup for the JSON feed (issue #86). The `_note` is emitted inline so any
+/// The test-proxies rollup for the JSON feed. The `_note` is emitted inline so any
 /// consumer of the raw JSON sees the caveat: these are *static estimates*, NOT coverage, and
 /// must never be turned into a pass/fail gate. Undefined ratios (no production code / no test
 /// functions) serialize as `null`, not `0`, so consumers don't mistake "undefined" for "zero".
@@ -1965,14 +1965,14 @@ fn test_proxies_json(proxies: &TestProxies) -> serde_json::Value {
         "test_functions": proxies.test_functions,
         "assertions": proxies.assertions,
         "assertion_density": proxies.assertion_density,
-        // Test-substance (#121/#127): fraction of test functions that assert nothing ("test
+        // Test-substance: fraction of test functions that assert nothing ("test
         // theater"). High alongside a high test_code_ratio = a suite that looks tested but isn't.
         "assertion_free_tests": proxies.assertion_free_tests,
         "assertion_free_rate": proxies.assertion_free_rate,
     })
 }
 
-/// The modularity rollup for the JSON feed (issue #69): Q of the declared package partition, Q of
+/// The modularity rollup for the JSON feed: Q of the declared package partition, Q of
 /// the Louvain-detected partition, their community counts, and the gap (detected − declared) — a
 /// large gap means the declared package boundaries don't match the natural structure.
 fn modularity_json(graph: &ImportGraph) -> serde_json::Value {
@@ -1986,7 +1986,7 @@ fn modularity_json(graph: &ImportGraph) -> serde_json::Value {
     })
 }
 
-/// The node-distribution concentration rollup for the JSON feed (issue #103): how modules are
+/// The node-distribution concentration rollup for the JSON feed: how modules are
 /// piled across packages, the axis the edge-based metrics can't see. `largest_package` names the
 /// offender (or `null` when there are no packages). Descriptive only — never a gate.
 fn concentration_json(graph: &ImportGraph) -> serde_json::Value {
@@ -2002,9 +2002,9 @@ fn concentration_json(graph: &ImportGraph) -> serde_json::Value {
     })
 }
 
-/// The cyclic-dependency (SCC) rollup for the JSON feed (issue #66): tangle counts over the
+/// The cyclic-dependency (SCC) rollup for the JSON feed: tangle counts over the
 /// full graph, the same count over the runtime graph (TYPE_CHECKING-only edges dropped) and over
-/// the load-bearing graph (function-local/deferred edges *also* dropped, #122), the share of
+/// the load-bearing graph (function-local/deferred edges *also* dropped), the share of
 /// modules in cycles, and the member modules of each tangle.
 fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
     let report = graph.cycles();
@@ -2020,8 +2020,8 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
         "modules_in_cycles": in_cycles,
         "pct_modules_in_cycles": pct,
         "runtime_tangles": graph.runtime_cycles().tangle_count(),
-        // Hard cycles only: module-top-level runtime edges, dropping function-local/deferred imports
-        // (#122). `0` ⇒ every cycle was deliberately deferred (milder smell); `> 0` ⇒ genuine
+        // Hard cycles only: module-top-level runtime edges, dropping function-local/deferred imports.
+        // `0` ⇒ every cycle was deliberately deferred (milder smell); `> 0` ⇒ genuine
         // load-time circular dependencies that can raise `ImportError`. Not a strict subset of
         // `tangles` by count — dropping edges can split one SCC into several.
         "load_bearing_tangles": graph.load_bearing_cycles().tangle_count(),
@@ -2030,7 +2030,7 @@ fn cycles_json(graph: &ImportGraph, modules: usize) -> serde_json::Value {
 }
 
 /// GitHub-flavored markdown for the PR summary: the cyclomatic risk block from `sloplint_metrics`
-/// for each in-scope profile (#96), under its own heading, then the test proxies. `--scope all`
+/// for each in-scope profile, under its own heading, then the test proxies. `--scope all`
 /// renders one block per profile side by side — never a combined panel that would mix profiles'
 /// norms. Pairs with the `cyclomatic-risk` badge.
 fn metrics_markdown(panels: &[(&str, RepoMetrics, CloneStats)], proxies: &TestProxies) -> String {
@@ -2053,7 +2053,7 @@ fn metrics_markdown(panels: &[(&str, RepoMetrics, CloneStats)], proxies: &TestPr
     out
 }
 
-/// A one-line markdown summary of duplication density (#123) — the SLP020 clone ratio with its
+/// A one-line markdown summary of duplication density — the SLP020 clone ratio with its
 /// pair count and largest cluster. Descriptive cohort signal, never a gate.
 fn clone_markdown(c: &CloneStats) -> String {
     format!(
@@ -2067,7 +2067,7 @@ fn clone_markdown(c: &CloneStats) -> String {
     )
 }
 
-/// A markdown block for the static test proxies (#86), explicitly captioned as *proxies, not
+/// A markdown block for the static test proxies, explicitly captioned as *proxies, not
 /// coverage* so the PR summary can't be read as a gate.
 fn test_proxies_markdown(proxies: &TestProxies) -> String {
     format!(
@@ -2118,7 +2118,7 @@ fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
                 Color::for_value(repo.max_cognitive as f64, 15.0, 30.0),
             ),
         ),
-        // Headline cognitive risk, colored by SonarSource's band rather than a flat threshold (#110)
+        // Headline cognitive risk, colored by SonarSource's band rather than a flat threshold
         // — the cognitive counterpart to `cyclomatic-risk`.
         ("cognitive-risk", repo.cognitive_badge()),
         (
@@ -2137,7 +2137,7 @@ fn metric_badges(repo: &RepoMetrics) -> Vec<(&'static str, Badge)> {
                 Color::for_value(repo.comment_density * 100.0, 20.0, 40.0),
             ),
         ),
-        // Documentation coverage (#83): higher is better, so green at high coverage.
+        // Documentation coverage: higher is better, so green at high coverage.
         (
             "docstring-coverage",
             Badge::new(
@@ -2376,7 +2376,7 @@ mod tests {
             row["cyclomatic"].as_u64().unwrap() >= 2,
             "the `if` is a branch"
         );
-        // Type-hint coverage (#85): 1 of 2 params annotated, return type present.
+        // Type-hint coverage: 1 of 2 params annotated, return type present.
         assert_eq!(row["typed_params"], 1);
         assert_eq!(row["annotatable_params"], 2);
         assert_eq!(row["has_return_annotation"], true);

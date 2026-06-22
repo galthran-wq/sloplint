@@ -1,4 +1,4 @@
-//! End-to-end tests for the exception-handling hygiene aggregate (#117): broad-except and
+//! End-to-end tests for the exception-handling hygiene aggregate: broad-except and
 //! silent-swallow rates over every `except` handler, surfaced in `metrics` as a cohort
 //! discriminator default Ruff can't aggregate. Exercises the real binary in JSON, text, and the
 //! GitHub markdown.

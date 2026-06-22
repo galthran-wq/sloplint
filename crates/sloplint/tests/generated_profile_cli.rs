@@ -1,4 +1,4 @@
-//! End-to-end tests for the built-in `generated` profile (issue #115), over the real built binary
+//! End-to-end tests for the built-in `generated` profile, over the real built binary
 //! and a committed mini-project: a human `src/app.py`, an OpenAPI-generated `src/openapi_client.py`
 //! (detected by its header marker, *not* its path), and a protobuf `proto/thing_pb2.py` (detected
 //! by the `_pb2.py` path convention). Pins that generated code is segregated into its own panel and

@@ -1,4 +1,4 @@
-//! End-to-end tests for NOC (Number of Children, #113): inheritance *breadth* — direct
+//! End-to-end tests for NOC (Number of Children): inheritance *breadth* — direct
 //! first-party subclasses per class — in the metrics aggregate, the CK pair of DIT depth.
 //! Exercises the real binary over a temp project, in the class feed, JSON, text, and markdown.
 

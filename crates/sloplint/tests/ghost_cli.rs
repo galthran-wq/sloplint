@@ -1,4 +1,4 @@
-//! End-to-end tests for SLP240 (ghost scaffolding, issue #146), running the real built binary.
+//! End-to-end tests for SLP240 (ghost scaffolding), running the real built binary.
 //! Whole-project + preview-gated: verifies unreferenced defs are flagged, cross-file references /
 //! exports / entry-points suppress, and the ghost-config-flag check.
 

@@ -1,9 +1,9 @@
 //! Rule-independent diagnostic abstractions.
 //!
 //! Mirrors Ruff's `ruff_diagnostics` split: rules produce [`Diagnostic`]s without knowing
-//! how they're rendered (text / JSON / SARIF / PR comment). The full model — fix edits,
-//! severity policy, suppression — is fleshed out in the diagnostics/registry PR. This is
-//! the seam crate so downstream crates can already depend on it.
+//! how they're rendered (text / JSON / SARIF / PR comment). Keeping these abstractions in a
+//! seam crate lets every downstream crate depend on the diagnostic model without pulling in
+//! the rule engine.
 
 pub mod fix;
 pub mod render;

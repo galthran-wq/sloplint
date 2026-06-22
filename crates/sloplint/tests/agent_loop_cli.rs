@@ -1,4 +1,4 @@
-//! End-to-end tests for the agent-loop integration (issue #50), running the real built
+//! End-to-end tests for the agent-loop integration, running the real built
 //! binary: `sloplint init` wiring AI-tool hook configs, and `sloplint check --hook` reading an
 //! edited path from stdin and reporting back via exit code 2 + stderr.
 

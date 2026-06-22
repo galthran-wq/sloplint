@@ -1,4 +1,4 @@
-//! End-to-end tests for the module-size distribution (#107): god-module prevalence (NLOC per
+//! End-to-end tests for the module-size distribution: god-module prevalence (NLOC per
 //! file) in the metrics aggregate — the third leg of the size triad, mirroring the function
 //! `cyclomatic_risk` and class `wmc_risk` tiers. Exercises the real binary over a temp project
 //! with one module per NLOC band, in JSON, text, and the GitHub markdown.

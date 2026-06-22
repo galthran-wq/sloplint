@@ -1,4 +1,4 @@
-//! End-to-end tests for SLP220 (corrupted/truncated AI output, issue #144), running the real
+//! End-to-end tests for SLP220 (corrupted/truncated AI output), running the real
 //! built binary. SLP220 is preview-gated and CLI-level (an unparseable file never reaches the
 //! registry rules): verifies the leftover-fence / conflict-marker / tag / unparseable / prose
 //! signals, that a fence inside a docstring is NOT flagged, and that it's silent by default.

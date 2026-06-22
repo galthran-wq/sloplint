@@ -1,6 +1,6 @@
 //! Configuration model and loading (`sloplint.toml`).
 //!
-//! Mirrors Ruff's select/ignore model, layered over named **profiles** (#96). A profile is a
+//! Mirrors Ruff's select/ignore model, layered over named **profiles**. A profile is a
 //! path-matched slice of the tree — `tests`, `production`, generated code, … — carrying its own
 //! rule deltas (ignores, comment allowance, threshold overrides) *and* defining a metrics panel.
 //! Defaults are deliberately strict-but-safe: every stable `SLP` rule is enabled, nothing is
@@ -24,9 +24,9 @@ pub struct Config {
     pub ignore: Vec<String>,
     /// Enable preview-group (unstable) rules. Off by default, like Ruff's `--preview`.
     pub preview: bool,
-    /// Named, path-matched profiles (#96). Replaces the old per-path overrides: a profile both
-    /// carries rule deltas and defines a metrics panel. Omitted in TOML ⇒ the built-in `tests` /
-    /// `generated` / `production` trio ([`default_profiles`]); declaring any replaces that set.
+    /// Named, path-matched profiles: a profile both carries rule deltas and defines a metrics
+    /// panel. Omitted in TOML ⇒ the built-in `tests` / `generated` / `production` trio
+    /// ([`default_profiles`]); declaring any replaces that set.
     #[serde(default = "default_profiles")]
     pub profiles: Vec<Profile>,
     /// Near-duplicate (clone) detection settings (global defaults; a profile may override).
@@ -189,7 +189,7 @@ impl Default for CloneSettings {
     }
 }
 
-/// A named, path-matched slice of the tree (#96). It carries rule deltas applied over the global
+/// A named, path-matched slice of the tree. It carries rule deltas applied over the global
 /// config for files it matches, *and* it is the unit `metrics` reports a panel for. Profiles are
 /// an ordered list: a file belongs to every profile whose `match`/`exclude` globs select it
 /// (overlap is allowed), and overlapping deltas resolve in declaration order. A `default` profile
@@ -212,14 +212,14 @@ pub struct Profile {
     /// one profile should set this.
     #[serde(default)]
     pub default: bool,
-    /// Marks a content-detected profile for machine-generated code (#115). In addition to its
+    /// Marks a content-detected profile for machine-generated code. In addition to its
     /// `match`/`exclude` globs, a `generated = true` profile *also* claims any file whose header
     /// carries a generated-code marker ([`crate::detect::is_generated`]). The built-in `generated`
     /// profile uses this; a custom profile can set it to extend the same content detection.
     #[serde(default)]
     pub generated: bool,
-    /// Code prefixes to additionally ignore for files in this profile (accumulate across all
-    /// matching profiles, like the old overrides).
+    /// Code prefixes to additionally ignore for files in this profile (accumulated across all
+    /// matching profiles).
     #[serde(default)]
     pub ignore: Vec<String>,
     /// Whether comments are allowed for files in this profile.
@@ -234,7 +234,7 @@ pub struct Profile {
 }
 
 /// The built-in profiles when none are configured: `tests` (path heuristic mirroring
-/// [`crate`]'s test classification), `generated` (content-detected machine-generated code, #115),
+/// [`crate`]'s test classification), `generated` (content-detected machine-generated code),
 /// and `production` (everything else). Reproduces the pre-profiles behavior with zero config, plus
 /// the generated split. Declared `tests, generated, production` so that production stays the
 /// catch-all complement and both special categories are carved out of it.
@@ -411,7 +411,7 @@ impl CompiledProfile<'_> {
     }
 
     /// Whether this profile claims a file at `path` with the given content classification: its
-    /// globs match, or it is a `generated` profile and the file was detected as generated (#115).
+    /// globs match, or it is a `generated` profile and the file was detected as generated.
     /// `is_generated` is `false` for the path-only callers (`check`), so a content-detected
     /// generated file only routes into the `generated` panel where the caller has scanned its
     /// header — the `metrics` command.
@@ -428,7 +428,7 @@ pub struct Selector<'a> {
 
 impl<'a> Selector<'a> {
     /// Indices (into the profile list, in declaration order) of every profile `path` belongs to,
-    /// given whether its content was detected as machine-generated (#115). A file matches each
+    /// given whether its content was detected as machine-generated. A file matches each
     /// profile whose globs select it (plus the `generated` profile when `is_generated`); if none
     /// do, it falls to the `default` profile (the complement). Empty only when there is neither a
     /// match nor a default.
@@ -465,8 +465,8 @@ impl<'a> Selector<'a> {
             .collect()
     }
 
-    /// The names of the profiles a file belongs to, accounting for machine-generated detection
-    /// (#115): pass `is_generated` from [`crate::detect::is_generated`] so a generated file routes
+    /// The names of the profiles a file belongs to, accounting for machine-generated detection:
+    /// pass `is_generated` from [`crate::detect::is_generated`] so a generated file routes
     /// into the `generated` profile (and thus out of the `production` complement). Used by
     /// `metrics`, which has the file's content in hand.
     pub fn profiles_for_file(&self, path: &str, is_generated: bool) -> Vec<&'a str> {

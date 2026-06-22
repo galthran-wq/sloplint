@@ -1,4 +1,4 @@
-//! End-to-end test for the SLP120 god-class rule (issue #14), running the real built binary
+//! End-to-end test for the SLP120 god-class rule, running the real built binary
 //! over a committed Python fixture and reading `check --format json`. SLP120 is a Preview
 //! rule, so the run enables `--preview` and selects only SLP120 (via an explicit config).
 

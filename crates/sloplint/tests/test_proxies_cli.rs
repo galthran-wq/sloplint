@@ -1,4 +1,4 @@
-//! End-to-end tests for the static test proxies (issue #86): `test:code ratio` and
+//! End-to-end tests for the static test proxies: `test:code ratio` and
 //! `assertion density`, exercised over a committed mini-project with one production file and
 //! one test file with known test functions and assertions.
 //!
@@ -62,9 +62,9 @@ fn json_reports_test_proxies_with_exact_counts() {
         "assertion_density = {density}"
     );
 
-    // Test-substance (#127): only test_theater asserts nothing (the three others all assert,
+    // Test-substance: only test_theater asserts nothing (the three others all assert,
     // including the branch-free one-liners) → assertion-free rate = 1 / 4. A cognitive-based
-    // signal would have inverted this — see issue #127.
+    // signal would have inverted this.
     assert_eq!(proxies["assertion_free_tests"], 1);
     let free = proxies["assertion_free_rate"].as_f64().unwrap();
     assert!(
@@ -110,7 +110,7 @@ fn undefined_ratios_serialize_as_null_not_zero() {
         proxies["assertion_density"].is_null(),
         "density null with no tests"
     );
-    // Same for the assertion-free rate: no test functions → null, not a misleading 0 (#127).
+    // Same for the assertion-free rate: no test functions → null, not a misleading 0.
     assert!(
         proxies["assertion_free_rate"].is_null(),
         "assertion_free_rate null with no tests"
@@ -134,7 +134,7 @@ fn text_and_markdown_label_the_proxies_as_not_coverage() {
     );
     assert!(
         text.contains("assertion-free rate"),
-        "text table has the assertion-free rate (#127):\n{text}"
+        "text table has the assertion-free rate:\n{text}"
     );
     assert!(
         text.contains("not coverage"),
@@ -149,7 +149,7 @@ fn text_and_markdown_label_the_proxies_as_not_coverage() {
     );
     assert!(
         md.contains("assertion-free rate"),
-        "markdown surfaces the assertion-free rate (#127):\n{md}"
+        "markdown surfaces the assertion-free rate:\n{md}"
     );
     assert!(
         md.contains("not coverage"),

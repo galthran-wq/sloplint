@@ -1,4 +1,4 @@
-//! End-to-end tests for the documentation/docstring-coverage metric (issue #83), exercised
+//! End-to-end tests for the documentation/docstring-coverage metric, exercised
 //! against the real built binary over a committed Python fixture with a known mix of
 //! documented/undocumented public and private units. Covers the `--format json` project
 //! aggregate, the per-function `--format functions` feed, and the per-class `--format classes`
@@ -15,7 +15,7 @@ fn fixtures_dir() -> PathBuf {
 
 /// Run `sloplint metrics docstrings.py <extra args...>` from *inside* the fixtures dir, so the
 /// classified path is the bare `docstrings.py` (production). Running from the repo root would put
-/// a `tests/fixtures/` ancestor in the path and classify the fixture as a test file (#96),
+/// a `tests/fixtures/` ancestor in the path and classify the fixture as a test file,
 /// emptying the production panel/feeds these assertions read.
 fn run_metrics(extra: &[&str]) -> (String, i32) {
     let mut args = vec!["metrics", "docstrings.py"];
@@ -36,7 +36,7 @@ fn json_reports_docstring_coverage_and_ratio() {
     let (stdout, code) = run_metrics(&["--format", "json"]);
     assert_eq!(code, 0);
     let value: Value = serde_json::from_str(&stdout).expect("metrics --format json is valid JSON");
-    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    // The fixture is production code; its panel lives under `profiles.production`.
     let prod = &value["profiles"]["production"];
 
     // Public units: documented (doc), undocumented (no doc), Service (doc), run (no doc).

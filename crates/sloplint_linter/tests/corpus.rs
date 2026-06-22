@@ -107,8 +107,8 @@ fn corpus_precision_recall() {
         "precision {precision:.3} fell below {MIN_PRECISION}: a shipped rule flagged clean code"
     );
 
-    // Recall gate, raised as rules land. SLP010 (comment ban) + SLP050 (ASCII) now flag
-    // the comment-bearing slop files; type-hint/duplication slop awaits later slices.
+    // Recall gate. SLP010 (comment ban) + SLP050 (ASCII) flag the comment-bearing slop
+    // files; type-hint/duplication slop is not exercised by this corpus gate.
     const MIN_RECALL: f64 = 0.6;
     assert!(
         recall >= MIN_RECALL,
