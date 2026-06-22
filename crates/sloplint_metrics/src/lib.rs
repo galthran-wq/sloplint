@@ -1161,8 +1161,8 @@ fn file_nloc(source: &str, parsed: &Parsed<ModModule>) -> usize {
 }
 
 /// Aggregate per-file metrics into repo-level figures.
-/// Minimum cognitive complexity for a function to count toward [`RepoMetrics::max_logic_function_loc`]
-///. Excludes straight-line data/config-init blobs (cognitive ≈ 0–1) from the "longest logic
+/// Minimum cognitive complexity for a function to count toward [`RepoMetrics::max_logic_function_loc`].
+/// Excludes straight-line data/config-init blobs (cognitive ≈ 0–1) from the "longest logic
 /// function" signal, so a 2,733-line `__init__` of assignments doesn't outrank a real god-function.
 pub const LOGIC_FUNCTION_MIN_COGNITIVE: usize = 5;
 

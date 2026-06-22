@@ -465,8 +465,8 @@ impl<'a> Selector<'a> {
             .collect()
     }
 
-    /// The names of the profiles a file belongs to, accounting for machine-generated detection
-    ///: pass `is_generated` from [`crate::detect::is_generated`] so a generated file routes
+    /// The names of the profiles a file belongs to, accounting for machine-generated detection:
+    /// pass `is_generated` from [`crate::detect::is_generated`] so a generated file routes
     /// into the `generated` profile (and thus out of the `production` complement). Used by
     /// `metrics`, which has the file's content in hand.
     pub fn profiles_for_file(&self, path: &str, is_generated: bool) -> Vec<&'a str> {

@@ -129,8 +129,8 @@ fn text_and_json_agree_when_a_file_collides_with_a_package() {
 
 #[test]
 fn concentration_is_scoped_to_the_production_profile() {
-    // Test files live in the `tests` profile, so they must not count toward production concentration
-    //. Production here is just the 2-module `app` package + root main.py = 3 modules.
+    // Test files live in the `tests` profile, so they must not count toward production concentration.
+    // Production here is just the 2-module `app` package + root main.py = 3 modules.
     let project = make_project("scope");
     write(&project, "app/__init__.py", "");
     write(&project, "app/core.py", "x = 1\n");
