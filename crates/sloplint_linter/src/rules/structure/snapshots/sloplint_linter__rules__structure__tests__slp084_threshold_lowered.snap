@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+3:9 SLP084 [warning] data-structure literal nested 4 levels deep (max 2); model it with a named type (e.g. a dataclass) instead of an inline literal

@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/cohesion/mod.rs
+expression: rendered
+---
+4:7 SLP120 [warning] class `Utils` has low cohesion: its methods split into 2 unrelated groups (LCOM4=2) — consider splitting it

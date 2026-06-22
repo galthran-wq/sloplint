@@ -6,3 +6,6 @@ expression: rendered
 5:10 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
 7:10 SLP084 [warning] data-structure literal nested 5 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
 11:9 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
+14:17 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
+17:34 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal
+18:39 SLP084 [warning] data-structure literal nested 4 levels deep (max 3); model it with a named type (e.g. a dataclass) instead of an inline literal

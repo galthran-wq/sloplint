@@ -45,6 +45,7 @@ pub fn rules() -> Vec<RegisteredRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Limits;
     use crate::test_rule;
 
     test_rule!(
@@ -65,8 +66,28 @@ mod tests {
         "structure",
         "SLP060"
     );
-    // SLP080 needs a custom (small) line limit, which `test_rule!` can't supply, so it has
-    // a dedicated unit test in its own module instead of a snapshot.
+    // SLP080 needs a small line limit, so its snapshots pass an explicit `Limits`: the
+    // 4-line fixture flags when over the ceiling and is silent exactly at it.
+    test_rule!(
+        slp080_over_limit,
+        oversized_file::OversizedFile,
+        "structure",
+        "SLP080",
+        Limits {
+            file_max_lines: 3,
+            ..Default::default()
+        }
+    );
+    test_rule!(
+        slp080_at_limit,
+        oversized_file::OversizedFile,
+        "structure",
+        "SLP080",
+        Limits {
+            file_max_lines: 4,
+            ..Default::default()
+        }
+    );
     test_rule!(
         slp082_deep_nesting,
         deep_nesting::DeepNesting,
@@ -78,5 +99,27 @@ mod tests {
         deep_data_nesting::DeepDataNesting,
         "structure",
         "SLP084"
+    );
+    // Threshold: the same 4-deep literal is spared when the depth limit is raised above it
+    // and flagged when lowered below it.
+    test_rule!(
+        slp084_threshold_raised,
+        deep_data_nesting::DeepDataNesting,
+        "structure",
+        "SLP084_threshold",
+        Limits {
+            data_nesting_max_depth: 4,
+            ..Default::default()
+        }
+    );
+    test_rule!(
+        slp084_threshold_lowered,
+        deep_data_nesting::DeepDataNesting,
+        "structure",
+        "SLP084_threshold",
+        Limits {
+            data_nesting_max_depth: 2,
+            ..Default::default()
+        }
     );
 }

@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+1:1 SLP080 [warning] file has 4 lines (max 3); split it into smaller modules

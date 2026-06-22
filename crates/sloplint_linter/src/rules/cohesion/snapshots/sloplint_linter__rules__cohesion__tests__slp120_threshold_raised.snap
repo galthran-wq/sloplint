@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/cohesion/mod.rs
+expression: rendered
+---
+No diagnostics.
