@@ -2272,136 +2272,24 @@ fn collect_classes<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtClassDef>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::fixture_source;
     use sloplint_python::parse;
 
     fn metrics(source: &str) -> FileMetrics {
         file_metrics(source, &parse(source).unwrap())
     }
 
-    /// Cognitive complexity of the first function in `source`.
-    fn cog(source: &str) -> usize {
-        metrics(source).functions[0].cognitive
-    }
-
+    /// Cognitive complexity of every function in a fixture, in source order. The fixture
+    /// documents each SonarSource-style case; the snapshot pins the scores.
     #[test]
-    fn flat_match_scores_far_below_a_nested_tangle() {
-        // The headline of SonarSource cognitive complexity: a flat `match` is read linearly.
-        let flat = "\
-def classify(x):
-    match x:
-        case 1:
-            return \"one\"
-        case 2:
-            return \"two\"
-        case 3:
-            return \"three\"
-        case _:
-            return \"other\"
-";
-        // The whole match is one structure (+1), counted once regardless of case count.
-        assert_eq!(cog(flat), 1);
-
-        let tangle = "\
-def tangle(a, b, c):
-    if a:
-        if b:
-            if c:
-                return 1
-    return 0
-";
-        // if(1+0) + if(1+1) + if(1+2) = 6 — nesting is penalized.
-        assert_eq!(cog(tangle), 6);
-    }
-
-    #[test]
-    fn boolean_operator_sequences_each_add_one() {
-        // `a and b and c` is one And sequence (+1); `a and b or c` is two sequences (+2).
-        let source = "\
-def f(a, b, c):
-    if a and b and c:
-        return 1
-    if a and b or c:
-        return 2
-    return 0
-";
-        // if(1) + 1 boolop  +  if(1) + 2 boolops  = 2 + 3 = 5
-        assert_eq!(cog(source), 5);
-    }
-
-    #[test]
-    fn ternary_and_comprehension_filters_count_with_nesting() {
-        assert_eq!(
-            cog("def f(a, b):\n    x = a if b else 0\n    return x\n"),
-            1
-        );
-        // ternary nested inside an `if` body: if(1) + ternary(1+1) = 3
-        assert_eq!(
-            cog("def f(a, b, c):\n    if a:\n        return b if c else 0\n    return 0\n"),
-            3
-        );
-        // a comprehension `if` filter, top level: +1
-        assert_eq!(cog("def f(xs):\n    return [x for x in xs if x > 0]\n"), 1);
-        // comprehension filter nested in a loop: for(1) + filter(1+1) = 3
-        assert_eq!(
-            cog("def f(xss):\n    out = []\n    for xs in xss:\n        out.append([x for x in xs if x])\n    return out\n"),
-            3
-        );
-    }
-
-    #[test]
-    fn with_and_try_are_not_flow_breaks() {
-        // `with` adds no increment and no nesting, so the inner `if` stays at level 0.
-        assert_eq!(
-            cog("def f(path):\n    with open(path) as fh:\n        if fh:\n            return 1\n    return 0\n"),
-            1
-        );
-        // `try` adds nothing; only the `except` handler increments.
-        assert_eq!(
-            cog("def f(x):\n    try:\n        return risky(x)\n    except ValueError:\n        return 0\n"),
-            1
-        );
-    }
-
-    #[test]
-    fn else_adds_a_flat_increment() {
-        // if(1+0) + else(+1 flat) = 2
-        assert_eq!(
-            cog("def f(a):\n    if a:\n        return 1\n    else:\n        return 0\n"),
-            2
-        );
-    }
-
-    #[test]
-    fn match_guard_conditions_are_scored() {
-        // match(+1) + the guard's `a and b` boolean op (+1) = 2 (regression: guards were dropped).
-        let source = "\
-def f(x, a, b):
-    match x:
-        case 1 if a and b:
-            return 1
-        case _:
-            return 0
-";
-        assert_eq!(cog(source), 2);
-    }
-
-    #[test]
-    fn with_item_conditions_are_scored() {
-        // `with` is not a flow break, but the `a and b` in its context expression counts (+1).
-        assert_eq!(
-            cog("def f(a, b):\n    with make(a and b) as fh:\n        return fh\n"),
-            1
-        );
-    }
-
-    #[test]
-    fn nested_ternary_uses_statement_level_nesting() {
-        // Documented simplification: both ternaries score at the statement's nesting (0), so
-        // `a if b else (c if d else e)` is 1 + 1 = 2, not 1 + 2.
-        assert_eq!(
-            cog("def f(a, b, c, d, e):\n    return a if b else (c if d else e)\n"),
-            2
-        );
+    fn cognitive_complexity() {
+        use std::fmt::Write;
+        let source = fixture_source("complexity/cognitive.py");
+        let mut out = String::new();
+        for function in &metrics(&source).functions {
+            writeln!(out, "{}: cognitive={}", function.name, function.cognitive).unwrap();
+        }
+        insta::assert_snapshot!(out);
     }
 
     #[test]
