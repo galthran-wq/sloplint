@@ -417,6 +417,23 @@ and class tiers, NLOC has no canonical hard threshold (SonarQube's ~750–1000-l
 starting point), so the bands are **descriptive, never a gate** — high `high`/`very_high` counts
 flag files to *read*, not defects.
 
+### Top-level / undecomposed code (#141)
+
+Complexity (cyclomatic/cognitive/NCSS) is measured **per function**, so a procedural script with no
+functions — a Streamlit/Dash dashboard, a notebook export, a "write me a script" one-shot — scores
+near-pristine while being untestable, unreusable, and unrefactorable. The **top-level-code ratio**
+catches it: the fraction of a module's executable logic at module scope vs. inside functions.
+
+```jsonc
+"top_level_code": { "avg_ratio": 0.18, "max_ratio": 0.95, "undecomposed_modules": 2 }
+```
+
+`avg_ratio` is over modules that contain logic; `undecomposed_modules` counts non-trivial modules
+(≥ 15 logic statements) whose ratio ≥ 0.6 — the script-dumps. The numerator excludes imports, the
+module docstring, the `if __name__ == "__main__":` guard, class-body declarations, and pure constant
+assignments, so config/`__main__`/library modules don't false-fire. Orthogonal to complexity (the
+code is linear) and module-size (it's often only moderate). Descriptive, never a gate.
+
 ### Package & module architecture metrics
 
 `sloplint metrics` also analyzes the project's **first-party import graph** — the metrics the
