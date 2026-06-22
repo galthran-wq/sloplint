@@ -18,7 +18,7 @@ mod hook;
 mod init;
 mod output;
 use badges::write_badges;
-use output::{metrics_json, metrics_markdown, opt_ratio};
+use output::{class_row, function_row, metrics_json, metrics_markdown, opt_ratio, package_row};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, Read, Write};
@@ -38,7 +38,7 @@ use sloplint_linter::detect;
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_linter::suppression::Suppressions;
-use sloplint_metrics::graph::{self, ImportGraph, ModuleInput, PackageRow};
+use sloplint_metrics::graph::{self, ImportGraph, ModuleInput};
 use sloplint_metrics::test_proxies::{self, FileTestStats, TestProxies};
 use sloplint_metrics::{aggregate, file_metrics, FileMetrics, FunctionMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged, TextRange};
@@ -1371,28 +1371,6 @@ fn print_class_rows(per_file: &[MeasuredFile], scope: &Scope) {
     }
 }
 
-/// Build the JSONL row for one class. Split out so its shape can be unit-tested.
-fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> serde_json::Value {
-    serde_json::json!({
-        "file": path,
-        "class": class.name,
-        "loc": class.loc,
-        "methods": class.methods,
-        "attributes": class.attributes,
-        "lcom4": class.lcom4,
-        "wmc": class.wmc,
-        "dit": class.dit,
-        // NOC: direct first-party subclasses — inheritance breadth / fragile-base risk.
-        "noc": class.noc,
-        // CBO: distinct first-party classes this one couples to — a lower bound in
-        // dynamically-typed code (duck-typed coupling not counted).
-        "cbo": class.cbo,
-        "is_abstract": class.is_abstract,
-        "has_docstring": class.has_docstring,
-        "docstring_lines": class.docstring_lines,
-    })
-}
-
 /// Emit one JSONL row per package: the first-party import graph collapsed to directory level.
 /// The package-level discovery feed, mirroring `print_function_rows`/`print_class_rows`.
 fn print_package_rows(graph: &ImportGraph) {
@@ -1401,66 +1379,6 @@ fn print_package_rows(graph: &ImportGraph) {
     for row in graph.package_rows() {
         let _ = writeln!(out, "{}", package_row(&row));
     }
-}
-
-/// Build the JSONL row for one package. Split out so its shape can be unit-tested.
-///
-/// `ce`/`ca` are Martin's efferent/afferent coupling (the counts of distinct first-party packages
-/// in `imports`/`imported_by`); `instability` is `ce / (ce + ca)`. `abstractness` and
-/// `distance` are Martin's `A` and `D = |A + I − 1|` (heuristic in Python). The named-package
-/// lists are kept so a consumer can see *which* packages couple, not just how many.
-fn package_row(row: &PackageRow) -> serde_json::Value {
-    serde_json::json!({
-        "package": row.package,
-        "modules": row.modules,
-        "loc": row.loc,
-        "imports": row.imports,
-        "imported_by": row.imported_by,
-        "ce": row.imports.len(),
-        "ca": row.imported_by.len(),
-        "instability": row.instability,
-        "in_cycle": row.in_cycle,
-        "classes": row.classes,
-        "abstract_classes": row.abstract_classes,
-        "abstractness": row.abstractness,
-        "distance": row.distance,
-    })
-}
-
-/// Build the JSONL row for one function. Split out so its shape can be unit-tested.
-fn function_row(
-    path: &str,
-    file: &FileMetrics,
-    function: &sloplint_metrics::FunctionMetrics,
-) -> serde_json::Value {
-    let comment_density = if file.loc == 0 {
-        0.0
-    } else {
-        file.comment_lines as f64 / file.loc as f64
-    };
-    serde_json::json!({
-        "file": path,
-        "function": function.name,
-        "loc": function.loc,
-        "ncss": function.ncss,
-        "cyclomatic": function.cyclomatic,
-        "cognitive": function.cognitive,
-        "max_nesting": function.max_nesting,
-        "params": function.params,
-        // Caller-facing arity: params minus the self/cls receiver — the Long-Parameter-List
-        // signal. `*args`/`**kwargs` each count once.
-        "arity": function.arity,
-        "exits": function.exits,
-        // Type-hint coverage: annotated vs. annotatable params, and whether a return type is
-        // declared. `annotatable_params` excludes the self/cls receiver and *args/**kwargs.
-        "typed_params": function.typed_params,
-        "annotatable_params": function.annotatable_params,
-        "has_return_annotation": function.has_return_annotation,
-        "has_docstring": function.has_docstring,
-        "docstring_lines": function.docstring_lines,
-        "file_loc": file.loc,
-        "file_comment_density": comment_density,
-    })
 }
 
 /// Print one labeled metric panel — the per-partition aggregates, without the test
@@ -1805,104 +1723,6 @@ mod tests {
             diagnostics: Vec::new(),
             suppressions: Suppressions::empty(),
         }
-    }
-
-    #[test]
-    fn function_row_has_features_and_file_comment_density() {
-        let source =
-            "# a comment\ndef f(a: int, b) -> str:\n    if a:\n        return b\n    return a\n";
-        let parsed = parse(source).unwrap();
-        let metrics = file_metrics(source, &parsed);
-        let row = function_row("pkg/m.py", &metrics, &metrics.functions[0]);
-
-        assert_eq!(row["file"], "pkg/m.py");
-        assert_eq!(row["function"], "f");
-        assert_eq!(row["params"], 2);
-        assert!(
-            row["cyclomatic"].as_u64().unwrap() >= 2,
-            "the `if` is a branch"
-        );
-        // Type-hint coverage: 1 of 2 params annotated, return type present.
-        assert_eq!(row["typed_params"], 1);
-        assert_eq!(row["annotatable_params"], 2);
-        assert_eq!(row["has_return_annotation"], true);
-        // 1 comment line over the file's physical lines.
-        let density = row["file_comment_density"].as_f64().unwrap();
-        assert!(density > 0.0 && density < 1.0, "got {density}");
-        // `f` has no docstring (a `#`-comment is not a docstring).
-        assert_eq!(row["has_docstring"], false);
-        assert_eq!(row["docstring_lines"], 0);
-    }
-
-    #[test]
-    fn function_row_reports_docstring_size() {
-        let source = "def f():\n    \"\"\"Two\n    lines.\"\"\"\n    return 1\n";
-        let parsed = parse(source).unwrap();
-        let metrics = file_metrics(source, &parsed);
-        let row = function_row("pkg/m.py", &metrics, &metrics.functions[0]);
-        assert_eq!(row["has_docstring"], true);
-        assert_eq!(row["docstring_lines"], 2);
-    }
-
-    #[test]
-    fn class_row_has_size_and_cohesion_fields() {
-        let source = "\
-class Counter:
-    def __init__(self):
-        self.total = 0
-    def add(self, n):
-        self.total += n
-    def show(self):
-        return self.total
-";
-        let parsed = parse(source).unwrap();
-        let metrics = file_metrics(source, &parsed);
-        let row = class_row("pkg/m.py", &metrics.classes[0]);
-
-        assert_eq!(row["file"], "pkg/m.py");
-        assert_eq!(row["class"], "Counter");
-        assert_eq!(row["methods"], 3);
-        assert_eq!(row["attributes"], 1); // self.total
-        assert_eq!(row["lcom4"], 1, "add/show share self.total");
-        assert!(row["loc"].as_u64().unwrap() >= 7);
-        assert_eq!(row["is_abstract"], false, "a plain concrete class");
-        // No leading string literal in the class body, so no docstring.
-        assert_eq!(row["has_docstring"], false);
-        assert_eq!(row["docstring_lines"], 0);
-    }
-
-    #[test]
-    fn package_row_has_module_count_and_coupling() {
-        let instability = graph::instability(1, 2);
-        let abstractness = graph::abstractness(1, 4); // 1 of 4 classes abstract
-        let row = PackageRow {
-            package: "pkg".to_string(),
-            modules: 2,
-            loc: 42,
-            imports: vec!["pkg.sub".to_string()],
-            imported_by: vec!["app".to_string(), "cli".to_string()],
-            in_cycle: true,
-            instability,
-            classes: 4,
-            abstract_classes: 1,
-            abstractness,
-            distance: graph::distance(abstractness, instability),
-        };
-        let value = package_row(&row);
-        assert_eq!(value["package"], "pkg");
-        assert_eq!(value["modules"], 2);
-        assert_eq!(value["loc"], 42);
-        assert_eq!(value["imports"], serde_json::json!(["pkg.sub"]));
-        // Ce = 1 (pkg.sub), Ca = 2 (app, cli) → I = 1 / 3.
-        assert_eq!(value["ce"], 1);
-        assert_eq!(value["ca"], 2);
-        assert_eq!(value["instability"], 1.0 / 3.0);
-        assert_eq!(value["in_cycle"], true);
-        // A = 1/4 = 0.25; D = |0.25 + 1/3 − 1| = |−0.41666…| = 0.41666…
-        assert_eq!(value["classes"], 4);
-        assert_eq!(value["abstract_classes"], 1);
-        assert_eq!(value["abstractness"], 0.25);
-        assert_eq!(value["distance"], (0.25 + 1.0 / 3.0 - 1.0_f64).abs());
     }
 
     #[test]
