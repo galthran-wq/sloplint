@@ -133,7 +133,9 @@ fn is_step_narration(lower: &str) -> bool {
 /// A pure ASCII divider: the body, whitespace removed, is ≥4 chars all drawn from the divider set.
 fn is_divider(body: &str) -> bool {
     let stripped: String = body.chars().filter(|c| !c.is_whitespace()).collect();
-    stripped.len() >= 4 && stripped.chars().all(|c| "=-*~#_+<>".contains(c))
+    // `<`/`>` are excluded so arrow comments (`# --->`) and doctest-ish `# >>>` aren't mistaken for
+    // dividers (and merge markers are SLP220's job).
+    stripped.len() >= 4 && stripped.chars().all(|c| "=-*~#_+".contains(c))
 }
 
 /// Word-boundary substring match (so `for now` doesn't fire inside `before nowhere`). Both inputs
@@ -173,8 +175,6 @@ const DEFERRAL: &[&str] = &[
     "for simplicity",
     "to keep it simple",
     "placeholder",
-    "temporary",
-    "temporarily",
     "not implemented yet",
     "left as an exercise",
     "in a real app",
@@ -201,7 +201,9 @@ const HEDGING: &[&str] = &[
     "feel free to",
 ];
 
-/// Narrator-comment prefixes (warning severity).
+/// Narrator-comment prefixes (warning severity). Deliberately the unambiguous "narrating the unit"
+/// openers — vaguer leads like `this is the …` / `the following …` / `here we …` are dropped, since
+/// they frequently begin legitimate clarifying WHY-comments.
 const NARRATOR: &[&str] = &[
     "this function",
     "this method",
@@ -209,13 +211,8 @@ const NARRATOR: &[&str] = &[
     "this module",
     "this script",
     "this code",
-    "this is a",
-    "this is the",
-    "here we ",
     "we are going to",
     "we will ",
-    "the following",
-    "the purpose of",
 ];
 
 #[cfg(test)]
@@ -251,7 +248,7 @@ mod tests {
         assert!(class("==========").is_some());
         assert!(class("- - - - -").is_some());
         assert!(class("This function handles the request").is_some());
-        assert!(class("this is the main entry point").is_some());
+        assert!(class("we will iterate over the rows").is_some());
     }
 
     #[test]
@@ -259,10 +256,15 @@ mod tests {
         assert!(class("because the upstream API rejects empty bodies").is_none());
         assert!(class("see RFC 2606 for reserved domains").is_none());
         assert!(class("e.g. a UTF-8 BOM").is_none());
-        // "for now" inside another word must not match.
-        assert!(class("metaformnow handling").is_none());
+        // "i think" inside another word must not match (word boundaries).
+        assert!(class("multithink is unaffected").is_none());
         // A short divider-ish but real comment isn't a divider.
         assert!(class("x += 1").is_none());
+        // Dropped over-broad phrases: a real temporary var, a clarifying WHY, an arrow comment.
+        assert!(class("temporary buffer reused across calls").is_none());
+        assert!(class("the following must stay sorted").is_none());
+        assert!(class("this is the fast path, the slow one is below").is_none());
+        assert!(class("---> see the helper below").is_none());
     }
 
     #[test]
