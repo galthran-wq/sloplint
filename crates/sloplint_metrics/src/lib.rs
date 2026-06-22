@@ -7,6 +7,7 @@
 
 pub mod badge;
 pub mod cohesion;
+mod collect;
 mod complexity;
 pub mod graph;
 mod inheritance;
@@ -25,6 +26,7 @@ pub use risk::{
 };
 
 use badge::{Badge, Color};
+use collect::{collect_classes, collect_functions};
 use complexity::{cognitive, cyclomatic, max_nesting};
 use inheritance::{class_is_abstract, coupling_candidates};
 use size::{caller_arity, exit_count, line_span, ncss, param_count, receiver_count};
@@ -1189,93 +1191,6 @@ fn type_hint_coverage(function: &StmtFunctionDef) -> (usize, usize, bool) {
         }
     }
     (typed, annotatable, function.returns.is_some())
-}
-
-/// Collect functions (methods + nested) so each is measured independently.
-fn collect_functions<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtFunctionDef>) {
-    for stmt in body {
-        match stmt {
-            Stmt::FunctionDef(function) => {
-                out.push(function);
-                collect_functions(&function.body, out);
-            }
-            Stmt::ClassDef(node) => collect_functions(&node.body, out),
-            Stmt::If(node) => {
-                collect_functions(&node.body, out);
-                for clause in &node.elif_else_clauses {
-                    collect_functions(&clause.body, out);
-                }
-            }
-            Stmt::For(node) => {
-                collect_functions(&node.body, out);
-                collect_functions(&node.orelse, out);
-            }
-            Stmt::While(node) => {
-                collect_functions(&node.body, out);
-                collect_functions(&node.orelse, out);
-            }
-            Stmt::With(node) => collect_functions(&node.body, out),
-            Stmt::Try(node) => {
-                collect_functions(&node.body, out);
-                for handler in &node.handlers {
-                    let ExceptHandler::ExceptHandler(handler) = handler;
-                    collect_functions(&handler.body, out);
-                }
-                collect_functions(&node.orelse, out);
-                collect_functions(&node.finalbody, out);
-            }
-            Stmt::Match(node) => {
-                for case in &node.cases {
-                    collect_functions(&case.body, out);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Recursively collect every class definition (top-level, nested in functions, classes, or
-/// compound statements), mirroring [`collect_functions`].
-fn collect_classes<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtClassDef>) {
-    for stmt in body {
-        match stmt {
-            Stmt::ClassDef(node) => {
-                out.push(node);
-                collect_classes(&node.body, out);
-            }
-            Stmt::FunctionDef(node) => collect_classes(&node.body, out),
-            Stmt::If(node) => {
-                collect_classes(&node.body, out);
-                for clause in &node.elif_else_clauses {
-                    collect_classes(&clause.body, out);
-                }
-            }
-            Stmt::For(node) => {
-                collect_classes(&node.body, out);
-                collect_classes(&node.orelse, out);
-            }
-            Stmt::While(node) => {
-                collect_classes(&node.body, out);
-                collect_classes(&node.orelse, out);
-            }
-            Stmt::With(node) => collect_classes(&node.body, out),
-            Stmt::Try(node) => {
-                collect_classes(&node.body, out);
-                for handler in &node.handlers {
-                    let ExceptHandler::ExceptHandler(handler) = handler;
-                    collect_classes(&handler.body, out);
-                }
-                collect_classes(&node.orelse, out);
-                collect_classes(&node.finalbody, out);
-            }
-            Stmt::Match(node) => {
-                for case in &node.cases {
-                    collect_classes(&case.body, out);
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 #[cfg(test)]
