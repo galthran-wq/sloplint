@@ -73,6 +73,7 @@ macro_rules! test_rule {
                 security_extra: &[],
                 placeholders_extra: &[],
                 comment_phrases_extra: &[],
+                crosslang_allow: &[],
             };
             let diagnostics = $crate::lint::check_file(&ctx, &[&rule as &dyn $crate::lint::Rule]);
             let rendered =

@@ -171,6 +171,7 @@ mod tests {
             security_extra: &[],
             placeholders_extra: &[],
             comment_phrases_extra: &[],
+            crosslang_allow: &[],
             limits: Limits {
                 data_nesting_max_depth: max_depth,
                 ..Default::default()

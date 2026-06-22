@@ -47,6 +47,7 @@ mod tests {
             security_extra: &[],
             placeholders_extra: &[],
             comment_phrases_extra: &[],
+            crosslang_allow: &[],
             limits: Limits {
                 file_max_lines,
                 ..Limits::default()

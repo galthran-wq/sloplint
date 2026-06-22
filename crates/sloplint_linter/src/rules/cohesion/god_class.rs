@@ -158,6 +158,7 @@ mod tests {
             security_extra: &[],
             placeholders_extra: &[],
             comment_phrases_extra: &[],
+            crosslang_allow: &[],
         };
         let mut diagnostics = Vec::new();
         GodClass.check(&ctx, &mut diagnostics);

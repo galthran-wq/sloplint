@@ -1,0 +1,12 @@
+---
+source: crates/sloplint_linter/src/rules/crosslang/mod.rs
+expression: rendered
+---
+5:9 SLP250 [warning] cross-language idiom `toString` (JavaScript/Java) — use `str(x)` in Python
+6:7 SLP250 [warning] cross-language idiom `charAt` (JavaScript/Java) — use indexing `s[i]` in Python
+7:11 SLP250 [warning] cross-language idiom `toUpperCase` (JavaScript/Java) — use `.upper()` in Python
+8:13 SLP250 [warning] cross-language idiom `indexOf` (JavaScript/Java) — use `.index()` / `.find()` in Python
+9:7 SLP250 [warning] cross-language idiom `forEach` (JavaScript) — use a `for` loop in Python
+10:9 SLP250 [warning] cross-language idiom `length` (JavaScript/Java) — use `len(x)` in Python
+11:1 SLP250 [warning] cross-language idiom `array_push` (PHP) — use `list.append()` in Python
+12:1 SLP250 [warning] cross-language idiom `println` (Java/Kotlin/Go) — use `print()` in Python
