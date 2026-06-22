@@ -1555,6 +1555,13 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  module NLOC bands   low {} / moderate {} / high {} / very high {}",
         module.low, module.moderate, module.high, module.very_high
     );
+    // Top-level-code ratio (#141): undecomposed script-dump modules complexity/size metrics miss.
+    println!(
+        "  top-level code      avg {:.0}% / max {:.0}%  ({} undecomposed module(s))",
+        repo.avg_top_level_ratio * 100.0,
+        repo.max_top_level_ratio * 100.0,
+        repo.undecomposed_modules,
+    );
 }
 
 /// The package module-count concentration (#103) for one profile's files. Edge-free — it needs
@@ -1813,6 +1820,15 @@ fn panel_json(
             "moderate": repo.module_size_risk.moderate,
             "high": repo.module_size_risk.high,
             "very_high": repo.module_size_risk.very_high,
+        },
+        // Top-level-code ratio (#141): fraction of a module's executable logic at module scope vs.
+        // inside functions — catches undecomposed procedural script-dumps (Streamlit/Dash/notebook
+        // exports) that complexity (linear code) and module-size (moderate) both miss. `avg` is over
+        // modules with logic; `undecomposed` counts non-trivial modules above the ratio threshold.
+        "top_level_code": {
+            "avg_ratio": repo.avg_top_level_ratio,
+            "max_ratio": repo.max_top_level_ratio,
+            "undecomposed_modules": repo.undecomposed_modules,
         },
         // CK class metrics (#84): WMC weight and first-party DIT depth, aggregated over all
         // classes. DIT is a conservative under-count — external (stdlib/third-party) ancestry is

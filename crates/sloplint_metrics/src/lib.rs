@@ -541,6 +541,14 @@ pub struct FileMetrics {
     /// Exception-handling hygiene counts for this file (#117): total/`bare`/`broad`/`swallow`
     /// `except` handlers, anywhere in the file (module level or nested).
     pub exception: ExceptionStats,
+    /// Executable-logic statements at **module scope** — not inside any function/method, and
+    /// excluding imports, the module docstring, the `if __name__ == "__main__":` guard, class-body
+    /// declarations, and pure constant assignments (#141). The "logic dumped at top level" count.
+    pub top_level_code: usize,
+    /// Executable-logic statements **inside** functions/methods (#141). With [`Self::top_level_code`]
+    /// these give the top-level-code ratio = `top_level_code / (top_level_code + function_code)` —
+    /// how much of a module's logic lives at module scope vs. organized into functions.
+    pub function_code: usize,
 }
 
 /// Exception-handling hygiene counts (#117) — broad-except and silent-swallow are reliable
@@ -620,6 +628,16 @@ pub struct RepoMetrics {
     /// `total_loc` sum and the `avg` collapse. Descriptive bands ([`ModuleSizeTier`]), never a
     /// gate.
     pub module_size_risk: RiskHistogram,
+    /// Mean top-level-code ratio across modules that contain executable logic (#141) — how
+    /// undecomposed the code is on average. Modules with no logic (pure libraries) are excluded so
+    /// they don't dilute the signal. `0.0` when no module has logic.
+    pub avg_top_level_ratio: f64,
+    /// Highest top-level-code ratio of any module (#141) — the most script-like file.
+    pub max_top_level_ratio: f64,
+    /// Count of **undecomposed** modules (#141): non-trivial modules (≥ [`TOP_LEVEL_MIN_LOGIC`]
+    /// logic statements) whose top-level-code ratio is ≥ [`TOP_LEVEL_RATIO_THRESHOLD`] — procedural
+    /// script-dumps that complexity and module-size metrics miss. Descriptive, never a gate.
+    pub undecomposed_modules: usize,
     /// Number of classes across all files — the denominator for the WMC/DIT averages.
     pub classes: usize,
     /// Heaviest class by WMC (sum of its methods' cyclomatic complexity).
@@ -918,6 +936,107 @@ pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {
         comment_lines,
         nloc: file_nloc(source, parsed),
         exception: exception_stats(&parsed.syntax().body),
+        top_level_code: top_level_logic(&parsed.syntax().body),
+        function_code: function_logic(&parsed.syntax().body),
+    }
+}
+
+/// Executable-logic statements at module scope (#141): statements in the module body that are not
+/// imports, the module docstring, the `__main__` guard, a def/class declaration, or a pure constant
+/// assignment — counted recursively through compound statements (a top-level `for`/`if`/`with`
+/// counts its nested body too) but stopping at function/class boundaries.
+fn top_level_logic(body: &[Stmt]) -> usize {
+    let mut total = 0;
+    for (i, stmt) in body.iter().enumerate() {
+        match stmt {
+            // Declarations / imports / type aliases are structure, not "logic dumped at top level".
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::TypeAlias(_) => {}
+            _ if (i == 0 && is_docstring_stmt(stmt))
+                || is_main_guard(stmt)
+                || is_constant_assign(stmt) => {}
+            // `ncss` counts this statement plus its nested body, stopping at any def/class.
+            other => total += ncss(std::slice::from_ref(other)),
+        }
+    }
+    total
+}
+
+/// Executable-logic statements inside all functions/methods (#141) — the sum of each function's own
+/// body NCSS (nested-def bodies belong to their own function, counted there), across every function
+/// anywhere in the module.
+fn function_logic(body: &[Stmt]) -> usize {
+    struct Collector {
+        total: usize,
+    }
+    impl Visitor<'_> for Collector {
+        fn visit_stmt(&mut self, stmt: &Stmt) {
+            if let Stmt::FunctionDef(func) = stmt {
+                self.total += ncss(&func.body);
+            }
+            visitor::walk_stmt(self, stmt);
+        }
+    }
+    let mut collector = Collector { total: 0 };
+    for stmt in body {
+        collector.visit_stmt(stmt);
+    }
+    collector.total
+}
+
+/// Whether `stmt` is a bare string-literal expression statement (a docstring).
+fn is_docstring_stmt(stmt: &Stmt) -> bool {
+    matches!(stmt, Stmt::Expr(expr) if matches!(expr.value.as_ref(), Expr::StringLiteral(_)))
+}
+
+/// Whether `stmt` is an `if __name__ == "__main__":` guard (either operand order).
+fn is_main_guard(stmt: &Stmt) -> bool {
+    let Stmt::If(if_stmt) = stmt else {
+        return false;
+    };
+    let Expr::Compare(cmp) = if_stmt.test.as_ref() else {
+        return false;
+    };
+    if cmp.ops.len() != 1 || cmp.comparators.len() != 1 {
+        return false;
+    }
+    let name_is = |e: &Expr| matches!(e, Expr::Name(n) if n.id.as_str() == "__name__");
+    let main_is = |e: &Expr| matches!(e, Expr::StringLiteral(s) if s.value.to_str() == "__main__");
+    (name_is(&cmp.left) && main_is(&cmp.comparators[0]))
+        || (main_is(&cmp.left) && name_is(&cmp.comparators[0]))
+}
+
+/// Whether `stmt` is an assignment whose value is a pure constant literal — module-level config, not
+/// "logic dumped at top level".
+fn is_constant_assign(stmt: &Stmt) -> bool {
+    let value = match stmt {
+        Stmt::Assign(assign) => Some(assign.value.as_ref()),
+        Stmt::AnnAssign(ann) => ann.value.as_deref(),
+        _ => None,
+    };
+    value.is_some_and(is_constant_expr)
+}
+
+/// Whether an expression is a constant literal (scalar, or a collection of constants).
+fn is_constant_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::NumberLiteral(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_) => true,
+        Expr::UnaryOp(u) => is_constant_expr(&u.operand),
+        Expr::Tuple(t) => t.elts.iter().all(is_constant_expr),
+        Expr::List(l) => l.elts.iter().all(is_constant_expr),
+        Expr::Set(s) => s.elts.iter().all(is_constant_expr),
+        Expr::Dict(d) => d.items.iter().all(|item| {
+            item.key.as_ref().is_some_and(is_constant_expr) && is_constant_expr(&item.value)
+        }),
+        _ => false,
     }
 }
 
@@ -1002,6 +1121,14 @@ fn file_nloc(source: &str, parsed: &Parsed<ModModule>) -> usize {
 }
 
 /// Aggregate per-file metrics into repo-level figures.
+/// Minimum module-scope logic statements for a module to be considered for the undecomposed flag
+/// (#141) — small scripts / entry points legitimately have a little top-level code.
+pub const TOP_LEVEL_MIN_LOGIC: usize = 15;
+
+/// Top-level-code ratio at/above which a non-trivial module is "undecomposed" (#141) — a procedural
+/// script-dump. Descriptive, calibrated; never a gate.
+pub const TOP_LEVEL_RATIO_THRESHOLD: f64 = 0.6;
+
 pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut repo = RepoMetrics {
         files: files.len(),
@@ -1026,6 +1153,9 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut cbo_values: Vec<usize> = Vec::new();
     let mut module_nloc_sum = 0usize;
     let mut module_nloc_values: Vec<usize> = Vec::new();
+    // Top-level-code ratio (#141): averaged only over modules that contain executable logic.
+    let mut top_level_ratio_sum = 0f64;
+    let mut modules_with_logic = 0usize;
     // Docstring coverage (#83): every public def/class (functions *and* classes) is in the
     // denominator, those carrying a docstring in the numerator. The docstring/code ratio is
     // kept strictly function-scoped — function docstring lines over function NCSS — so its two
@@ -1045,6 +1175,19 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         module_nloc_values.push(file.nloc);
         repo.max_module_nloc = repo.max_module_nloc.max(file.nloc);
         repo.module_size_risk.record_module_size(file.nloc);
+        // Top-level-code ratio (#141): only meaningful for modules that contain executable logic.
+        let module_logic = file.top_level_code + file.function_code;
+        if module_logic > 0 {
+            let ratio = file.top_level_code as f64 / module_logic as f64;
+            top_level_ratio_sum += ratio;
+            modules_with_logic += 1;
+            if ratio > repo.max_top_level_ratio {
+                repo.max_top_level_ratio = ratio;
+            }
+            if file.top_level_code >= TOP_LEVEL_MIN_LOGIC && ratio >= TOP_LEVEL_RATIO_THRESHOLD {
+                repo.undecomposed_modules += 1;
+            }
+        }
         for function in &file.functions {
             repo.functions += 1;
             function_loc_sum += function.loc;
@@ -1151,6 +1294,11 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         module_nloc_sum as f64 / repo.files as f64
     };
     repo.p95_module_nloc = percentile(&mut module_nloc_values, 0.95);
+    repo.avg_top_level_ratio = if modules_with_logic == 0 {
+        0.0
+    } else {
+        top_level_ratio_sum / modules_with_logic as f64
+    };
     repo.avg_dit = if repo.classes == 0 {
         0.0
     } else {
@@ -2443,6 +2591,76 @@ def f():
         assert_eq!(repo.module_size_risk.very_high, 0);
         // p95 (nearest-rank over [2, 260]) is the bigger module.
         assert_eq!(repo.p95_module_nloc, 260);
+    }
+
+    #[test]
+    fn top_level_code_counts_module_scope_logic() {
+        // A procedural script: imports/docstring/constants/__main__ excluded; the loop + calls at
+        // module scope are top-level logic; the helper's body is function logic.
+        let file = metrics(
+            "\
+\"\"\"Module docstring.\"\"\"
+import os
+
+MAX = 10
+
+
+def helper(x):
+    y = x + 1
+    return y
+
+
+total = 0
+for i in range(MAX):
+    total += helper(i)
+print(total)
+
+if __name__ == \"__main__\":
+    print(\"done\")
+",
+        );
+        // top-level logic: `for ...` + `total += helper(i)` (2) + `print(total)` (1) = 3.
+        // Excluded: docstring, import, `MAX`/`total = 0` constant assignments, the def, the
+        // `__main__` guard.
+        assert_eq!(file.top_level_code, 3, "module-scope logic");
+        // function logic: helper body `y = x + 1` + `return y` = 2.
+        assert_eq!(file.function_code, 2, "in-function logic");
+    }
+
+    #[test]
+    fn well_decomposed_and_library_modules_have_low_ratio() {
+        // All logic inside functions → ratio 0 (no top-level logic).
+        let lib = metrics(
+            "import os\n\nCONST = 1\n\n\ndef a():\n    return os.getpid()\n\n\ndef b(x):\n    return x * CONST\n",
+        );
+        assert_eq!(lib.top_level_code, 0);
+        assert!(lib.function_code >= 2);
+    }
+
+    #[test]
+    fn aggregate_flags_undecomposed_script() {
+        // A 20-statement top-level script (no functions) → ratio 1.0, flagged undecomposed; a
+        // well-decomposed module is not.
+        let script: String = (0..20).map(|i| format!("print({i})\n")).collect();
+        let decomposed = "def main():\n".to_string()
+            + &(0..20)
+                .map(|i| format!("    print({i})\n"))
+                .collect::<String>();
+        let repo = aggregate(&[metrics(&script), metrics(&decomposed)]);
+        assert!(
+            (repo.max_top_level_ratio - 1.0).abs() < 1e-9,
+            "the script is all top-level"
+        );
+        assert_eq!(
+            repo.undecomposed_modules, 1,
+            "only the script is undecomposed"
+        );
+        // avg over the two logic-bearing modules: (1.0 + 0.0) / 2 = 0.5.
+        assert!(
+            (repo.avg_top_level_ratio - 0.5).abs() < 1e-9,
+            "{}",
+            repo.avg_top_level_ratio
+        );
     }
 
     #[test]
