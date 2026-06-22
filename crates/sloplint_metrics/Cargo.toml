@@ -8,3 +8,6 @@ description = "Software-quality metrics (complexity, nesting, LOC, duplication) 
 [dependencies]
 sloplint_python.workspace = true
 petgraph.workspace = true
+
+[dev-dependencies]
+insta = "1"

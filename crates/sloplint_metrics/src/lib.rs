@@ -11,6 +11,9 @@ pub mod graph;
 pub mod modularity;
 pub mod test_proxies;
 
+#[cfg(test)]
+mod testing;
+
 use badge::{Badge, Color};
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{

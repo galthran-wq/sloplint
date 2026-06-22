@@ -1,0 +1,14 @@
+---
+source: crates/sloplint_metrics/src/cohesion.rs
+expression: "cohesion_report(&fixture_source(\"cohesion/cohesion.py\"))"
+---
+Counter: methods=2 components=1 attributes=1
+Utils: methods=4 components=2 attributes=2
+MethodCalls: methods=2 components=1 attributes=0
+ConstructorExcluded: methods=2 components=2 attributes=2
+Statics: methods=2 components=2 attributes=0
+Single: methods=1 components=1 attributes=0
+ShadowedReceiver: methods=3 components=2 attributes=1
+ClassmethodReceiver: methods=3 components=1 attributes=1
+ResetViaInit: methods=2 components=2 attributes=2
+NestedAccess: methods=2 components=1 attributes=1

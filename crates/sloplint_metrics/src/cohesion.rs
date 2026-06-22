@@ -275,209 +275,32 @@ impl UnionFind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::fixture_source;
     use sloplint_python::parse;
+    use std::fmt::Write;
 
-    fn cohesion(source: &str) -> ClassCohesion {
-        let parsed = parse(source).expect("valid python");
-        let class = parsed
-            .syntax()
-            .body
-            .iter()
-            .find_map(|stmt| match stmt {
-                Stmt::ClassDef(class) => Some(class),
-                _ => None,
-            })
-            .expect("source must contain a class");
-        class_cohesion(class)
+    /// LCOM4 cohesion (+ attribute count) for every class in a fixture, in source order. The
+    /// fixture documents each case's expected shape; the snapshot pins the numbers.
+    fn cohesion_report(source: &str) -> String {
+        let parsed = parse(source).expect("fixture parses");
+        let mut out = String::new();
+        for stmt in &parsed.syntax().body {
+            if let Stmt::ClassDef(class) = stmt {
+                let cohesion = class_cohesion(class);
+                let attributes = class_attribute_count(class);
+                writeln!(
+                    out,
+                    "{}: methods={} components={} attributes={}",
+                    class.name, cohesion.methods, cohesion.components, attributes
+                )
+                .unwrap();
+            }
+        }
+        out
     }
 
     #[test]
-    fn cohesive_class_is_one_component() {
-        // Both methods use self.total, and one calls the other -> a single component.
-        let c = cohesion(
-            "\
-class Counter:
-    def __init__(self):
-        self.total = 0
-
-    def add(self, n):
-        self.total += n
-
-    def reset_and_add(self, n):
-        self.total = 0
-        self.add(n)
-",
-        );
-        assert_eq!(c.methods, 2);
-        assert_eq!(c.components, 1);
-    }
-
-    #[test]
-    fn two_disjoint_concepts_are_two_components() {
-        let c = cohesion(
-            "\
-class Utils:
-    def parse(self, text):
-        return self.parser.run(text)
-
-    def tokenize(self, text):
-        return self.parser.split(text)
-
-    def render(self, node):
-        return self.formatter.render(node)
-
-    def format(self, node):
-        return self.formatter.pretty(node)
-",
-        );
-        assert_eq!(c.methods, 4);
-        // {parse, tokenize} share self.parser; {render, format} share self.formatter.
-        assert_eq!(c.components, 2);
-    }
-
-    #[test]
-    fn method_calls_link_components() {
-        // No shared attribute, but `a` calls `b` -> linked into one component.
-        let c = cohesion(
-            "\
-class C:
-    def a(self, x):
-        return self.b(x)
-
-    def b(self, x):
-        return x + 1
-",
-        );
-        assert_eq!(c.components, 1);
-    }
-
-    #[test]
-    fn constructor_is_excluded_from_the_graph() {
-        // __init__ touches both attrs but must NOT connect the two disjoint methods.
-        let c = cohesion(
-            "\
-class Two:
-    def __init__(self):
-        self.a = 1
-        self.b = 2
-
-    def use_a(self):
-        return self.a
-
-    def use_b(self):
-        return self.b
-",
-        );
-        assert_eq!(c.methods, 2, "__init__ is not counted");
-        assert_eq!(c.components, 2);
-    }
-
-    #[test]
-    fn staticmethods_share_no_state() {
-        let c = cohesion(
-            "\
-class Bag:
-    @staticmethod
-    def one():
-        return 1
-
-    @staticmethod
-    def two():
-        return 2
-",
-        );
-        // Two static helpers, no shared instance state -> two components.
-        assert_eq!(c.methods, 2);
-        assert_eq!(c.components, 2);
-    }
-
-    #[test]
-    fn single_method_class_is_one_component() {
-        let c = cohesion("class C:\n    def only(self):\n        return 1\n");
-        assert_eq!(c.methods, 1);
-        assert_eq!(c.components, 1);
-    }
-
-    #[test]
-    fn shadowed_receiver_in_nested_scope_is_not_attributed() {
-        // Regression: `helper`/`lambda` re-bind `self`, so their `self.shared` must NOT be
-        // credited to `m1`. Correct LCOM4 = 2 ({m1}, {m2, m3}).
-        let c = cohesion(
-            "\
-class A:
-    def m1(self):
-        def helper(self):
-            return self.shared
-        f = lambda self: self.shared
-        return helper, f
-
-    def m2(self):
-        return self.shared
-
-    def m3(self):
-        return self.shared
-",
-        );
-        assert_eq!(c.components, 2);
-    }
-
-    #[test]
-    fn classmethod_receiver_is_handled() {
-        // Both classmethods share `cls.registry` -> one component.
-        let c = cohesion(
-            "\
-class R:
-    @classmethod
-    def register(cls, x):
-        cls.registry.append(x)
-
-    @classmethod
-    def count(cls):
-        return len(cls.registry)
-
-    def touch(self):
-        return self.registry
-",
-        );
-        // register/count share cls.registry; touch shares self.registry name -> all one.
-        assert_eq!(c.components, 1);
-    }
-
-    #[test]
-    fn calls_to_excluded_constructor_do_not_link() {
-        // Two otherwise-disjoint methods that both call self.__init__() must stay disjoint.
-        let c = cohesion(
-            "\
-class C:
-    def __init__(self):
-        self.a = 0
-        self.b = 0
-
-    def reset_a(self):
-        self.__init__()
-        return self.a
-
-    def reset_b(self):
-        self.__init__()
-        return self.b
-",
-        );
-        assert_eq!(c.components, 2);
-    }
-
-    #[test]
-    fn nested_attribute_access_is_found() {
-        // self.value is referenced inside a comprehension/call — full traversal must see it.
-        let c = cohesion(
-            "\
-class C:
-    def a(self):
-        return [v for v in self.value if v]
-
-    def b(self):
-        return sum(self.value)
-",
-        );
-        assert_eq!(c.components, 1, "both use self.value");
+    fn cohesion_metrics() {
+        insta::assert_snapshot!(cohesion_report(&fixture_source("cohesion/cohesion.py")));
     }
 }
