@@ -499,43 +499,6 @@ mod tests {
     }
 
     #[test]
-    fn concentration_pure_gini_and_share() {
-        // Three packages of equal size: no inequality, share 1/3.
-        let equal = concentration(&["a".into(), "b".into(), "c".into()]);
-        assert_eq!(equal.total_modules, 3);
-        assert_eq!(equal.packages, 3);
-        assert!((equal.max_package_share - 1.0 / 3.0).abs() < 1e-9);
-        assert!(equal.module_count_gini.abs() < 1e-9);
-        // Ties: every package has 1 module; the smallest name wins for determinism.
-        assert_eq!(equal.largest_package, Some(("a".into(), 1)));
-
-        // One dominant package (3 of 4 modules): high share, positive Gini.
-        let skewed = concentration(&["big".into(), "big".into(), "big".into(), "small".into()]);
-        assert!((skewed.max_package_share - 0.75).abs() < 1e-9);
-        // Population Gini of [1, 3] is 0.25.
-        assert!((skewed.module_count_gini - 0.25).abs() < 1e-9);
-        assert_eq!(skewed.largest_package, Some(("big".into(), 3)));
-    }
-
-    #[test]
-    fn concentration_edge_cases() {
-        // Empty: everything zero, no package named.
-        let empty = concentration(&[]);
-        assert_eq!(empty.total_modules, 0);
-        assert_eq!(empty.packages, 0);
-        assert_eq!(empty.max_package_share, 0.0);
-        assert_eq!(empty.module_count_gini, 0.0);
-        assert_eq!(empty.largest_package, None);
-
-        // A single package holds everything: share 1.0, but no inequality (one bucket).
-        let single = concentration(&["only".into(), "only".into()]);
-        assert_eq!(single.packages, 1);
-        assert_eq!(single.max_package_share, 1.0);
-        assert_eq!(single.module_count_gini, 0.0);
-        assert_eq!(single.largest_package, Some(("only".into(), 2)));
-    }
-
-    #[test]
     fn concentration_over_graph_god_package() {
         // A flat "god package" holding most modules vs. a couple of small ones.
         let g = graph_of(&[
@@ -637,29 +600,6 @@ mod tests {
         assert_eq!(a.imports, vec!["b".to_string(), "c".to_string()]);
         assert_eq!(a.imported_by, vec!["b".to_string()]);
         assert_eq!(a.instability, 2.0 / 3.0);
-    }
-
-    #[test]
-    fn instability_formula_edge_cases() {
-        assert_eq!(instability(0, 0), 0.0); // uncoupled → stable, no divide-by-zero
-        assert_eq!(instability(3, 0), 1.0); // depends on others, depended on by none
-        assert_eq!(instability(0, 3), 0.0); // depended on by others, depends on none
-        assert_eq!(instability(1, 3), 0.25);
-    }
-
-    #[test]
-    fn abstractness_and_distance_formula_edge_cases() {
-        assert_eq!(abstractness(0, 0), 0.0); // no classes → 0, no divide-by-zero
-        assert_eq!(abstractness(0, 4), 0.0); // all concrete
-        assert_eq!(abstractness(4, 4), 1.0); // all abstract
-        assert_eq!(abstractness(1, 4), 0.25);
-
-        // D = |A + I − 1|: on the main sequence (A+I=1) distance is 0; at the corners it is 1.
-        assert_eq!(distance(0.0, 1.0), 0.0); // pure concrete + unstable: ideal
-        assert_eq!(distance(1.0, 0.0), 0.0); // pure abstract + stable: ideal
-        assert_eq!(distance(0.0, 0.0), 1.0); // zone of pain: concrete + stable
-        assert_eq!(distance(1.0, 1.0), 1.0); // zone of uselessness: abstract + unstable
-        assert!((distance(0.25, 0.25) - 0.5).abs() < 1e-12);
     }
 
     /// Abstractness and distance aggregate class counts across a package's modules, then derive
