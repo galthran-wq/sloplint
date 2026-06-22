@@ -1,4 +1,4 @@
-//! End-to-end tests for the `sloplint metrics` cyclomatic-complexity reporting (issue #10),
+//! End-to-end tests for the `sloplint metrics` cyclomatic-complexity reporting,
 //! exercising the real built binary over a committed Python fixture with known per-function
 //! complexity. Covers the JSON aggregates + risk histogram, the markdown PR-summary, and the
 //! `--max-cyclomatic` CI gate's exit code and offender report.
@@ -18,7 +18,7 @@ fn fixture() -> PathBuf {
 
 /// Run `sloplint metrics cyclomatic.py <extra args...>` from *inside* the fixtures dir, so the
 /// classified path is the bare `cyclomatic.py` (production). Running from the repo root would put
-/// a `tests/fixtures/` ancestor in the path and classify the fixture as a test file (#96),
+/// a `tests/fixtures/` ancestor in the path and classify the fixture as a test file,
 /// emptying the production panel these assertions read.
 fn run_metrics(extra: &[&str]) -> (String, String, i32) {
     let mut args = vec!["metrics", "cyclomatic.py"];
@@ -40,12 +40,12 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
     let (stdout, _stderr, code) = run_metrics(&["--format", "json"]);
     assert_eq!(code, 0, "metrics without a gate exits 0");
     let value: Value = serde_json::from_str(&stdout).expect("metrics --format json is valid JSON");
-    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    // The fixture is production code; its panel lives under `profiles.production`.
     let prod = &value["profiles"]["production"];
 
     assert_eq!(prod["functions"], 3);
     assert_eq!(prod["max_cyclomatic"], 12);
-    // max_logic_function_loc (#155) is reported and never exceeds the raw max (it's a subset of
+    // max_logic_function_loc is reported and never exceeds the raw max (it's a subset of
     // functions — those with cognitive ≥ 5); the fixture's `moderate` qualifies, so it's > 0.
     let max_loc = prod["max_function_loc"].as_u64().unwrap();
     let max_logic = prod["max_logic_function_loc"].as_u64().unwrap();
@@ -65,13 +65,13 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
     assert_eq!(risk["high"], 0);
     assert_eq!(risk["very_high"], 0);
 
-    // God-unit tail (#152): the fixture has no very-high-tier units (max cog 10, cc 12), so the
+    // God-unit tail: the fixture has no very-high-tier units (max cog 10, cc 12), so the
     // tail total is 0 and the block is present/well-formed.
     let god = &prod["god_units"];
     assert_eq!(god["total"], 0, "no very-high-tier units in the fixture");
     assert_eq!(god["very_high_cognitive_functions"], 0);
 
-    // Cognitive complexity at parity with cyclomatic (#110): per-function cognitive is
+    // Cognitive complexity at parity with cyclomatic: per-function cognitive is
     // trivial=0, comprehension=1, moderate=10 → mean 11/3, p95/max 10, two low + one moderate.
     assert_eq!(prod["max_cognitive"], 10);
     assert_eq!(prod["p95_cognitive"], 10);
@@ -89,7 +89,7 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
     assert_eq!(cog["high"], 0);
     assert_eq!(cog["very_high"], 0);
 
-    // Type-hint coverage (#85) is wired into the aggregate. The fixture is fully unannotated, so
+    // Type-hint coverage is wired into the aggregate. The fixture is fully unannotated, so
     // both land at 0.0 — the precise ratio math is covered by the metrics-crate unit tests.
     assert_eq!(prod["param_annotation_coverage"], 0.0);
     assert_eq!(prod["fully_annotated_function_rate"], 0.0);
@@ -107,7 +107,7 @@ fn github_markdown_surfaces_worst_tier_and_table() {
         stdout.contains("| moderate (11\u{2013}20) | 1 |"),
         "markdown has the risk-tier table:\n{stdout}"
     );
-    // Cognitive complexity is reported at parity (#110): its own block + readability-band table.
+    // Cognitive complexity is reported at parity: its own block + readability-band table.
     assert!(
         stdout.contains("**Cognitive complexity**"),
         "markdown has a cognitive block:\n{stdout}"

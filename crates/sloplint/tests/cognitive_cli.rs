@@ -1,4 +1,4 @@
-//! End-to-end test for the SonarSource cognitive-complexity metric (issue #11), running the
+//! End-to-end test for the SonarSource cognitive-complexity metric, running the
 //! real built binary over a committed Python fixture and reading `metrics --format json`. It
 //! pins the headline behavior: a flat `match` scores far below a nested `if` tangle.
 
@@ -22,7 +22,7 @@ fn reports_cognitive_complexity_penalizing_nesting() {
     let value: Value = serde_json::from_str(&stdout)
         .unwrap_or_else(|e| panic!("metrics --format json must be valid JSON ({e}):\n{stdout}"));
 
-    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    // The fixture is production code; its panel lives under `profiles.production`.
     let prod = &value["profiles"]["production"];
     assert_eq!(prod["functions"], 2);
     // The nested `tangle` (cognitive 6) dominates; the flat `classify` match is only 1.

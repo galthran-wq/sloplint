@@ -1,4 +1,4 @@
-//! End-to-end tests for configurable profiles (#96): a profile is a named, path-matched slice of
+//! End-to-end tests for configurable profiles: a profile is a named, path-matched slice of
 //! the tree carrying its own rule deltas (thresholds, ignores) *and* its own metrics panel. These
 //! exercise the real built binary over temp projects with a `sloplint.toml`.
 

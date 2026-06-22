@@ -1,4 +1,4 @@
-//! End-to-end tests for SLP210 (phantom security-guard calls/decorators, issue #143), running the
+//! End-to-end tests for SLP210 (phantom security-guard calls/decorators), running the
 //! real built binary. The rule is preview-gated, so it must be silent without `--preview` and fire
 //! with it; verifies positives, the import/local-def/attribute negatives, and `[security] extra`.
 

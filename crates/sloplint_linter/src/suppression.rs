@@ -1,4 +1,4 @@
-//! Inline suppression via Ruff's `# noqa` convention (#94).
+//! Inline suppression via Ruff's `# noqa` convention.
 //!
 //! sloplint mirrors Ruff's select/ignore model and runs right next to Ruff, so suppression uses
 //! Ruff's familiar `# noqa` — nothing bespoke. Duplication, and every rule, is disallowed by

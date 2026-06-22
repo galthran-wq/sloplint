@@ -1,4 +1,4 @@
-//! End-to-end tests for SLP250 (cross-language pollution, issue #148), running the real built
+//! End-to-end tests for SLP250 (cross-language pollution), running the real built
 //! binary. Preview-gated; verifies the foreign-idiom positives, the FP-prone negatives, and
 //! `[crosslang] allow`.
 

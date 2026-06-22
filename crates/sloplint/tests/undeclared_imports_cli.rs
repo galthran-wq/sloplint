@@ -1,4 +1,4 @@
-//! End-to-end test for SLP180 (undeclared third-party import, issue #54), running the real
+//! End-to-end test for SLP180 (undeclared third-party import), running the real
 //! built binary over a temporary mini-project. The rule is whole-project and Preview: it
 //! resolves the manifest from the working directory and the first-party package set from the
 //! tree, so the test builds a small project (with a `pyproject.toml` and a local package) in

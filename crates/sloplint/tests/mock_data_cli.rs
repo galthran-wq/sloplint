@@ -1,4 +1,4 @@
-//! End-to-end tests for SLP230 (mock/placeholder data in production code, issue #145), running the
+//! End-to-end tests for SLP230 (mock/placeholder data in production code), running the
 //! real built binary. Verifies preview-gating, the production positives, that test paths and real
 //! data are not flagged, and `[placeholders] extra`.
 

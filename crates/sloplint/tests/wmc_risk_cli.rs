@@ -1,4 +1,4 @@
-//! End-to-end tests for the WMC risk-tier distribution (#104): god-class *prevalence* in the
+//! End-to-end tests for the WMC risk-tier distribution: god-class *prevalence* in the
 //! metrics aggregate, mirroring the function `cyclomatic_risk` tiers. Exercises the real binary
 //! over a temp project with one class per WMC band, in JSON, text, and the GitHub markdown.
 

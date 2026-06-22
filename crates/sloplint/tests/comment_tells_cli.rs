@@ -1,4 +1,4 @@
-//! End-to-end tests for SLP004 (hedging/deferral + structural-noise comment tells, issue #147),
+//! End-to-end tests for SLP004 (hedging/deferral + structural-noise comment tells),
 //! running the real built binary. Preview-gated; verifies the classes, the legitimate-comment
 //! negatives, per-class severity, and `[comments] extra`.
 

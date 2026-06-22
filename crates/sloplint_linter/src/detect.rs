@@ -1,4 +1,4 @@
-//! Machine-generated source detection (issue #115).
+//! Machine-generated source detection.
 //!
 //! Generated code (protobuf, gRPC, OpenAPI/Swagger SDKs, ORM stubs, …) is regenerated on every
 //! change and never hand-edited — the files literally say so in a header marker. Its structural

@@ -1,4 +1,4 @@
-//! End-to-end test for the top-level-code-ratio metric (issue #141), running the real built binary.
+//! End-to-end test for the top-level-code-ratio metric, running the real built binary.
 //! A procedural script-dump (no functions) must surface as undecomposed; a well-decomposed module
 //! must not.
 

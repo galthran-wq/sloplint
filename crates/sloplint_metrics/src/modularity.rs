@@ -1,4 +1,4 @@
-//! Newman–Girvan modularity Q of the module dependency graph (issue #69).
+//! Newman–Girvan modularity Q of the module dependency graph.
 //!
 //! Two numbers, both computed over the **undirected** projection of the import graph (modularity
 //! is defined for undirected graphs; we symmetrize by summing the two directed weights of each

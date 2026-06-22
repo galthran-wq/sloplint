@@ -1,4 +1,4 @@
-//! End-to-end tests for the duplication-density aggregate (#123): SLP020 clone detection surfaced
+//! End-to-end tests for the duplication-density aggregate: SLP020 clone detection surfaced
 //! as a `metrics` cohort metric (`clone_ratio` + pairs + largest cluster), per profile. Exercises
 //! the real binary in JSON, text, and the GitHub markdown.
 

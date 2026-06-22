@@ -1,4 +1,4 @@
-//! End-to-end tests for the CK class metrics (#84) over the real built binary: WMC (weighted
+//! End-to-end tests for the CK class metrics over the real built binary: WMC (weighted
 //! methods per class) and DIT (first-party depth of inheritance tree). Run against a committed
 //! two-module fixture whose inheritance chain (`Unit -> Circle -> Shape`) crosses a file
 //! boundary, so the test also pins the project-wide DIT resolution and the
@@ -17,7 +17,7 @@ fn fixture() -> PathBuf {
 /// Run `sloplint metrics . --format <format>` from *inside* the fixture dir, so the classified
 /// paths are project-relative (`base.py`, `shapes.py`) and count as production. Running from the
 /// repo root would put a `tests/fixtures/` ancestor in every path and classify the fixture as
-/// test code (#96), emptying the production panel/feed these assertions read.
+/// test code, emptying the production panel/feed these assertions read.
 fn run(format: &str) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_sloplint"))
         .current_dir(fixture())
@@ -68,7 +68,7 @@ fn classes_feed_reports_wmc_and_first_party_dit() {
     assert_eq!(rows["Unit"]["dit"], 2, "Unit -> Circle -> Shape");
     assert_eq!(rows["Panel"]["dit"], 0, "Widget is third-party → invisible");
 
-    // CBO (#116): distinct first-party classes coupled to. Shape couples to nothing first-party;
+    // CBO: distinct first-party classes coupled to. Shape couples to nothing first-party;
     // Circle -> Shape (base, cross-file); Unit -> Circle (base); Panel's only base Widget is
     // third-party → 0. `range(...)` in Unit is not a first-party class, so it doesn't count.
     assert_eq!(rows["Shape"]["cbo"], 0);
@@ -81,7 +81,7 @@ fn classes_feed_reports_wmc_and_first_party_dit() {
 fn json_reports_wmc_and_dit_aggregates() {
     let value: Value =
         serde_json::from_str(&run("json")).expect("metrics --format json is valid JSON");
-    // The fixture is production code; its panel lives under `profiles.production` (#96).
+    // The fixture is production code; its panel lives under `profiles.production`.
     let prod = &value["profiles"]["production"];
 
     assert_eq!(prod["classes"], 4, "Shape, Circle, Unit, Panel");
@@ -95,7 +95,7 @@ fn json_reports_wmc_and_dit_aggregates() {
     let avg_wmc = prod["avg_wmc"].as_f64().unwrap();
     assert!((avg_wmc - 2.5).abs() < 1e-9, "avg_wmc = {avg_wmc}");
 
-    // CBO (#116): Circle and Unit each couple to one first-party base; Shape and Panel to none.
+    // CBO: Circle and Unit each couple to one first-party base; Shape and Panel to none.
     assert_eq!(prod["max_cbo"], 1);
     let avg_cbo = prod["avg_cbo"].as_f64().unwrap();
     assert!((avg_cbo - 0.5).abs() < 1e-9, "avg_cbo = {avg_cbo}"); // (0+1+1+0)/4

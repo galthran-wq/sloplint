@@ -1,5 +1,5 @@
-//! Static test proxies (issue #86): **test:code ratio** and **assertion density**, plus an
-//! **assertion-free-test rate** test-substance signal (issue #121, corrected in #127).
+//! Static test proxies: **test:code ratio** and **assertion density**, plus an
+//! **assertion-free-test rate** test-substance signal.
 //!
 //! ## What this is — and is NOT
 //!
@@ -12,7 +12,7 @@
 //! - But they **cannot** reliably tell a shallow test from a thorough one — a test can carry
 //!   many asserts and still verify nothing meaningful, or few asserts and be excellent.
 //!
-//! ## Test-substance: the assertion-free-test rate (#121 / #127)
+//! ## Test-substance: the assertion-free-test rate
 //!
 //! `test:code` and `assertion_density` both reward *volume*, so an inflated suite can read as
 //! "well-tested" even when individual tests verify nothing. The **assertion-free-test rate** is
@@ -22,11 +22,11 @@
 //! nothing, and assertion-free stubs. A rate near 1.0 means a suite that *looks* tested (files,
 //! functions, LoC) but asserts almost nothing.
 //!
-//! An earlier cut of this signal (#125) keyed on **cognitive complexity** instead, calling a test
+//! An earlier cut of this signal keyed on **cognitive complexity** instead, calling a test
 //! "trivial" when its body had little branching. That was exactly backwards: a disciplined
 //! arrange-act-assert unit test is *deliberately* branch-free, so it scored as 100% trivial,
 //! while an assertion-free test that loops over cases and `print()`s them scored as substantive.
-//! #127 replaced it: low cognitive complexity in a *test* is good, not a smell — the quality
+//! This signal corrects that: low cognitive complexity in a *test* is good, not a smell — the quality
 //! signal is whether a test **asserts**, not whether it **branches**.
 //!
 //! Like the others this stays purely descriptive: a test *can* assert through a helper it calls
@@ -79,7 +79,7 @@ pub struct FileTestStats {
     pub loc: usize,
     /// `test_*` functions (module-level or methods of any class). Only meaningful for test files.
     pub test_functions: usize,
-    /// Of those test functions, how many contain **no assertion at all** in their body (#127) —
+    /// Of those test functions, how many contain **no assertion at all** in their body —
     /// the numerator for the assertion-free-test rate. Test files only.
     pub assertion_free_tests: usize,
     /// Assertions inside those test functions: `assert` statements plus assertion calls
@@ -89,7 +89,7 @@ pub struct FileTestStats {
 
 /// Gather the per-file test signals for one parsed file. `loc` is the file's physical line count
 /// (passed in so this shares `FileMetrics`'s definition rather than recomputing it). `is_test` is
-/// the caller's classification — the CLI binds it to the `tests` profile (#96) so the proxies and
+/// the caller's classification — the CLI binds it to the `tests` profile so the proxies and
 /// the metric panels agree; [`is_test_file`] is the path heuristic that classifier defaults to.
 pub fn file_test_stats(is_test: bool, loc: usize, parsed: &Parsed<ModModule>) -> FileTestStats {
     if !is_test {
@@ -105,7 +105,7 @@ pub fn file_test_stats(is_test: bool, loc: usize, parsed: &Parsed<ModModule>) ->
     let mut tests = Vec::new();
     collect_test_functions(&parsed.syntax().body, &mut tests);
     // Per-test assertion counts, computed once: their sum is the file's assertion total, and the
-    // number that are zero is the assertion-free-test count (#127).
+    // number that are zero is the assertion-free-test count.
     let per_test_assertions: Vec<usize> = tests.iter().map(|f| count_assertions(&f.body)).collect();
     let assertions = per_test_assertions.iter().sum();
     let assertion_free_tests = per_test_assertions.iter().filter(|&&n| n == 0).count();
@@ -133,7 +133,7 @@ pub struct TestProxies {
     pub assertions: usize,
     /// `assertions / test_functions`. `None` when there are no test functions (undefined).
     pub assertion_density: Option<f64>,
-    /// Test functions whose body contains no assertion at all (#127). The numerator for
+    /// Test functions whose body contains no assertion at all. The numerator for
     /// [`Self::assertion_free_rate`].
     pub assertion_free_tests: usize,
     /// `assertion_free_tests / test_functions` (0.0–1.0): the fraction of the suite that asserts
@@ -458,7 +458,7 @@ def test_fail_path():
 
     #[test]
     fn assertion_free_rate_flags_tests_that_check_nothing() {
-        // The regression #127 fixes: a disciplined arrange-act-assert unit test (branch-free,
+        // The regression this guards against: a disciplined arrange-act-assert unit test (branch-free,
         // cognitive 0) is NOT theater, while an assertion-free `print`-spam loop (cognitive > 0)
         // IS. The signal must key on assertions, not branching.
         let source = "\

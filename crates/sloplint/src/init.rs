@@ -1,5 +1,5 @@
 //! `sloplint init` — wire sloplint into AI coding tools so `check` runs on every edit and
-//! findings reach the agent *before* the code lands (issue #50).
+//! findings reach the agent *before* the code lands.
 //!
 //! sloplint is fast, deterministic and reproducible — exactly what an in-the-edit-loop check
 //! needs. This module detects the tool(s) present in a repo and merges the right hook config:

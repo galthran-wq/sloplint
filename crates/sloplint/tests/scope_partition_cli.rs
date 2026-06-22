@@ -1,4 +1,4 @@
-//! End-to-end tests for the production-vs-test partition (#96), over the real built binary and a
+//! End-to-end tests for the production-vs-test partition, over the real built binary and a
 //! committed mini-project: a production package `app/` plus a nested `tests/` dir. Pins that one
 //! run yields both panels, that `--scope` filters the per-unit feeds, and — crucially — that a
 //! test importing production does not manufacture coupling in the production import graph.

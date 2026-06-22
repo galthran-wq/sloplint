@@ -1,4 +1,4 @@
-//! End-to-end test for inline `# noqa` suppression (#94), exercised against its motivating case:
+//! End-to-end test for inline `# noqa` suppression, exercised against its motivating case:
 //! SLP020 near-duplicate functions. Runs the real built binary over a temp file and reads
 //! `check --format json`. SLP020 is on by default ("disallowed duplication"), so the run selects
 //! only SLP020 to isolate it from unrelated rules.
