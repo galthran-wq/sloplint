@@ -33,6 +33,7 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP220` | preview | Corrupted / truncated AI output — a leftover ```` ``` ```` fence, merge-conflict marker or `<file …>` tag in code, a file that fails to parse, or a prose-heavy paste (an unparseable `.py` becomes a finding instead of being silently skipped) |
 | `SLP230` | preview | Mock / placeholder data in production code — `@example.com` emails, fake phone numbers, low-entropy/nil UUIDs, weak credentials (`changeme`, `your_api_key`), and dummy returns (`return {"foo": "bar"}` / `"placeholder"`); excludes test paths |
 | `SLP240` | preview | Ghost scaffolding — a top-level class/function defined but **never referenced anywhere** in the project (dangling abstraction), or a `settings.ENABLE_X` config flag read but defined nowhere (whole-project; allowlists exports/base-types/entry-points) |
+| `SLP250` | preview | Cross-language pollution — wrong-language idioms in Python: camelCase methods (`.toString()`, `.charAt()`, `.forEach()`), foreign attributes (`.length`, `.prototype`), `console.log`, and foreign builtins (`array_push`, `println`). Narrow + allow-listed (`.push`/`.size`/`re.sub` not flagged) |
 
 Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
 McCabe risk tiers, shields **badges**, and a per-PR summary — and **package/module architecture
@@ -172,6 +173,9 @@ extra = []                    # extra placeholder literal values beyond the buil
 
 [comments]                    # SLP004 hedging/narration comment tells
 extra = []                    # extra hedging/deferral comment phrases beyond the built-in lexicon
+
+[crosslang]                   # SLP250 cross-language pollution
+allow = []                    # extra names to treat as legitimate Python (suppress false positives)
 
 [badges]                      # which `metrics --badges` files to emit (see Metrics & badges)
 # include = ["cyclomatic-risk"]   # per-metric badges; omit = all, [] = none

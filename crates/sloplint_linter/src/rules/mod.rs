@@ -5,6 +5,7 @@
 
 pub mod cohesion;
 pub mod comments;
+pub mod crosslang;
 pub mod duplication;
 pub mod placeholders;
 pub mod security;

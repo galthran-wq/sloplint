@@ -74,6 +74,7 @@ fn shipped_rules() -> Vec<RegisteredRule> {
     rules.extend(crate::rules::cohesion::rules());
     rules.extend(crate::rules::security::rules());
     rules.extend(crate::rules::placeholders::rules());
+    rules.extend(crate::rules::crosslang::rules());
     rules
 }
 
@@ -127,6 +128,7 @@ mod tests {
             security_extra: &[],
             placeholders_extra: &[],
             comment_phrases_extra: &[],
+            crosslang_allow: &[],
         };
         let refs: Vec<&dyn Rule> = rules.iter().map(|b| b.as_ref()).collect();
         let diagnostics = check_file(&ctx, &refs);

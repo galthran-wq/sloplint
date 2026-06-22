@@ -43,6 +43,8 @@ pub struct Config {
     pub placeholders: PlaceholderSettings,
     /// Settings for the comment rules (SLP004 hedging/narration comment tells).
     pub comments: CommentSettings,
+    /// Settings for the cross-language rule (SLP250 cross-language pollution).
+    pub crosslang: CrossLangSettings,
 }
 
 impl Default for Config {
@@ -59,6 +61,7 @@ impl Default for Config {
             security: SecuritySettings::default(),
             placeholders: PlaceholderSettings::default(),
             comments: CommentSettings::default(),
+            crosslang: CrossLangSettings::default(),
         }
     }
 }
@@ -101,6 +104,16 @@ pub struct PlaceholderSettings {
 pub struct CommentSettings {
     /// Extra hedging/deferral comment phrases to flag, beyond the built-in lexicon.
     pub extra: Vec<String>,
+}
+
+/// Settings for SLP250 (cross-language pollution). The check uses a narrow built-in blocklist of
+/// foreign idioms; `allow` adds project-specific names to treat as legitimate Python (suppressing
+/// false positives), extending the built-in FP-prone allow-list.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CrossLangSettings {
+    /// Extra names to treat as legitimate Python (never flagged), beyond the built-in allow-list.
+    pub allow: Vec<String>,
 }
 
 /// Controls `metrics --badges` output. Defaults to today's behavior: every per-metric badge,

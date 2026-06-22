@@ -30,6 +30,9 @@ pub struct FileContext<'a> {
     /// Extra hedging/deferral comment phrases beyond the built-in lexicon (`[comments] extra` in
     /// config), used by SLP004. Empty by default; non-CLI callers pass `&[]`.
     pub comment_phrases_extra: &'a [String],
+    /// Extra names to treat as legitimate Python (allow-list) for SLP250 cross-language detection
+    /// (`[crosslang] allow` in config). Empty by default; non-CLI callers pass `&[]`.
+    pub crosslang_allow: &'a [String],
 }
 
 /// A single lint rule. Rules push findings rather than returning them, so one AST/token
