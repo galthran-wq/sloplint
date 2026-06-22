@@ -1042,6 +1042,7 @@ dependencies = [
 name = "sloplint_metrics"
 version = "0.4.0"
 dependencies = [
+ "insta",
  "petgraph",
  "sloplint_python",
 ]
