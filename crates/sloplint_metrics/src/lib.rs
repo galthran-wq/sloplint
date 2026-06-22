@@ -9,6 +9,7 @@ pub mod badge;
 pub mod cohesion;
 mod collect;
 mod complexity;
+mod exception;
 pub mod graph;
 mod inheritance;
 pub mod modularity;
@@ -28,10 +29,11 @@ pub use risk::{
 use badge::{Badge, Color};
 use collect::{collect_classes, collect_functions};
 use complexity::{cognitive, cyclomatic, max_nesting};
+use exception::exception_stats;
 use inheritance::{class_is_abstract, coupling_candidates};
 use size::{caller_arity, exit_count, line_span, ncss, param_count, receiver_count};
 use sloplint_python::ast::visitor::{self, Visitor};
-use sloplint_python::ast::{ExceptHandler, Expr, ModModule, Stmt, StmtClassDef, StmtFunctionDef};
+use sloplint_python::ast::{Expr, ModModule, Stmt, StmtClassDef, StmtFunctionDef};
 use sloplint_python::parser::Parsed;
 use sloplint_python::{LineIndex, Ranged, TextRange, TextSize, TokenKind};
 
@@ -706,60 +708,6 @@ fn is_constant_expr(expr: &Expr) -> bool {
         Expr::Dict(d) => d.items.iter().all(|item| {
             item.key.as_ref().is_some_and(is_constant_expr) && is_constant_expr(&item.value)
         }),
-        _ => false,
-    }
-}
-
-/// Exception-handling hygiene counts for a module body: every `except` handler, anywhere
-/// (module level or nested in functions/classes), classified bare / broad / swallow. A bare
-/// `except:` has no type; broad catches `Exception`/`BaseException` (or a tuple containing one);
-/// swallow is a body of exactly `pass`, `continue`, or `...`.
-fn exception_stats(body: &[Stmt]) -> ExceptionStats {
-    #[derive(Default)]
-    struct Counter {
-        stats: ExceptionStats,
-    }
-    impl Visitor<'_> for Counter {
-        fn visit_except_handler(&mut self, handler: &ExceptHandler) {
-            let ExceptHandler::ExceptHandler(h) = handler;
-            self.stats.handlers += 1;
-            match &h.type_ {
-                None => self.stats.bare += 1,
-                Some(ty) if is_broad_except(ty) => self.stats.broad += 1,
-                Some(_) => {}
-            }
-            if is_swallow_body(&h.body) {
-                self.stats.swallow += 1;
-            }
-            visitor::walk_except_handler(self, handler);
-        }
-    }
-    let mut counter = Counter::default();
-    for stmt in body {
-        counter.visit_stmt(stmt);
-    }
-    counter.stats
-}
-
-/// Whether an `except` type expression is "broad": it names `Exception`/`BaseException` (by
-/// trailing identifier, so `builtins.Exception` counts too), or is a tuple containing one.
-fn is_broad_except(expr: &Expr) -> bool {
-    match expr {
-        Expr::Tuple(tuple) => tuple.elts.iter().any(is_broad_except),
-        other => matches!(
-            expr_trailing_name(other),
-            Some("Exception" | "BaseException")
-        ),
-    }
-}
-
-/// Whether a handler body silently swallows the error: a single `pass`, `continue`, or `...`
-/// statement and nothing else. (A bare logging-only body is deliberately *not* counted — kept
-/// strict to avoid false positives.)
-fn is_swallow_body(body: &[Stmt]) -> bool {
-    match body {
-        [Stmt::Pass(_)] | [Stmt::Continue(_)] => true,
-        [Stmt::Expr(expr)] => matches!(expr.value.as_ref(), Expr::EllipsisLiteral(_)),
         _ => false,
     }
 }
