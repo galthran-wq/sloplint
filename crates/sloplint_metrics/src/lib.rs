@@ -16,6 +16,7 @@ pub mod modularity;
 mod risk;
 mod size;
 pub mod test_proxies;
+mod types;
 
 #[cfg(test)]
 mod testing;
@@ -31,11 +32,12 @@ use collect::{collect_classes, collect_functions};
 use complexity::{cognitive, cyclomatic, max_nesting};
 use exception::exception_stats;
 use inheritance::{class_is_abstract, coupling_candidates};
-use size::{caller_arity, exit_count, line_span, ncss, param_count, receiver_count};
+use size::{caller_arity, exit_count, line_span, ncss, param_count};
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, ModModule, Stmt, StmtClassDef, StmtFunctionDef};
 use sloplint_python::parser::Parsed;
 use sloplint_python::{LineIndex, Ranged, TextRange, TextSize, TokenKind};
+use types::type_hint_coverage;
 
 /// Metrics for a single function.
 #[derive(Debug, Clone)]
@@ -1103,42 +1105,6 @@ pub(crate) fn expr_trailing_name(expr: &Expr) -> Option<&str> {
         Expr::Subscript(subscript) => expr_trailing_name(&subscript.value),
         _ => None,
     }
-}
-
-/// Type-hint coverage for one function signature: `(typed_params, annotatable_params,
-/// has_return_annotation)`.
-///
-/// *Annotatable* params are the positional and keyword params (positional-only + regular +
-/// keyword-only). The `self`/`cls` receiver of a non-static method is excluded — it is
-/// conventionally unannotated and not a quality signal — as are `*args`/`**kwargs`, which are
-/// variadic collectors that are rarely annotated and would only dilute the ratio. A function with
-/// no annotatable params yields `0/0`: it contributes nothing to coverage rather than being
-/// penalized.
-///
-/// This measures *under*-annotation as a quality concern (missing types are harder to read and
-/// refactor and weaken tooling). The "bad" direction is **low** coverage only — fully-typed code
-/// is neutral-to-good and is never itself a slop signal (slop is badness, not provenance).
-fn type_hint_coverage(function: &StmtFunctionDef) -> (usize, usize, bool) {
-    let params = &function.parameters;
-    // Drop exactly one leading positional for a non-static method whose first parameter is the
-    // `self`/`cls` receiver (see [`receiver_count`]).
-    let skip_receiver = receiver_count(function);
-
-    let mut annotatable = 0usize;
-    let mut typed = 0usize;
-    for param in params
-        .posonlyargs
-        .iter()
-        .chain(&params.args)
-        .chain(&params.kwonlyargs)
-        .skip(skip_receiver)
-    {
-        annotatable += 1;
-        if param.parameter.annotation.is_some() {
-            typed += 1;
-        }
-    }
-    (typed, annotatable, function.returns.is_some())
 }
 
 #[cfg(test)]
