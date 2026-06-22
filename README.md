@@ -436,6 +436,27 @@ module docstring, the `if __name__ == "__main__":` guard, class-body declaration
 assignments, so config/`__main__`/library modules don't false-fire. Orthogonal to complexity (the
 code is linear) and module-size (it's often only moderate). Descriptive, never a gate.
 
+### God-unit tail (#152)
+
+Per-unit **averages** wash out the worst outliers: a repo can hold a dozen god-modules and a
+cognitive-172 god-function yet show a clean `avg_cognitive`, because they're diluted across thousands
+of units. The **god-unit tail** counts how many units land in the worst (`very_high`) band of each
+distribution, so the outliers stay visible:
+
+```jsonc
+"god_units": {
+  "very_high_cognitive_functions": 1, "very_high_cyclomatic_functions": 1,
+  "very_high_wmc_classes": 0, "very_high_size_modules": 12, "total": 14
+}
+```
+
+> [!NOTE]
+> **Over-engineering is a documented limitation.** Detecting that a codebase is *disproportionate to
+> its purpose* (a 100K-LOC 4D-tetris) needs the problem's intrinsic complexity — semantic, not
+> statically computable, the same ceiling as AI-slop detection generally. sloplint does **not** ship
+> an "over-engineering score." The god-unit tail is the part that *is* measurable — it surfaces the
+> extreme outliers averages hide — but a clean tail is not proof a codebase is right-sized.
+
 ### Package & module architecture metrics
 
 `sloplint metrics` also analyzes the project's **first-party import graph** — the metrics the
