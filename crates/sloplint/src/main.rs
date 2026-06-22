@@ -8,9 +8,6 @@
 // (the per-unit metric distributions) it exceeds the default macro recursion limit.
 #![recursion_limit = "256"]
 
-mod imports;
-mod stdlib;
-
 mod badges;
 mod corrupted;
 mod ghost;
@@ -35,8 +32,10 @@ use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::{Config, Selector};
 use sloplint_linter::detect;
+use sloplint_linter::imports;
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
+use sloplint_linter::stdlib;
 use sloplint_linter::suppression::Suppressions;
 use sloplint_metrics::graph::{self, ImportGraph, ModuleInput};
 use sloplint_metrics::test_proxies::{self, FileTestStats, TestProxies};
