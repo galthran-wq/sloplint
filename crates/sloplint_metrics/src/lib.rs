@@ -2293,14 +2293,22 @@ mod tests {
     }
 
     #[test]
-    fn measures_a_simple_function() {
-        let m = metrics("def add(a, b):\n    return a + b\n");
-        assert_eq!(m.functions.len(), 1);
-        let f = &m.functions[0];
-        assert_eq!(f.params, 2);
-        assert_eq!(f.cyclomatic, 1);
-        assert_eq!(f.cognitive, 0);
-        assert_eq!(f.max_nesting, 0);
+    fn function_metrics() {
+        // Per-function size/shape over the fixture (class methods and nested functions each get a
+        // row). Pins params/arity (receiver + variadic handling), ncss (own-body statement count),
+        // exits (own-body return/raise/yield), and the basic complexity/nesting/loc fields.
+        use std::fmt::Write;
+        let source = fixture_source("complexity/function_metrics.py");
+        let mut out = String::new();
+        for f in &metrics(&source).functions {
+            writeln!(
+                out,
+                "{}: params={} arity={} ncss={} exits={} cyclomatic={} cognitive={} max_nesting={} loc={}",
+                f.name, f.params, f.arity, f.ncss, f.exits, f.cyclomatic, f.cognitive, f.max_nesting, f.loc
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(out);
     }
 
     #[test]
@@ -2391,47 +2399,6 @@ mod tests {
         assert_eq!(ParamCountTier::from_arity(7), ParamCountTier::High);
         assert_eq!(ParamCountTier::from_arity(10), ParamCountTier::High);
         assert_eq!(ParamCountTier::from_arity(11), ParamCountTier::VeryHigh);
-    }
-
-    #[test]
-    fn arity_excludes_receiver_and_counts_variadics_once() {
-        let by_name = |src: &str| {
-            metrics(src)
-                .functions
-                .into_iter()
-                .map(|f| (f.name, f.params, f.arity))
-                .collect::<Vec<_>>()
-        };
-        let fns = by_name(
-            "\
-def free(a, b, c):
-    return a
-
-class C:
-    def method(self, x, y):
-        return x
-
-    @staticmethod
-    def stat(self, z):
-        return z
-
-    def variadic(self, *args, **kwargs):
-        return args
-",
-        );
-        // (name, params incl. receiver/variadics, arity caller-facing)
-        assert_eq!(fns[0], ("free".into(), 3, 3), "no receiver");
-        assert_eq!(fns[1], ("method".into(), 3, 2), "self excluded from arity");
-        assert_eq!(
-            fns[2],
-            ("stat".into(), 2, 2),
-            "@staticmethod: the first param is a real arg"
-        );
-        assert_eq!(
-            fns[3],
-            ("variadic".into(), 3, 2),
-            "self excluded; *args + **kwargs count once each"
-        );
     }
 
     #[test]
@@ -2832,67 +2799,6 @@ def f():
         assert_eq!(repo.exception, ExceptionStats::default());
         assert_eq!(repo.broad_except_rate, 0.0);
         assert_eq!(repo.swallow_except_rate, 0.0);
-    }
-
-    #[test]
-    fn ncss_counts_statements_not_lines() {
-        // body: if (1) + raise (1) + aug-assign (1) + return (1) = 4 statements; the blank line
-        // and the `def` header are not counted.
-        let f = &metrics(
-            "\
-def add(self, n):
-    if n < 0:
-
-        raise ValueError(n)
-    self.total += n
-    return self.total
-",
-        )
-        .functions[0];
-        assert_eq!(f.ncss, 4);
-        assert!(f.loc > f.ncss, "physical loc exceeds logical ncss");
-    }
-
-    #[test]
-    fn ncss_is_own_body_excluding_nested_def_bodies() {
-        // outer's own body: `def helper` (1, the declaration) + `return` (1) = 2. helper's two
-        // statements (a = 1; return a) belong to helper's own row, not outer's.
-        let file = metrics(
-            "\
-def outer():
-    def helper():
-        a = 1
-        return a
-    return helper()
-",
-        );
-        let outer = file.functions.iter().find(|f| f.name == "outer").unwrap();
-        let helper = file.functions.iter().find(|f| f.name == "helper").unwrap();
-        assert_eq!(
-            outer.ncss, 2,
-            "nested helper body excluded from outer's ncss"
-        );
-        assert_eq!(helper.ncss, 2);
-    }
-
-    #[test]
-    fn exits_count_return_raise_yield_excluding_nested() {
-        let f = &metrics(
-            "\
-def f(x):
-    def nested():
-        return 1          # nested scope — not counted
-    if x:
-        raise ValueError
-    yield x
-    return x
-",
-        )
-        .functions[0];
-        assert_eq!(
-            f.exits, 3,
-            "raise + yield + return (nested return excluded)"
-        );
     }
 
     #[test]
