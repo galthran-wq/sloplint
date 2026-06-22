@@ -1,0 +1,17 @@
+---
+source: crates/sloplint_metrics/src/lib.rs
+expression: out
+---
+classify: cognitive=1
+tangle: cognitive=6
+boolean_ops: cognitive=5
+ternary_top: cognitive=1
+ternary_in_if: cognitive=3
+comp_filter_top: cognitive=1
+comp_filter_in_loop: cognitive=3
+with_if: cognitive=1
+try_except: cognitive=1
+if_else: cognitive=2
+match_guard: cognitive=2
+with_item_cond: cognitive=1
+nested_ternary: cognitive=2
