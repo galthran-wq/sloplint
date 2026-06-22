@@ -1,0 +1,8 @@
+---
+source: crates/sloplint_metrics/src/lib.rs
+expression: out
+---
+branchy: cyclomatic=4 cognitive=4 max_nesting=2
+keywords_in_strings: cyclomatic=1 cognitive=0 max_nesting=0
+outer: cyclomatic=2 cognitive=0 max_nesting=0
+inner: cyclomatic=2 cognitive=1 max_nesting=1
