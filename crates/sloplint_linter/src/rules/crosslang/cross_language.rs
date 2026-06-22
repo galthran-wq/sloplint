@@ -16,13 +16,15 @@
 //!
 //! FP-prone names (`push`/`size`/`contains`/`sub`/`echo`/`map`/`filter`/…) are deliberately **not**
 //! in the blocklist. An allow-list suppresses any name; extend it via `[crosslang] allow`.
-//! Preview-gated — the FP-riskiest of the rules.
+//! Preview-gated — the FP-riskiest of the rules. Qt-binding files (PyQt/PySide, camelCase by design)
+//! are skipped entirely; `console.log` is not flagged (collides with `rich.Console.log`). A known
+//! residual FP is `xml.dom` NodeList's real `.length` — allow-list it if you use `xml.dom`.
 
 use std::collections::HashMap;
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::visitor::{self, Visitor};
-use sloplint_python::ast::{Expr, ExprContext};
+use sloplint_python::ast::{Expr, ExprContext, Stmt};
 use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
@@ -35,11 +37,17 @@ impl Rule for CrossLanguage {
     }
 
     fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let module = ctx.parsed.syntax();
+        // Qt's Python bindings (PyQt/PySide) are camelCase by design — `toString`/`indexOf`/… are
+        // their real API, not foreign idioms — so skip a file that imports them entirely.
+        if imports_qt(&module.body) {
+            return;
+        }
         let mut finder = Finder {
             allow: ctx.crosslang_allow,
             found: HashMap::new(),
         };
-        for stmt in &ctx.parsed.syntax().body {
+        for stmt in &module.body {
             finder.visit_stmt(stmt);
         }
         let mut findings: Vec<(TextRange, String)> = finder.found.into_values().collect();
@@ -79,24 +87,13 @@ impl<'a> Visitor<'a> for Finder<'a> {
     fn visit_expr(&mut self, expr: &'a Expr) {
         match expr {
             Expr::Call(call) => match call.func.as_ref() {
-                // `x.toString()` / `console.log(...)`.
+                // `x.toString()`. (No `console.log` heuristic — `console` is the canonical name for
+                // a `rich.console.Console`, whose `.log()`/`.print()` are real methods, and a stdlib
+                // `Logger` is often named `console` too — too collision-prone to flag.)
                 Expr::Attribute(attr) => {
                     let method = attr.attr.as_str();
                     if let Some((lang, suggest)) = foreign_method(method) {
                         self.record(attr.attr.range(), method, lang, suggest);
-                    } else if attr.attr.as_str() == "log"
-                        || matches!(attr.attr.as_str(), "error" | "warn" | "info" | "debug")
-                    {
-                        if let Expr::Name(recv) = attr.value.as_ref() {
-                            if recv.id.as_str() == "console" {
-                                self.record(
-                                    attr.range(),
-                                    "console.log",
-                                    "JavaScript",
-                                    "the `logging` module or `print()`",
-                                );
-                            }
-                        }
                     }
                 }
                 // Bare `array_push(...)`.
@@ -117,6 +114,26 @@ impl<'a> Visitor<'a> for Finder<'a> {
         }
         visitor::walk_expr(self, expr);
     }
+}
+
+/// Whether the module imports a Qt binding (PyQt/PySide/qtpy), whose camelCase API would otherwise
+/// false-positive. Checks top-level `import`/`from` statements only — Qt is imported at module top.
+fn imports_qt(body: &[Stmt]) -> bool {
+    const QT: &[&str] = &[
+        "PyQt4", "PyQt5", "PyQt6", "PySide", "PySide2", "PySide6", "qtpy",
+    ];
+    let top = |dotted: &str| dotted.split('.').next().unwrap_or("").to_string();
+    body.iter().any(|stmt| match stmt {
+        Stmt::Import(import) => import
+            .names
+            .iter()
+            .any(|a| QT.contains(&top(a.name.as_str()).as_str())),
+        Stmt::ImportFrom(import) => import
+            .module
+            .as_ref()
+            .is_some_and(|m| QT.contains(&top(m.as_str()).as_str())),
+        _ => false,
+    })
 }
 
 /// camelCase foreign methods → `(language, suggestion)`. camelCase makes these un-Pythonic
@@ -276,9 +293,6 @@ mod tests {
         assert!(findings("array_push(arr, 1)")
             .iter()
             .any(|m| m.contains("array_push")));
-        assert!(findings("console.log(x)")
-            .iter()
-            .any(|m| m.contains("console.log")));
         assert!(findings("for_each = items.forEach(f)")
             .iter()
             .any(|m| m.contains("forEach")));
@@ -293,6 +307,17 @@ mod tests {
         assert!(findings("n = queue.size()").is_empty());
         assert!(findings("v = d.get('k')").is_empty());
         assert!(findings("xs.append(1)").is_empty());
+        // `console.log` collides with rich.Console.log() — never flagged.
+        assert!(findings("console.log('a real rich log')").is_empty());
+    }
+
+    #[test]
+    fn qt_imports_suppress_the_rule() {
+        // PyQt/PySide are camelCase by design — their API isn't foreign there.
+        assert!(findings("from PyQt5.QtCore import QObject\n\ns = v.toString()\n").is_empty());
+        assert!(findings("import PySide6\n\ni = combo.indexOf(x)\n").is_empty());
+        // …but a non-Qt module with the same call is still flagged.
+        assert!(!findings("s = v.toString()").is_empty());
     }
 
     #[test]

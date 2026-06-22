@@ -8,7 +8,6 @@ upper = s.toUpperCase()  # JS/Java
 idx = items.indexOf(x)  # JS/Java
 items.forEach(handler)  # JS
 n = arr.length  # JS/Java attribute
-console.log(value)  # JS
 array_push(bucket, item)  # PHP
 println("hello")  # Java/Kotlin/Go
 
