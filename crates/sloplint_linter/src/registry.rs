@@ -126,6 +126,7 @@ mod tests {
             limits: Default::default(),
             security_extra: &[],
             placeholders_extra: &[],
+            comment_phrases_extra: &[],
         };
         let refs: Vec<&dyn Rule> = rules.iter().map(|b| b.as_ref()).collect();
         let diagnostics = check_file(&ctx, &refs);

@@ -23,6 +23,7 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP090` | stable | Flat-directory fanout — too many `.py` modules in one directory (default: > 15, via `dir_max_modules`) |
 | `SLP001` | preview | Redundant "what" comments that just restate the code |
 | `SLP002` | preview | Redundant docstrings that just restate the code |
+| `SLP004` | preview | AI-narration comment tells — deferral/incompleteness (`for now`, `in production this would`; **error**), hedging (`should work`, `probably`), and structural noise (step narration, ASCII dividers, narrator comments) |
 | `SLP040` | preview | Redundant type hints |
 | `SLP060` | preview | Verbose, mechanical identifier naming |
 | `SLP084` | preview | Deeply nested data-structure literals (a dict-of-lists-of-dicts blob past a depth — model it with a named type) |
@@ -168,6 +169,9 @@ extra = []                    # extra security-guard names beyond the built-in c
 
 [placeholders]                # SLP230 mock/placeholder data
 extra = []                    # extra placeholder literal values beyond the built-in sets
+
+[comments]                    # SLP004 hedging/narration comment tells
+extra = []                    # extra hedging/deferral comment phrases beyond the built-in lexicon
 
 [badges]                      # which `metrics --badges` files to emit (see Metrics & badges)
 # include = ["cyclomatic-risk"]   # per-metric badges; omit = all, [] = none

@@ -170,6 +170,7 @@ mod tests {
             parsed: &parsed,
             security_extra: &[],
             placeholders_extra: &[],
+            comment_phrases_extra: &[],
             limits: Limits {
                 data_nesting_max_depth: max_depth,
                 ..Default::default()

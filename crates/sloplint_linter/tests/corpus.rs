@@ -63,6 +63,7 @@ fn is_flagged(path: &Path) -> bool {
         limits: Default::default(),
         security_extra: &[],
         placeholders_extra: &[],
+        comment_phrases_extra: &[],
     };
     !check_file(&ctx, &refs).is_empty()
 }
