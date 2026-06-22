@@ -949,7 +949,12 @@ fn top_level_logic(body: &[Stmt]) -> usize {
     let mut total = 0;
     for (i, stmt) in body.iter().enumerate() {
         match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_) => {}
+            // Declarations / imports / type aliases are structure, not "logic dumped at top level".
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::TypeAlias(_) => {}
             _ if (i == 0 && is_docstring_stmt(stmt))
                 || is_main_guard(stmt)
                 || is_constant_assign(stmt) => {}
