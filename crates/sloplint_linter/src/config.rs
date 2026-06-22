@@ -41,6 +41,8 @@ pub struct Config {
     pub security: SecuritySettings,
     /// Settings for the placeholder rules (SLP230 mock/placeholder data).
     pub placeholders: PlaceholderSettings,
+    /// Settings for the comment rules (SLP004 hedging/narration comment tells).
+    pub comments: CommentSettings,
 }
 
 impl Default for Config {
@@ -56,6 +58,7 @@ impl Default for Config {
             imports: ImportSettings::default(),
             security: SecuritySettings::default(),
             placeholders: PlaceholderSettings::default(),
+            comments: CommentSettings::default(),
         }
     }
 }
@@ -88,6 +91,15 @@ pub struct SecuritySettings {
 #[serde(default, deny_unknown_fields)]
 pub struct PlaceholderSettings {
     /// Extra placeholder literal values to flag, beyond the built-in sets.
+    pub extra: Vec<String>,
+}
+
+/// Settings for SLP004 (comment tells). The check uses a built-in hedging/deferral lexicon;
+/// `extra` adds project-specific hedging phrases to flag in comments.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CommentSettings {
+    /// Extra hedging/deferral comment phrases to flag, beyond the built-in lexicon.
     pub extra: Vec<String>,
 }
 

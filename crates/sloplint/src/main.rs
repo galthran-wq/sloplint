@@ -408,6 +408,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
         limits: selector.limits(&display),
         security_extra: &config.security.extra,
         placeholders_extra: &config.placeholders.extra,
+        comment_phrases_extra: &config.comments.extra,
     };
     let diagnostics = check_file(&ctx, &refs);
     if diagnostics.is_empty() {
@@ -587,6 +588,7 @@ fn run_check(
             limits: selector.limits(&display),
             security_extra: &config.security.extra,
             placeholders_extra: &config.placeholders.extra,
+            comment_phrases_extra: &config.comments.extra,
         };
         let mut diagnostics = check_file(&ctx, &refs);
         // SLP220 (preview): artifact markers outside strings/comments + prose density, on the parsed

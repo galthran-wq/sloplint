@@ -7,6 +7,7 @@
 
 pub mod ascii_only;
 pub mod comment_policy;
+pub mod comment_tells;
 pub mod redundant_comment;
 pub mod redundant_docstring;
 
@@ -27,6 +28,9 @@ pub fn rules() -> Vec<RegisteredRule> {
         }),
         RegisteredRule::new("SLP002", RuleGroup::Preview, || {
             Box::new(redundant_docstring::RedundantDocstring)
+        }),
+        RegisteredRule::new("SLP004", RuleGroup::Preview, || {
+            Box::new(comment_tells::CommentTells)
         }),
     ]
 }
@@ -59,5 +63,11 @@ mod tests {
         redundant_docstring::RedundantDocstring,
         "comments",
         "SLP002"
+    );
+    test_rule!(
+        slp004_comment_tells,
+        comment_tells::CommentTells,
+        "comments",
+        "SLP004"
     );
 }

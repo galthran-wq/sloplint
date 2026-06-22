@@ -27,6 +27,9 @@ pub struct FileContext<'a> {
     /// Extra placeholder literal values beyond the built-in sets (`[placeholders] extra` in config),
     /// used by SLP230. Empty by default; non-CLI callers pass `&[]`.
     pub placeholders_extra: &'a [String],
+    /// Extra hedging/deferral comment phrases beyond the built-in lexicon (`[comments] extra` in
+    /// config), used by SLP004. Empty by default; non-CLI callers pass `&[]`.
+    pub comment_phrases_extra: &'a [String],
 }
 
 /// A single lint rule. Rules push findings rather than returning them, so one AST/token

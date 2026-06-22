@@ -1,0 +1,274 @@
+//! SLP004: AI-narration comment tells — hedging/deferral language and structural-noise comments.
+//!
+//! Where comments are allowed (so SLP010 doesn't already ban them), two text-only classes are
+//! strong LLM tells, no AST needed:
+//!
+//! - **Deferral / incompleteness** (`for now`, `in production this would`, `this would be`,
+//!   `placeholder`, `left as an exercise`) — a *semantic-incompleteness* signal: the model knew it
+//!   was cutting a corner. Reported at **error** severity.
+//! - **Hedging** (`should work`, `probably`, `not sure if`, `replace this with your actual`) —
+//!   uncertainty narration. **Warning**.
+//! - **Structural noise** — step narration (`# Step 1:`), ASCII dividers (`# ======`), and narrator
+//!   comments (`# This function handles…`): the model was narrating, not documenting. **Warning**.
+//!
+//! WHY-comments, license headers, tool directives (`# noqa`, `# type:`) and ticketed TODOs are
+//! exempt. The hedging/deferral lexicon is extendable via `[comments] extra`.
+
+use sloplint_diagnostics::{Diagnostic, Severity};
+use sloplint_python::{Ranged, TokenKind};
+
+use crate::lint::{FileContext, Rule};
+use crate::rules::comments::comment_policy::{comment_body, is_directive, is_ticketed_todo};
+
+pub struct CommentTells;
+
+impl Rule for CommentTells {
+    fn code(&self) -> &'static str {
+        "SLP004"
+    }
+
+    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        for token in ctx.parsed.tokens().iter() {
+            if token.kind() != TokenKind::Comment {
+                continue;
+            }
+            let body = comment_body(&ctx.source[token.range()]);
+            if body.is_empty()
+                || is_directive(body)
+                || is_ticketed_todo(body)
+                || is_license_or_why(body)
+            {
+                continue;
+            }
+            if let Some((severity, message)) = classify(body, ctx.comment_phrases_extra) {
+                diagnostics.push(Diagnostic::new("SLP004", message, token.range(), severity));
+            }
+        }
+    }
+}
+
+/// Classify a comment body as an AI tell, highest-signal first (deferral → hedging → structural).
+fn classify(body: &str, extra: &[String]) -> Option<(Severity, String)> {
+    let lower = body.to_ascii_lowercase();
+
+    if let Some(phrase) = DEFERRAL.iter().find(|p| contains_phrase(&lower, p)) {
+        return Some((
+            Severity::Error,
+            format!(
+                "deferral/incompleteness language in a comment (\"{phrase}\") — signals a corner \
+                 was cut, not finished work"
+            ),
+        ));
+    }
+    let hedge = HEDGING
+        .iter()
+        .copied()
+        .find(|p| contains_phrase(&lower, p))
+        .or_else(|| {
+            extra
+                .iter()
+                .map(String::as_str)
+                .find(|p| contains_phrase(&lower, &p.to_ascii_lowercase()))
+        });
+    if let Some(phrase) = hedge {
+        return Some((
+            Severity::Warning,
+            format!("hedging/uncertainty language in a comment (\"{phrase}\")"),
+        ));
+    }
+    if is_step_narration(&lower) {
+        return Some((
+            Severity::Warning,
+            "step-narration comment (`Step N:` / `Phase N`) — narrating the code, not documenting it"
+                .to_string(),
+        ));
+    }
+    if is_divider(body) {
+        return Some((
+            Severity::Warning,
+            "ASCII section-divider comment — structural noise".to_string(),
+        ));
+    }
+    if let Some(prefix) = NARRATOR.iter().find(|p| lower.starts_with(**p)) {
+        return Some((
+            Severity::Warning,
+            format!("narrator comment (\"{prefix}…\") — describes what the code is, not why"),
+        ));
+    }
+    None
+}
+
+/// A comment that is part of a license header or an obvious WHY rationale — never a tell.
+fn is_license_or_why(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    [
+        "copyright",
+        "spdx",
+        "licensed under",
+        "all rights reserved",
+        "(c)",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
+
+/// `Step 1:` / `Phase 2` / `Part 3` narration: the body starts with one of those words (at a word
+/// boundary) and carries a digit or colon shortly after.
+fn is_step_narration(lower: &str) -> bool {
+    for kw in ["step", "phase", "part"] {
+        if let Some(rest) = lower.strip_prefix(kw) {
+            let boundary = rest
+                .chars()
+                .next()
+                .is_none_or(|c| !c.is_ascii_alphanumeric());
+            let has_marker = rest.chars().take(8).any(|c| c.is_ascii_digit() || c == ':');
+            if boundary && has_marker {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// A pure ASCII divider: the body, whitespace removed, is ≥4 chars all drawn from the divider set.
+fn is_divider(body: &str) -> bool {
+    let stripped: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+    stripped.len() >= 4 && stripped.chars().all(|c| "=-*~#_+<>".contains(c))
+}
+
+/// Word-boundary substring match (so `for now` doesn't fire inside `before nowhere`). Both inputs
+/// are ASCII-lowercased; boundaries are non-`[A-Za-z0-9_]` bytes or string ends.
+fn contains_phrase(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let bytes = haystack.as_bytes();
+    for (i, _) in haystack.match_indices(needle) {
+        let before_ok = i == 0 || !is_word_byte(bytes[i - 1]);
+        let after = i + needle.len();
+        let after_ok = after >= bytes.len() || !is_word_byte(bytes[after]);
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Deferral / semantic-incompleteness phrases (error severity).
+const DEFERRAL: &[&str] = &[
+    "for now",
+    "in production this would",
+    "in production, this would",
+    "in a real world",
+    "in the real world",
+    "real-world",
+    "this would be",
+    "would be implemented",
+    "would go here",
+    "in practice you would",
+    "for simplicity",
+    "to keep it simple",
+    "placeholder",
+    "temporary",
+    "temporarily",
+    "not implemented yet",
+    "left as an exercise",
+    "in a real app",
+    "in real code",
+    "naive implementation",
+    "simplified version",
+];
+
+/// Hedging / uncertainty phrases (warning severity).
+const HEDGING: &[&str] = &[
+    "should work",
+    "hopefully",
+    "not sure if",
+    "i think",
+    "i guess",
+    "probably",
+    "might need",
+    "might want",
+    "replace this with your",
+    "your actual",
+    "adjust as needed",
+    "tweak as needed",
+    "or something",
+    "feel free to",
+];
+
+/// Narrator-comment prefixes (warning severity).
+const NARRATOR: &[&str] = &[
+    "this function",
+    "this method",
+    "this class",
+    "this module",
+    "this script",
+    "this code",
+    "this is a",
+    "this is the",
+    "here we ",
+    "we are going to",
+    "we will ",
+    "the following",
+    "the purpose of",
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn class(body: &str) -> Option<(Severity, String)> {
+        classify(body, &[])
+    }
+
+    #[test]
+    fn deferral_is_error() {
+        let (sev, msg) = class("compute the average for now").unwrap();
+        assert_eq!(sev, Severity::Error);
+        assert!(msg.contains("for now"));
+        assert_eq!(
+            class("in production this would call the API").unwrap().0,
+            Severity::Error
+        );
+    }
+
+    #[test]
+    fn hedging_is_warning() {
+        assert_eq!(class("this should work").unwrap().0, Severity::Warning);
+        assert!(class("probably fine").is_some());
+        assert!(class("replace this with your actual key").is_some());
+    }
+
+    #[test]
+    fn structural_noise() {
+        assert!(class("Step 1: load the data").is_some());
+        assert!(class("Phase 2 - transform").is_some());
+        assert!(class("==========").is_some());
+        assert!(class("- - - - -").is_some());
+        assert!(class("This function handles the request").is_some());
+        assert!(class("this is the main entry point").is_some());
+    }
+
+    #[test]
+    fn legitimate_comments_are_clean() {
+        assert!(class("because the upstream API rejects empty bodies").is_none());
+        assert!(class("see RFC 2606 for reserved domains").is_none());
+        assert!(class("e.g. a UTF-8 BOM").is_none());
+        // "for now" inside another word must not match.
+        assert!(class("metaformnow handling").is_none());
+        // A short divider-ish but real comment isn't a divider.
+        assert!(class("x += 1").is_none());
+    }
+
+    #[test]
+    fn extra_phrases_extend_hedging() {
+        assert!(class("revisit later").is_none());
+        let extra = vec!["revisit later".to_string()];
+        assert!(classify("we should revisit later", &extra).is_some());
+    }
+}
