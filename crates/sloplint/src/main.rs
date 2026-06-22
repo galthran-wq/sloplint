@@ -1565,6 +1565,16 @@ fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         repo.max_top_level_ratio * 100.0,
         repo.undecomposed_modules,
     );
+    // God-unit tail (#152): the very-high-tier outliers per-unit averages wash out.
+    let god = repo.god_units();
+    println!(
+        "  god-unit tail       {}  (cognitive {} / cyclomatic {} / WMC {} / module {})",
+        god.total(),
+        god.cognitive_functions,
+        god.cyclomatic_functions,
+        god.wmc_classes,
+        god.size_modules,
+    );
 }
 
 /// The package module-count concentration (#103) for one profile's files. Edge-free — it needs
@@ -1764,6 +1774,7 @@ fn panel_json(
     clone: &CloneStats,
 ) -> serde_json::Map<String, serde_json::Value> {
     let summary = graph.summary();
+    let god = repo.god_units();
     let serde_json::Value::Object(map) = serde_json::json!({
         "files": repo.files,
         "functions": repo.functions,
@@ -1836,6 +1847,17 @@ fn panel_json(
             "avg_ratio": repo.avg_top_level_ratio,
             "max_ratio": repo.max_top_level_ratio,
             "undecomposed_modules": repo.undecomposed_modules,
+        },
+        // God-unit tail (#152): counts of very-high-tier units that per-unit *averages* wash out —
+        // a repo can have a dozen god-modules and a cognitive-172 god-function yet a clean
+        // `avg_cognitive`. This is the tail term that surfaces the outliers (over-engineering as a
+        // whole is a documented static-analysis limitation; this is the part we *can* measure).
+        "god_units": {
+            "very_high_cognitive_functions": god.cognitive_functions,
+            "very_high_cyclomatic_functions": god.cyclomatic_functions,
+            "very_high_wmc_classes": god.wmc_classes,
+            "very_high_size_modules": god.size_modules,
+            "total": god.total(),
         },
         // CK class metrics (#84): WMC weight and first-party DIT depth, aggregated over all
         // classes. DIT is a conservative under-count — external (stdlib/third-party) ancestry is

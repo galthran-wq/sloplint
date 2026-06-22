@@ -65,6 +65,12 @@ fn json_reports_cyclomatic_aggregates_and_risk_histogram() {
     assert_eq!(risk["high"], 0);
     assert_eq!(risk["very_high"], 0);
 
+    // God-unit tail (#152): the fixture has no very-high-tier units (max cog 10, cc 12), so the
+    // tail total is 0 and the block is present/well-formed.
+    let god = &prod["god_units"];
+    assert_eq!(god["total"], 0, "no very-high-tier units in the fixture");
+    assert_eq!(god["very_high_cognitive_functions"], 0);
+
     // Cognitive complexity at parity with cyclomatic (#110): per-function cognitive is
     // trivial=0, comprehension=1, moderate=10 → mean 11/3, p95/max 10, two low + one moderate.
     assert_eq!(prod["max_cognitive"], 10);

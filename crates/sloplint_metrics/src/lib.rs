@@ -704,7 +704,42 @@ pub struct RepoMetrics {
     pub swallow_except_rate: f64,
 }
 
+/// Counts of units in the worst (`very_high`) band of each distribution — the "god-unit tail"
+/// (#152) that per-unit averages hide. Descriptive; never a gate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GodUnits {
+    /// Functions with `very_high` cognitive complexity (the hardest to read).
+    pub cognitive_functions: usize,
+    /// Functions with `very_high` cyclomatic complexity (the branchiest).
+    pub cyclomatic_functions: usize,
+    /// Classes with `very_high` WMC (god classes).
+    pub wmc_classes: usize,
+    /// Modules with `very_high` NLOC (god modules).
+    pub size_modules: usize,
+}
+
+impl GodUnits {
+    /// Total very-high-tier units across functions, classes, and modules.
+    pub fn total(&self) -> usize {
+        self.cognitive_functions + self.cyclomatic_functions + self.wmc_classes + self.size_modules
+    }
+}
+
 impl RepoMetrics {
+    /// The god-unit **tail** (#152): how many units land in the worst (`very_high`) band of each
+    /// distribution. Per-unit *averages* wash these outliers out — a repo can have a dozen
+    /// god-modules and a cognitive-172 god-function yet a clean `avg_cognitive` because they're
+    /// diluted across thousands of units — so the count of very-high-tier units is the signal that
+    /// surfaces them. Reads the existing risk histograms; no extra computation.
+    pub fn god_units(&self) -> GodUnits {
+        GodUnits {
+            cognitive_functions: self.cognitive_risk.very_high,
+            cyclomatic_functions: self.cyclomatic_risk.very_high,
+            wmc_classes: self.wmc_risk.very_high,
+            size_modules: self.module_size_risk.very_high,
+        }
+    }
+
     /// A badge summarizing cyclomatic-complexity risk: the worst occupied tier plus the peak
     /// value, colored by that tier (`max complexity: 27 (high)`). Color follows the McCabe
     /// tiers, not arbitrary thresholds, so it stays meaningful as the suite grows.
@@ -2742,6 +2777,21 @@ def b(xs):
         let md = repo.cyclomatic_markdown();
         assert!(md.contains("worst tier: high"));
         assert!(md.contains("| high (21–50) | 1 |"));
+    }
+
+    #[test]
+    fn god_units_count_very_high_tier_across_unit_kinds() {
+        let mut repo = RepoMetrics::default();
+        repo.cognitive_risk.very_high = 3;
+        repo.cyclomatic_risk.very_high = 2;
+        repo.wmc_risk.very_high = 1;
+        repo.module_size_risk.very_high = 12;
+        // (Other bands don't count toward the tail.)
+        repo.cognitive_risk.low = 4000;
+        let god = repo.god_units();
+        assert_eq!(god.cognitive_functions, 3);
+        assert_eq!(god.size_modules, 12);
+        assert_eq!(god.total(), 3 + 2 + 1 + 12);
     }
 
     #[test]
