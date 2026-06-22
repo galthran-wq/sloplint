@@ -1,0 +1,11 @@
+---
+source: crates/sloplint_metrics/src/test_proxies.rs
+expression: out
+---
+counts.py (is_test=true): FileTestStats { is_test: true, loc: 24, test_functions: 3, assertion_free_tests: 0, assertions: 5 }
+production_lookalike.py (is_test=false): FileTestStats { is_test: false, loc: 4, test_functions: 0, assertion_free_tests: 0, assertions: 0 }
+mock_lookalikes.py (is_test=true): FileTestStats { is_test: true, loc: 5, test_functions: 1, assertion_free_tests: 0, assertions: 1 }
+self_fail.py (is_test=true): FileTestStats { is_test: true, loc: 4, test_functions: 1, assertion_free_tests: 0, assertions: 1 }
+assertion_free.py (is_test=true): FileTestStats { is_test: true, loc: 21, test_functions: 4, assertion_free_tests: 2, assertions: 2 }
+local_helper.py (is_test=true): FileTestStats { is_test: true, loc: 6, test_functions: 1, assertion_free_tests: 0, assertions: 1 }
+unittest_methods.py (is_test=true): FileTestStats { is_test: true, loc: 8, test_functions: 2, assertion_free_tests: 1, assertions: 1 }

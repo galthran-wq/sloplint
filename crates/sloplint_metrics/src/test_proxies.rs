@@ -286,10 +286,34 @@ fn receiver_is(expr: &Expr, names: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::fixture_source;
     use sloplint_python::parse;
+    use std::fmt::Write;
 
-    fn parse_src(source: &str) -> Parsed<ModModule> {
-        parse(source).expect("valid python")
+    /// Per-file test stats over each fixture, in one snapshot. The fixtures carry the rationale
+    /// as comments; the snapshot pins `FileTestStats` (all integer, so deterministic). These
+    /// replace the source-embedding `file_test_stats` unit tests.
+    #[test]
+    fn file_test_stats_over_fixtures() {
+        // `is_test` is the caller's classification (false ⇒ a production file, whose test-shaped
+        // contents must be ignored).
+        let cases = [
+            ("counts.py", true),
+            ("production_lookalike.py", false),
+            ("mock_lookalikes.py", true),
+            ("self_fail.py", true),
+            ("assertion_free.py", true),
+            ("local_helper.py", true),
+            ("unittest_methods.py", true),
+        ];
+        let mut out = String::new();
+        for (name, is_test) in cases {
+            let source = fixture_source(&format!("test_proxies/{name}"));
+            let parsed = parse(&source).expect("fixture parses");
+            let stats = file_test_stats(is_test, source.lines().count(), &parsed);
+            writeln!(out, "{name} (is_test={is_test}): {stats:?}").unwrap();
+        }
+        insta::assert_snapshot!(out);
     }
 
     #[test]
@@ -311,50 +335,6 @@ mod tests {
     }
 
     #[test]
-    fn counts_test_functions_and_assertions() {
-        let source = "\
-import pytest
-
-def helper():
-    assert True  # not a test function — not counted
-
-def test_one():
-    assert 1 == 1
-    assert 2 == 2
-
-def test_two():
-    with pytest.raises(ValueError):
-        do()
-
-class TestThing:
-    def test_method(self):
-        self.assertEqual(1, 1)
-        self.assertTrue(True)
-    def not_a_test(self):
-        assert False  # not test_* — not counted
-";
-        let parsed = parse_src(source);
-        let stats = file_test_stats(true, source.lines().count(), &parsed);
-        assert!(stats.is_test);
-        // test_one, test_two, TestThing.test_method.
-        assert_eq!(stats.test_functions, 3);
-        // 2 asserts + 1 pytest.raises + 2 self.assertX.
-        assert_eq!(stats.assertions, 5);
-    }
-
-    #[test]
-    fn production_file_carries_only_size() {
-        let source = "def test_looks_like_a_test():\n    assert True\n";
-        let parsed = parse_src(source);
-        // Classified as production (is_test = false), so the test-shaped contents are ignored.
-        let stats = file_test_stats(false, source.lines().count(), &parsed);
-        assert!(!stats.is_test);
-        assert_eq!(stats.test_functions, 0);
-        assert_eq!(stats.assertions, 0);
-        assert_eq!(stats.loc, 2);
-    }
-
-    #[test]
     fn test_name_matches_pytest_and_unittest_but_not_lookalikes() {
         // pytest + unittest conventions.
         assert!(is_test_name("test"));
@@ -367,36 +347,14 @@ class TestThing:
     }
 
     #[test]
-    fn unittest_assert_excludes_mock_and_helper_lookalikes() {
-        // camelCase unittest assertions count; snake_case lookalikes do not.
+    fn unittest_assert_name_excludes_mock_and_helper_lookalikes() {
+        // camelCase unittest assertions count; snake_case lookalikes do not. (The end-to-end
+        // counting over source is pinned by `mock_lookalikes.py` in `file_test_stats_over_fixtures`.)
         assert!(is_unittest_assert("assertEqual"));
         assert!(is_unittest_assert("assertTrue"));
         assert!(!is_unittest_assert("assert_called_with")); // mock configuration, not a test
         assert!(!is_unittest_assert("assertion_helper")); // user helper
         assert!(!is_unittest_assert("assert")); // bare (not a real method name anyway)
-
-        // End-to-end through the counter: only the real unittest assertions count.
-        let source = "\
-def test_mock_calls():
-    mock.assert_called_with(1)  # not a test assertion
-    self.assertion_helper()     # user helper, not a test assertion
-    self.assertEqual(a, b)      # counts
-";
-        let parsed = parse_src(source);
-        let stats = file_test_stats(true, source.lines().count(), &parsed);
-        assert_eq!(stats.assertions, 1);
-    }
-
-    #[test]
-    fn self_fail_counts_but_unrelated_fail_does_not() {
-        let source = "\
-def test_fail_path():
-    self.fail('boom')
-    job.fail()  # unrelated .fail() — not an assertion
-";
-        let parsed = parse_src(source);
-        let stats = file_test_stats(true, source.lines().count(), &parsed);
-        assert_eq!(stats.assertions, 1);
     }
 
     #[test]
@@ -454,85 +412,5 @@ def test_fail_path():
         assert_eq!(proxies.assertion_density, None);
         // No test functions → assertion-free rate undefined (never a misleading 0).
         assert_eq!(proxies.assertion_free_rate, None);
-    }
-
-    #[test]
-    fn assertion_free_rate_flags_tests_that_check_nothing() {
-        // The regression this guards against: a disciplined arrange-act-assert unit test (branch-free,
-        // cognitive 0) is NOT theater, while an assertion-free `print`-spam loop (cognitive > 0)
-        // IS. The signal must key on assertions, not branching.
-        let source = "\
-import pytest
-
-def test_good_simple():
-    # Clean unit test — cognitive 0, but it asserts. Must NOT be flagged.
-    assert f(2) == 4
-
-def test_good_raises():
-    with pytest.raises(ValueError):
-        f(-1)
-
-def test_theater_print():
-    # 'Test theater': loops and prints, asserts nothing. MUST be flagged.
-    for x in (0, 1, 2):
-        print(f(x))
-
-def test_theater_stub():
-    pass
-";
-        let parsed = parse_src(source);
-        let stats = file_test_stats(true, source.lines().count(), &parsed);
-        assert_eq!(stats.test_functions, 4);
-        // test_theater_print and test_theater_stub assert nothing; the two good tests do.
-        assert_eq!(stats.assertion_free_tests, 2);
-
-        let proxies = aggregate_test_proxies(&[stats]);
-        assert_eq!(proxies.assertion_free_rate, Some(0.5));
-    }
-
-    #[test]
-    fn assertion_via_helper_in_body_counts_as_asserting() {
-        // `count_assertions` descends into a local helper defined inside the test, so a test that
-        // asserts through such a helper is not assertion-free — matching the assertion-density
-        // definition.
-        let source = "\
-def test_uses_local_helper():
-    def check(v):
-        assert v > 0
-    check(f(3))
-";
-        let parsed = parse_src(source);
-        let stats = file_test_stats(true, source.lines().count(), &parsed);
-        assert_eq!(stats.test_functions, 1);
-        assert_eq!(stats.assertion_free_tests, 0);
-    }
-
-    #[test]
-    fn assertion_free_rate_scores_unittest_class_methods() {
-        // The check runs over every collected test, including `test*` methods of a unittest class.
-        let source = "\
-class TestThing:
-    def test_asserts(self):
-        self.assertEqual(f(1), 1)
-
-    def test_theater(self):
-        result = f(2)
-        print(result)
-";
-        let parsed = parse_src(source);
-        let stats = file_test_stats(true, source.lines().count(), &parsed);
-        assert_eq!(stats.test_functions, 2);
-        // test_asserts has self.assertEqual; test_theater asserts nothing.
-        assert_eq!(stats.assertion_free_tests, 1);
-    }
-
-    #[test]
-    fn production_file_reports_no_assertion_free_tests() {
-        // Test-shaped contents in a production file are ignored, so it contributes no
-        // assertion-free tests (the denominator stays production-free).
-        let source = "def test_looks_like_a_test():\n    print('noop')\n";
-        let parsed = parse_src(source);
-        let stats = file_test_stats(false, source.lines().count(), &parsed);
-        assert_eq!(stats.assertion_free_tests, 0);
     }
 }
