@@ -96,7 +96,7 @@ mod tests {
         fn code(&self) -> &'static str {
             "SLP999"
         }
-        fn check(&self, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        fn check_source(&self, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
             diagnostics.push(Diagnostic::new(
                 self.code(),
                 "always flags",
@@ -110,7 +110,7 @@ mod tests {
         fn code(&self) -> &'static str {
             "SLP998"
         }
-        fn check(&self, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        fn check_source(&self, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
             diagnostics.push(Diagnostic::new(
                 self.code(),
                 "always flags",
