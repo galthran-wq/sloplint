@@ -24,11 +24,11 @@ use cross_file::{
 };
 use gates::gate;
 use output::{
-    class_row, function_row, metrics_json, metrics_markdown, print_clone_density,
-    print_concentration, print_metrics_panel, print_package_rows, print_test_proxies_table,
+    metrics_json, metrics_markdown, print_class_rows, print_clone_density, print_concentration,
+    print_function_rows, print_metrics_panel, print_package_rows, print_test_proxies_table,
 };
 
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::{env, fs};
@@ -202,7 +202,7 @@ enum MetricsFormat {
 
 /// Which profile(s) the text view and the per-unit feeds report: one named profile, or
 /// every profile (`all`). Resolved from the `--scope` flag against the configured profiles.
-enum Scope {
+pub(crate) enum Scope {
     /// Every configured profile (text prints one panel each; feeds emit all files).
     All,
     /// A single named profile.
@@ -1105,31 +1105,6 @@ pub(crate) struct MeasuredFile {
     source: String,
     metrics: FileMetrics,
     profiles: Vec<String>,
-}
-
-/// Emit one JSONL row per function: raw per-function features plus the enclosing file's
-/// length and comment density. This is the discovery feed — `analyze.py` mines these rows
-/// for features that separate the slop and clean cohorts.
-fn print_function_rows(per_file: &[MeasuredFile], scope: &Scope) {
-    let stdout = io::stdout();
-    let mut out = stdout.lock();
-    for file in per_file.iter().filter(|f| scope.includes(&f.profiles)) {
-        for function in &file.metrics.functions {
-            let _ = writeln!(out, "{}", function_row(&file.path, &file.metrics, function));
-        }
-    }
-}
-
-/// Emit one JSONL row per class: size (methods, attributes) + LCOM4 cohesion. The class-level
-/// discovery feed, mirroring `print_function_rows`.
-fn print_class_rows(per_file: &[MeasuredFile], scope: &Scope) {
-    let stdout = io::stdout();
-    let mut out = stdout.lock();
-    for file in per_file.iter().filter(|f| scope.includes(&f.profiles)) {
-        for class in &file.metrics.classes {
-            let _ = writeln!(out, "{}", class_row(&file.path, class));
-        }
-    }
 }
 
 /// Production duplication aggregate: SLP020 clone density for one profile's functions —
