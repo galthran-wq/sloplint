@@ -4,7 +4,6 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{ExceptHandler, Expr, Stmt};
 use sloplint_python::Ranged;
 
-use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
 
@@ -24,21 +23,19 @@ impl Rule for DefensiveExcept {
         "SLP030"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        walk_statements(&ctx.parsed.syntax().body, &mut |stmt| {
-            let Stmt::Try(node) = stmt else { return };
-            for handler in &node.handlers {
-                let ExceptHandler::ExceptHandler(handler) = handler;
-                if is_broad(handler.type_.as_deref()) && is_low_value(&handler.body) {
-                    diagnostics.push(Diagnostic::new(
-                        self.code(),
-                        "broad except whose body only passes, logs, or re-raises adds no value",
-                        handler.range(),
-                        Severity::Warning,
-                    ));
-                }
+    fn check_stmt(&self, stmt: &Stmt, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let Stmt::Try(node) = stmt else { return };
+        for handler in &node.handlers {
+            let ExceptHandler::ExceptHandler(handler) = handler;
+            if is_broad(handler.type_.as_deref()) && is_low_value(&handler.body) {
+                diagnostics.push(Diagnostic::new(
+                    self.code(),
+                    "broad except whose body only passes, logs, or re-raises adds no value",
+                    handler.range(),
+                    Severity::Warning,
+                ));
             }
-        });
+        }
     }
 }
 

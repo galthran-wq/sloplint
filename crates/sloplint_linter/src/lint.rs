@@ -6,7 +6,8 @@
 //! this trait don't change when that lands.
 
 use sloplint_diagnostics::Diagnostic;
-use sloplint_python::ast::ModModule;
+use sloplint_python::ast::visitor::{self, Visitor};
+use sloplint_python::ast::{ModModule, Stmt};
 use sloplint_python::parser::Parsed;
 
 use crate::config::Limits;
@@ -57,6 +58,26 @@ pub trait Rule: sloplint_diagnostics::ViolationMetadata {
         _diagnostics: &mut Vec<Diagnostic>,
     ) {
     }
+
+    /// Single-pass hook called once per statement node (pre-order) during [`check_file`]'s single
+    /// AST walk, so statement rules don't each re-walk the tree. Default: no-op.
+    fn check_stmt(&self, _stmt: &Stmt, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
+}
+
+/// Walks the AST once, dispatching each statement to every rule's [`Rule::check_stmt`].
+struct NodeDispatch<'a, 'r> {
+    rules: &'r [&'r dyn Rule],
+    ctx: &'r FileContext<'a>,
+    diagnostics: &'r mut Vec<Diagnostic>,
+}
+
+impl<'a> Visitor<'a> for NodeDispatch<'a, '_> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        for rule in self.rules {
+            rule.check_stmt(stmt, self.ctx, self.diagnostics);
+        }
+        visitor::walk_stmt(self, stmt);
+    }
 }
 
 /// Run the given rules over an already-parsed file, collecting all findings.
@@ -73,6 +94,18 @@ pub fn check_file(ctx: &FileContext, rules: &[&dyn Rule]) -> Vec<Diagnostic> {
             for rule in rules {
                 rule.check_comment(ctx, token.range(), &mut diagnostics);
             }
+        }
+    }
+
+    // One AST walk, shared by every statement rule (instead of one walk per rule).
+    {
+        let mut dispatch = NodeDispatch {
+            rules,
+            ctx,
+            diagnostics: &mut diagnostics,
+        };
+        for stmt in &ctx.parsed.syntax().body {
+            dispatch.visit_stmt(stmt);
         }
     }
 
