@@ -5,7 +5,6 @@ use sloplint_metrics::cohesion::class_cohesion;
 use sloplint_python::ast::{Expr, Stmt, StmtClassDef};
 use sloplint_python::Ranged;
 
-use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
 
@@ -29,40 +28,27 @@ impl Rule for GodClass {
         "SLP120"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        let mut classes = Vec::new();
-        collect_classes(&ctx.parsed.syntax().body, &mut classes);
-
-        for class in classes {
-            if is_allowlisted(class) {
-                continue;
-            }
-            let cohesion = class_cohesion(class);
-            if cohesion.methods >= ctx.limits.lcom4_min_methods
-                && cohesion.components > ctx.limits.lcom4_max_components
-            {
-                diagnostics.push(Diagnostic::new(
-                    self.code(),
-                    format!(
-                        "class `{}` has low cohesion: its methods split into {} unrelated \
-                         groups (LCOM4={}) — consider splitting it",
-                        class.name, cohesion.components, cohesion.components,
-                    ),
-                    class.name.range(),
-                    Severity::Warning,
-                ));
-            }
+    fn check_stmt(&self, stmt: &Stmt, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let Stmt::ClassDef(class) = stmt else { return };
+        if is_allowlisted(class) {
+            return;
+        }
+        let cohesion = class_cohesion(class);
+        if cohesion.methods >= ctx.limits.lcom4_min_methods
+            && cohesion.components > ctx.limits.lcom4_max_components
+        {
+            diagnostics.push(Diagnostic::new(
+                self.code(),
+                format!(
+                    "class `{}` has low cohesion: its methods split into {} unrelated \
+                     groups (LCOM4={}) — consider splitting it",
+                    class.name, cohesion.components, cohesion.components,
+                ),
+                class.name.range(),
+                Severity::Warning,
+            ));
         }
     }
-}
-
-/// Collect every `ClassDef` reachable in `body` (nested classes included).
-fn collect_classes<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtClassDef>) {
-    walk_statements(body, &mut |stmt| {
-        if let Stmt::ClassDef(class) = stmt {
-            out.push(class);
-        }
-    });
 }
 
 /// Data/interface classes whose low method-cohesion is by design are not "god classes".

@@ -4,7 +4,6 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{ExceptHandler, Stmt};
 use sloplint_python::{Ranged, TextRange};
 
-use crate::ast_util::collect_functions;
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
 
@@ -23,22 +22,21 @@ impl Rule for DeepNesting {
         "SLP082"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_stmt(&self, stmt: &Stmt, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
         let max_depth = ctx.limits.nesting_max_depth;
-        let mut functions = Vec::new();
-        collect_functions(&ctx.parsed.syntax().body, &mut functions);
-        for function in functions {
-            if let Some(range) = first_too_deep(&function.body, 0, max_depth) {
-                diagnostics.push(Diagnostic::new(
-                    self.code(),
-                    format!(
-                        "nesting deeper than {max_depth} levels in function `{}`",
-                        function.name
-                    ),
-                    range,
-                    Severity::Warning,
-                ));
-            }
+        if let Some(range) = first_too_deep(&function.body, 0, max_depth) {
+            diagnostics.push(Diagnostic::new(
+                self.code(),
+                format!(
+                    "nesting deeper than {max_depth} levels in function `{}`",
+                    function.name
+                ),
+                range,
+                Severity::Warning,
+            ));
         }
     }
 }

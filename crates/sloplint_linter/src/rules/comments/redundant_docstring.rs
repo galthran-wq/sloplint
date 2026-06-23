@@ -1,7 +1,7 @@
 //! SLP002: redundant docstring.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_python::ast::{ExceptHandler, Expr, Stmt, StmtFunctionDef};
+use sloplint_python::ast::{Expr, Stmt, StmtFunctionDef};
 use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
@@ -28,13 +28,12 @@ impl Rule for RedundantDocstring {
         "SLP002"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        let mut functions = Vec::new();
-        collect_functions(&ctx.parsed.syntax().body, &mut functions);
-        for function in functions {
-            if let Some(doc_range) = docstring_range(function) {
-                check_docstring(self.code(), ctx.source, function, doc_range, diagnostics);
-            }
+    fn check_stmt(&self, stmt: &Stmt, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
+        if let Some(doc_range) = docstring_range(function) {
+            check_docstring(self.code(), ctx.source, function, doc_range, diagnostics);
         }
     }
 }
@@ -84,49 +83,5 @@ fn check_docstring(
             doc_range,
             Severity::Warning,
         ));
-    }
-}
-
-/// Collect every function definition reachable in `body`, descending through classes and
-/// compound statements so nested and method definitions are covered.
-fn collect_functions<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtFunctionDef>) {
-    for stmt in body {
-        match stmt {
-            Stmt::FunctionDef(function) => {
-                out.push(function);
-                collect_functions(&function.body, out);
-            }
-            Stmt::ClassDef(class) => collect_functions(&class.body, out),
-            Stmt::If(node) => {
-                collect_functions(&node.body, out);
-                for clause in &node.elif_else_clauses {
-                    collect_functions(&clause.body, out);
-                }
-            }
-            Stmt::For(node) => {
-                collect_functions(&node.body, out);
-                collect_functions(&node.orelse, out);
-            }
-            Stmt::While(node) => {
-                collect_functions(&node.body, out);
-                collect_functions(&node.orelse, out);
-            }
-            Stmt::With(node) => collect_functions(&node.body, out),
-            Stmt::Try(node) => {
-                collect_functions(&node.body, out);
-                for handler in &node.handlers {
-                    let ExceptHandler::ExceptHandler(handler) = handler;
-                    collect_functions(&handler.body, out);
-                }
-                collect_functions(&node.orelse, out);
-                collect_functions(&node.finalbody, out);
-            }
-            Stmt::Match(node) => {
-                for case in &node.cases {
-                    collect_functions(&case.body, out);
-                }
-            }
-            _ => {}
-        }
     }
 }
