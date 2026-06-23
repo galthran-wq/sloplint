@@ -6,7 +6,6 @@
 //! - [`registry`] — the `Rule` enum, preview/stable groups, default severity.
 //! - [`rules`]    — one file per rule, grouped by category.
 
-pub mod ast_util;
 pub mod clones;
 mod codes;
 pub mod config;
