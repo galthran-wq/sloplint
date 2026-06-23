@@ -20,8 +20,8 @@ use cross_file::{
     attribute_clones, attribute_fanout, attribute_ghost_scaffolding, attribute_undeclared_imports,
 };
 use output::{
-    class_row, function_row, metrics_json, metrics_markdown, opt_ratio, package_row,
-    print_metrics_panel,
+    class_row, function_row, metrics_json, metrics_markdown, print_clone_density,
+    print_concentration, print_metrics_panel, print_package_rows, print_test_proxies_table,
 };
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -44,7 +44,7 @@ use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
 use sloplint_linter::suppression::Suppressions;
 use sloplint_metrics::graph::{self, ImportGraph, ModuleInput};
-use sloplint_metrics::test_proxies::{self, FileTestStats, TestProxies};
+use sloplint_metrics::test_proxies::{self, FileTestStats};
 use sloplint_metrics::{aggregate, file_metrics, FileMetrics, FunctionMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged};
 use sloplint_report::ReportEntry;
@@ -1199,16 +1199,6 @@ fn print_class_rows(per_file: &[MeasuredFile], scope: &Scope) {
     }
 }
 
-/// Emit one JSONL row per package: the first-party import graph collapsed to directory level.
-/// The package-level discovery feed, mirroring `print_function_rows`/`print_class_rows`.
-fn print_package_rows(graph: &ImportGraph) {
-    let stdout = io::stdout();
-    let mut out = stdout.lock();
-    for row in graph.package_rows() {
-        let _ = writeln!(out, "{}", package_row(&row));
-    }
-}
-
 /// The package module-count concentration for one profile's files. Edge-free — it needs
 /// only each module's package, so the text view computes it without building the import graph
 /// (which would require an extra import-scan pass per file).
@@ -1232,24 +1222,6 @@ fn concentration_for(per_file: &[MeasuredFile], profile: &str) -> graph::Concent
         .map(|(dotted, is_package)| graph::package_of(&dotted, is_package))
         .collect();
     graph::concentration(&packages)
-}
-
-/// Print the package module-count concentration block beneath a metric panel: how piled the
-/// modules are across packages, and which package holds the most. A descriptive distribution
-/// statistic — never a gate (a small repo's one main package scores high and that's fine).
-fn print_concentration(c: &graph::Concentration) {
-    let largest = match &c.largest_package {
-        Some((name, modules)) => format!("{name}, {modules}/{} modules", c.total_modules),
-        None => "n/a".to_string(),
-    };
-    println!(
-        "  max package share   {:.2}  ({largest})",
-        c.max_package_share
-    );
-    println!(
-        "  module-count gini   {:.2}  (over {} packages)",
-        c.module_count_gini, c.packages
-    );
 }
 
 /// Production duplication aggregate: SLP020 clone density for one profile's functions —
@@ -1328,45 +1300,6 @@ fn dsu_find(parent: &mut HashMap<usize, usize>, x: usize) -> usize {
     let root = dsu_find(parent, p);
     parent.insert(x, root);
     root
-}
-
-/// Print the duplication-density block beneath a metric panel: the SLP020 clone ratio plus
-/// the pair count and largest cluster. Descriptive — high duplication is a vibe-slop tell
-/// ("a scraper per site" → copy-paste), but it's a cohort signal, never a per-repo gate.
-fn print_clone_density(c: &CloneStats) {
-    println!(
-        "  clone ratio         {:.2}  ({} fns in clones / {} ; {} pairs, largest cluster {})",
-        c.ratio(),
-        c.functions_in_clones,
-        c.total_functions,
-        c.pairs,
-        c.largest_cluster,
-    );
-}
-
-/// Print the static test proxies block once, beneath the panel(s). Always the full
-/// project-wide split (production vs test), independent of `--scope` — descriptive only, NOT
-/// coverage and never a gate.
-fn print_test_proxies_table(proxies: &TestProxies) {
-    println!(
-        "  test:code ratio     {}  ({} test / {} prod LoC)",
-        opt_ratio(proxies.test_code_ratio),
-        proxies.test_loc,
-        proxies.production_loc,
-    );
-    println!(
-        "  assertion density   {}  ({} assertions / {} test fns)",
-        opt_ratio(proxies.assertion_density),
-        proxies.assertions,
-        proxies.test_functions,
-    );
-    println!(
-        "  assertion-free rate {}  ({} of {} test fns assert nothing)",
-        opt_ratio(proxies.assertion_free_rate),
-        proxies.assertion_free_tests,
-        proxies.test_functions,
-    );
-    println!("  (test proxies are static estimates, not coverage — descriptive only)");
 }
 
 #[cfg(test)]
