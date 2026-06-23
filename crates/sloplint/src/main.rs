@@ -11,6 +11,7 @@
 mod badges;
 mod corrupted;
 mod cross_file;
+mod gates;
 mod ghost;
 mod hook;
 mod init;
@@ -19,6 +20,7 @@ use badges::write_badges;
 use cross_file::{
     attribute_clones, attribute_fanout, attribute_ghost_scaffolding, attribute_undeclared_imports,
 };
+use gates::gate;
 use output::{
     class_row, function_row, metrics_json, metrics_markdown, print_clone_density,
     print_concentration, print_metrics_panel, print_package_rows, print_test_proxies_table,
@@ -45,7 +47,7 @@ use sloplint_linter::registry::Registry;
 use sloplint_linter::suppression::Suppressions;
 use sloplint_metrics::graph::{self, ImportGraph, ModuleInput};
 use sloplint_metrics::test_proxies::{self, FileTestStats};
-use sloplint_metrics::{aggregate, file_metrics, FileMetrics, FunctionMetrics, RepoMetrics};
+use sloplint_metrics::{aggregate, file_metrics, FileMetrics, RepoMetrics};
 use sloplint_python::{parse, Ranged};
 use sloplint_report::ReportEntry;
 
@@ -1103,75 +1105,13 @@ fn load_metrics_config(config_path: Option<&str>) -> anyhow::Result<Config> {
     }
 }
 
-/// One complexity gate: report every function whose `metric` exceeds `ceiling` and return
-/// whether any did. A `None` ceiling is a no-op (returns `false`).
-fn gate(
-    per_file: &[MeasuredFile],
-    ceiling: Option<usize>,
-    noun: &str,
-    metric: impl Fn(&FunctionMetrics) -> usize,
-) -> bool {
-    let Some(ceiling) = ceiling else {
-        return false;
-    };
-    let offenders = gate_offenders(per_file, ceiling, metric);
-    if offenders.is_empty() {
-        return false;
-    }
-    eprintln!(
-        "sloplint: {} function(s) over the {noun} ceiling of {ceiling}:",
-        offenders.len()
-    );
-    for offender in &offenders {
-        eprintln!(
-            "  {}: `{}` has {noun} complexity {}",
-            offender.location, offender.name, offender.value
-        );
-    }
-    true
-}
-
 /// A measured file: its display path, source, per-function metrics, and the names of the profiles
 /// its path belongs to (used to place it into one or more metric panels).
-struct MeasuredFile {
+pub(crate) struct MeasuredFile {
     path: String,
     source: String,
     metrics: FileMetrics,
     profiles: Vec<String>,
-}
-
-/// A function whose `metric` value exceeds the configured ceiling.
-struct GateOffender {
-    /// `path:line` of the function's `def` line (its name, not the first decorator).
-    location: String,
-    name: String,
-    value: usize,
-}
-
-/// Collect every function whose `metric` exceeds `ceiling`, in file then source order
-/// (deterministic).
-fn gate_offenders(
-    per_file: &[MeasuredFile],
-    ceiling: usize,
-    metric: impl Fn(&FunctionMetrics) -> usize,
-) -> Vec<GateOffender> {
-    let mut offenders = Vec::new();
-    for file in per_file {
-        for function in &file.metrics.functions {
-            let value = metric(function);
-            if value > ceiling {
-                // Locate the `def` line via the name span — `range` would point at the first
-                // decorator on a decorated function.
-                let line = line_of(&file.source, function.name_range.start().into());
-                offenders.push(GateOffender {
-                    location: format!("{}:{line}", file.path),
-                    name: function.name.clone(),
-                    value,
-                });
-            }
-        }
-    }
-    offenders
 }
 
 /// Emit one JSONL row per function: raw per-function features plus the enclosing file's
