@@ -872,48 +872,25 @@ pub(crate) fn module_name(path: &Path) -> Option<graph::ModuleName> {
     graph::module_from_path(&rel.to_string_lossy())
 }
 
-/// Compute and report software-quality metrics; optionally emit badges and enforce
-/// complexity gates. Returns `Ok(false)` only when a `--max-*` ceiling is set and some function
-/// exceeds it — the CI gate. Reporting/badge writing always happens first so the numbers are
-/// visible even on a failing gate.
-fn run_metrics(
-    paths: &[String],
-    format: MetricsFormat,
-    badges: Option<&str>,
-    config_path: Option<&str>,
-    max_cyclomatic: Option<usize>,
-    max_cognitive: Option<usize>,
-    scope: Option<String>,
-) -> anyhow::Result<bool> {
-    // Profiles drive classification (which panel a file feeds) the same way they drive `check`'s
-    // rule config. Load best-effort: an explicit --config is strict, discovery falls back to the
-    // built-in profiles so a malformed ancestor toml can't break `metrics`.
-    let config = load_config(config_path, false, false)?;
-    let selector = config
-        .prepare()
-        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
-    let scope = resolve_scope(scope.as_deref(), &selector)?;
-    let profile_names: Vec<String> = selector
-        .profile_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+/// Per-file measurement pass for `metrics`: parse each file once, classify it into its
+/// profile(s), and collect the per-function/-class metrics plus the inputs the whole-project
+/// passes need — clone fingerprints (when `needs_clones`), module imports (when `needs_graph`),
+/// and static test-proxy stats.
+struct Measured {
+    per_file: Vec<MeasuredFile>,
+    clone_units: Vec<FunctionUnit>,
+    unit_profiles: Vec<Vec<String>>,
+    module_inputs: Vec<(ModuleInput, Vec<String>)>,
+    test_stats: Vec<FileTestStats>,
+}
 
-    let (files, _) = discover_python_files(paths);
-    // The package feed and the JSON rollup need the first-party import graph, which is a
-    // whole-project pass (like SLP180): collect every file's module-level imports here, then
-    // build the graph once after the loop.
-    let needs_graph = matches!(format, MetricsFormat::Packages | MetricsFormat::Json);
-    // Duplication density is surfaced only on the aggregate panels, not the per-unit feeds.
-    let needs_clones = matches!(
-        format,
-        MetricsFormat::Text | MetricsFormat::Json | MetricsFormat::Github
-    );
-    let clone_config = CloneConfig {
-        min_statements: config.clone.min_statements,
-        similarity: config.clone.similarity,
-        ..CloneConfig::default()
-    };
+fn measure_files(
+    files: Vec<PathBuf>,
+    selector: &Selector,
+    clone_config: &CloneConfig,
+    needs_clones: bool,
+    needs_graph: bool,
+) -> Measured {
     // Every function's clone fingerprint plus the profiles of the file it came from, so the SLP020
     // pass can run once over the whole tree and be filtered per profile afterwards.
     let mut clone_units: Vec<FunctionUnit> = Vec::new();
@@ -981,6 +958,64 @@ fn run_metrics(
             profiles,
         });
     }
+    Measured {
+        per_file,
+        clone_units,
+        unit_profiles,
+        module_inputs,
+        test_stats,
+    }
+}
+
+/// Compute and report software-quality metrics; optionally emit badges and enforce
+/// complexity gates. Returns `Ok(false)` only when a `--max-*` ceiling is set and some function
+/// exceeds it — the CI gate. Reporting/badge writing always happens first so the numbers are
+/// visible even on a failing gate.
+fn run_metrics(
+    paths: &[String],
+    format: MetricsFormat,
+    badges: Option<&str>,
+    config_path: Option<&str>,
+    max_cyclomatic: Option<usize>,
+    max_cognitive: Option<usize>,
+    scope: Option<String>,
+) -> anyhow::Result<bool> {
+    // Profiles drive classification (which panel a file feeds) the same way they drive `check`'s
+    // rule config. Load best-effort: an explicit --config is strict, discovery falls back to the
+    // built-in profiles so a malformed ancestor toml can't break `metrics`.
+    let config = load_config(config_path, false, false)?;
+    let selector = config
+        .prepare()
+        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
+    let scope = resolve_scope(scope.as_deref(), &selector)?;
+    let profile_names: Vec<String> = selector
+        .profile_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let (files, _) = discover_python_files(paths);
+    // The package feed and the JSON rollup need the first-party import graph, which is a
+    // whole-project pass (like SLP180): collect every file's module-level imports here, then
+    // build the graph once after the loop.
+    let needs_graph = matches!(format, MetricsFormat::Packages | MetricsFormat::Json);
+    // Duplication density is surfaced only on the aggregate panels, not the per-unit feeds.
+    let needs_clones = matches!(
+        format,
+        MetricsFormat::Text | MetricsFormat::Json | MetricsFormat::Github
+    );
+    let clone_config = CloneConfig {
+        min_statements: config.clone.min_statements,
+        similarity: config.clone.similarity,
+        ..CloneConfig::default()
+    };
+    let Measured {
+        mut per_file,
+        clone_units,
+        unit_profiles,
+        module_inputs,
+        test_stats,
+    } = measure_files(files, &selector, &clone_config, needs_clones, needs_graph);
 
     // DIT/NOC are whole-project properties: a class's inheritance depth and breadth depend on
     // bases/children defined in *other* files (a class in one profile may extend a base in
