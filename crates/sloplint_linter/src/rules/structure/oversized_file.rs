@@ -20,7 +20,7 @@ impl Rule for OversizedFile {
         "SLP080"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_source(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
         let lines = ctx.source.lines().count();
         if lines > ctx.limits.file_max_lines {
             diagnostics.push(Diagnostic::new(

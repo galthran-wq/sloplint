@@ -62,6 +62,10 @@ pub trait Rule: sloplint_diagnostics::ViolationMetadata {
     /// Single-pass hook called once per statement node (pre-order) during [`check_file`]'s single
     /// AST walk, so statement rules don't each re-walk the tree. Default: no-op.
     fn check_stmt(&self, _stmt: &Stmt, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
+
+    /// One-shot whole-file hook (raw source / line count), called once per file during
+    /// [`check_file`]. For rules that scan the source text rather than walk a tree. Default: no-op.
+    fn check_source(&self, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
 }
 
 /// Walks the AST once, dispatching each statement to every rule's [`Rule::check_stmt`].
@@ -107,6 +111,11 @@ pub fn check_file(ctx: &FileContext, rules: &[&dyn Rule]) -> Vec<Diagnostic> {
         for stmt in &ctx.parsed.syntax().body {
             dispatch.visit_stmt(stmt);
         }
+    }
+
+    // One-shot whole-source pass (file-level rules: line count, raw-char scan).
+    for rule in rules {
+        rule.check_source(ctx, &mut diagnostics);
     }
 
     // Legacy whole-file pass for rules not yet migrated to node hooks.
