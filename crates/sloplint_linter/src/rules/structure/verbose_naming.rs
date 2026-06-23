@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_python::{Ranged, TokenKind};
+use sloplint_python::TextRange;
 
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
@@ -23,14 +23,16 @@ impl Rule for VerboseNaming {
         "SLP060"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_names(
+        &self,
+        ctx: &FileContext,
+        names: &[TextRange],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max_words = ctx.limits.max_identifier_words;
         let mut seen: HashSet<&str> = HashSet::new();
-        for token in ctx.parsed.tokens().iter() {
-            if token.kind() != TokenKind::Name {
-                continue;
-            }
-            let text = &ctx.source[token.range()];
+        for &range in names {
+            let text = &ctx.source[range];
             if seen.contains(text) {
                 continue;
             }
@@ -40,7 +42,7 @@ impl Rule for VerboseNaming {
                 diagnostics.push(Diagnostic::new(
                     self.code(),
                     format!("identifier `{text}` is verbose ({words} words)"),
-                    token.range(),
+                    range,
                     Severity::Warning,
                 ));
             }
