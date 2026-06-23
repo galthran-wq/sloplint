@@ -40,12 +40,13 @@ use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
 use sloplint_diagnostics::fix;
 use sloplint_diagnostics::render::render_diagnostics;
 use sloplint_diagnostics::Diagnostic;
+use sloplint_linter::clones;
 use sloplint_linter::config::{Config, Selector};
 use sloplint_linter::detect;
 use sloplint_linter::ghost;
 use sloplint_linter::imports;
 use sloplint_linter::lint::{check_file, FileContext, Rule};
-use sloplint_linter::registry::Registry;
+use sloplint_linter::registry::{Registry, WholeProjectRule};
 use sloplint_linter::suppression::Suppressions;
 use sloplint_metrics::graph::{self, ImportGraph, ModuleInput};
 use sloplint_metrics::test_proxies::{self, FileTestStats};
@@ -645,7 +646,7 @@ fn scan_files(
         let result_index = results.len();
         // SLP020 is a whole-tree analysis, not a per-file registry rule, so it's gated by
         // config select/ignore only (enabled by default) — it has no preview/stable group.
-        if selector.is_enabled("SLP020", &display) {
+        if selector.is_enabled(clones::Clones.code(), &display) {
             for unit in extract_functions(&display, &source, &parsed, clone_config.shingle_k) {
                 units.push(unit);
                 unit_result.push(result_index);
