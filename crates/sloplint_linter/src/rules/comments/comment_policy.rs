@@ -15,6 +15,11 @@ use sloplint_macros::ViolationMetadata;
 /// Comments drift from the code they describe and are a common vehicle for AI narration; code
 /// should be self-explanatory. Paths that legitimately want comments (migrations, some tests)
 /// opt back in via `allow_comments` in config.
+///
+/// ## Example
+/// ```python
+/// x = compute()  # grab the value and store it  -- prose comment, no ticket
+/// ```
 #[derive(ViolationMetadata)]
 pub struct CommentPolicy;
 

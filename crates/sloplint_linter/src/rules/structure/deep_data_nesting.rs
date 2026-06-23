@@ -19,6 +19,11 @@ use sloplint_macros::ViolationMetadata;
 /// A deep inline literal is hard to read, hard to diff, and easy to get subtly wrong (a
 /// misplaced comma or key is nearly invisible); a named type (a dataclass) makes the structure
 /// explicit. This is the expression-tree nesting axis, distinct from SLP082's control flow.
+///
+/// ## Example
+/// ```python
+/// config = {"a": {"b": {"c": [{"d": 1}]}}}
+/// ```
 #[derive(ViolationMetadata)]
 pub struct DeepDataNesting;
 

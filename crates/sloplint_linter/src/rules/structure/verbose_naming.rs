@@ -15,6 +15,11 @@ use sloplint_macros::ViolationMetadata;
 /// ## Why is this bad?
 /// AI-generated code rarely writes `i` or `buf`; over-long mechanical names hurt readability.
 /// Preview — naming taste is subjective and this is a heuristic.
+///
+/// ## Example
+/// ```python
+/// calculate_total_value_for_user = ...   # five words
+/// ```
 #[derive(ViolationMetadata)]
 pub struct VerboseNaming;
 

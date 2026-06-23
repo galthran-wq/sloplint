@@ -15,6 +15,14 @@ use sloplint_macros::ViolationMetadata;
 /// Such a handler adds no value and hides failures. Ruff's `BLE001` flags the blind
 /// `except Exception`; this adds the slice it doesn't — the no-value body. A handler that logs
 /// **and** re-raises (two statements) is legitimate and left alone.
+///
+/// ## Example
+/// ```python
+/// try:
+///     risky()
+/// except Exception:
+///     pass
+/// ```
 #[derive(ViolationMetadata)]
 pub struct DefensiveExcept;
 

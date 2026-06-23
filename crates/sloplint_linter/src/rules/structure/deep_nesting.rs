@@ -14,6 +14,17 @@ use sloplint_macros::ViolationMetadata;
 /// ## Why is this bad?
 /// Deep control-flow nesting is hard to follow and a complexity smell Ruff has no direct gate
 /// for (cognitive complexity captures it only indirectly).
+///
+/// ## Example
+/// ```python
+/// def f(rows):
+///     for r in rows:
+///         if r.ok:
+///             for c in r.cells:
+///                 if c.value:
+///                     for x in c.value:   # nested past the default limit (4)
+///                         emit(x)
+/// ```
 #[derive(ViolationMetadata)]
 pub struct DeepNesting;
 

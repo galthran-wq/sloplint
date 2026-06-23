@@ -13,6 +13,11 @@ use sloplint_macros::ViolationMetadata;
 /// ## Why is this bad?
 /// Non-ASCII in source is a strong AI tell and a portability hazard: encoding-dependent
 /// behavior and invisible look-alike characters that pass review but break tooling.
+///
+/// ## Example
+/// ```python
+/// status = "done ✅"  # the emoji is non-ASCII
+/// ```
 #[derive(ViolationMetadata)]
 pub struct AsciiOnly;
 

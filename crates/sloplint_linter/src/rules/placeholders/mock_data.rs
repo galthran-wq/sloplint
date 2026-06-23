@@ -19,6 +19,12 @@ use sloplint_macros::ViolationMetadata;
 /// Agents seed plausible placeholder data to make code "run", then never replace it — it
 /// compiles, a test asserts the placeholder, and it ships. Cheap, deterministic, high-precision
 /// literal checks; restricted to non-test paths (a fixture's `test@example.com` is expected).
+///
+/// ## Example
+/// ```python
+/// def default_contact():
+///     return {"email": "user@example.com", "phone": "123-456-7890"}
+/// ```
 #[derive(ViolationMetadata)]
 pub struct MockData;
 

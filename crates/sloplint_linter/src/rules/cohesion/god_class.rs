@@ -20,6 +20,23 @@ use sloplint_macros::ViolationMetadata;
 /// methods are judged, and data/interface classes (`@dataclass`/`attrs`, `Protocol`, `ABC`,
 /// `Enum`, `NamedTuple`, `TypedDict`) are allowlisted, since their low method-cohesion is by
 /// design. Preview.
+///
+/// ## Example
+/// ```python
+/// class Utils:
+///     def __init__(self):
+///         self.cache = {}
+///         self.conn = connect()
+///
+///     def get_cached(self, k):       # uses self.cache
+///         return self.cache.get(k)
+///
+///     def set_cached(self, k, v):    # also uses self.cache
+///         self.cache[k] = v
+///
+///     def query(self, sql):          # uses self.conn -- no shared state with the cache methods
+///         return self.conn.run(sql)
+/// ```
 #[derive(ViolationMetadata)]
 pub struct GodClass;
 

@@ -20,6 +20,13 @@ const MAX_DOC_WORDS: usize = 12;
 /// A docstring that echoes the signature carries nothing the code doesn't. Docstrings that
 /// introduce external concepts (units, algorithms, invariants) have low overlap and are left
 /// alone; module/class docstrings are out of scope. Preview until tuned.
+///
+/// ## Example
+/// ```python
+/// def add(a, b):
+///     """Return the sum of a and b."""
+///     return a + b
+/// ```
 #[derive(ViolationMetadata)]
 pub struct RedundantDocstring;
 
