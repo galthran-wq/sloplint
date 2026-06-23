@@ -1,0 +1,6 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+3:8 SLP130 [warning] dispatch ladder: 4 `==` branches on the same value — use a lookup table (dict) or `match` instead of an if/elif chain
+15:8 SLP130 [warning] isinstance ladder: 4 type checks on the same value — use polymorphism or `match` instead of an if/elif chain

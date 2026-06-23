@@ -140,6 +140,10 @@ pub struct Limits {
     pub nesting_max_depth: usize,
     /// SLP084: maximum nesting depth of a single data-structure literal/comprehension.
     pub data_nesting_max_depth: usize,
+    /// SLP130: maximum same-subject `if`/`elif` dispatch branches (`== <literal>` or
+    /// `isinstance(...)`) before the chain is flagged as a hand-unrolled dispatch ladder; a
+    /// longer chain should be a lookup table (dict), `match`, or polymorphism.
+    pub dispatch_max_branches: usize,
     /// SLP060: maximum words in an identifier before it's "verbose" (preview).
     pub max_identifier_words: usize,
     /// SLP090: maximum `.py` modules directly in one directory before it's "flat fanout".
@@ -161,6 +165,7 @@ impl Default for Limits {
             file_max_lines: 400,
             nesting_max_depth: 4,
             data_nesting_max_depth: 3,
+            dispatch_max_branches: 3,
             max_identifier_words: 4,
             dir_max_modules: 15,
             lcom4_max_components: 1,
@@ -309,6 +314,7 @@ pub struct LimitsPatch {
     pub file_max_lines: Option<usize>,
     pub nesting_max_depth: Option<usize>,
     pub data_nesting_max_depth: Option<usize>,
+    pub dispatch_max_branches: Option<usize>,
     pub max_identifier_words: Option<usize>,
     pub dir_max_modules: Option<usize>,
     pub lcom4_max_components: Option<usize>,
@@ -327,6 +333,9 @@ impl LimitsPatch {
         }
         if let Some(v) = self.data_nesting_max_depth {
             base.data_nesting_max_depth = v;
+        }
+        if let Some(v) = self.dispatch_max_branches {
+            base.dispatch_max_branches = v;
         }
         if let Some(v) = self.max_identifier_words {
             base.max_identifier_words = v;

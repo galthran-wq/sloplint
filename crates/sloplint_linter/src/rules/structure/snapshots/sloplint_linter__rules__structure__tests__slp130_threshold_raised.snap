@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+No diagnostics.
