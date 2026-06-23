@@ -11,8 +11,8 @@ use sloplint_linter::config::Selector;
 use sloplint_linter::{fanout, imports, stdlib};
 use sloplint_python::TextRange;
 
-use crate::ghost;
 use crate::{first_party_under, line_of, FileResult};
+use sloplint_linter::ghost;
 
 /// Run cross-file clone detection and push exactly one `SLP020` diagnostic onto each
 /// clone-involved function, pointing at its lowest-index duplicate.
