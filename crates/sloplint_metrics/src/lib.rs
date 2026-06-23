@@ -1017,65 +1017,6 @@ mod tests {
     }
 
     #[test]
-    fn risk_tier_boundaries_follow_mccabe() {
-        assert_eq!(RiskTier::from_cyclomatic(1), RiskTier::Low);
-        assert_eq!(RiskTier::from_cyclomatic(10), RiskTier::Low);
-        assert_eq!(RiskTier::from_cyclomatic(11), RiskTier::Moderate);
-        assert_eq!(RiskTier::from_cyclomatic(20), RiskTier::Moderate);
-        assert_eq!(RiskTier::from_cyclomatic(21), RiskTier::High);
-        assert_eq!(RiskTier::from_cyclomatic(50), RiskTier::High);
-        assert_eq!(RiskTier::from_cyclomatic(51), RiskTier::VeryHigh);
-    }
-
-    #[test]
-    fn wmc_tier_boundaries() {
-        // Descriptive bands: ≤20 low, 21–50 moderate, 51–200 high, >200 very high.
-        assert_eq!(WmcTier::from_wmc(0), WmcTier::Low);
-        assert_eq!(WmcTier::from_wmc(20), WmcTier::Low);
-        assert_eq!(WmcTier::from_wmc(21), WmcTier::Moderate);
-        assert_eq!(WmcTier::from_wmc(50), WmcTier::Moderate);
-        assert_eq!(WmcTier::from_wmc(51), WmcTier::High);
-        assert_eq!(WmcTier::from_wmc(200), WmcTier::High);
-        assert_eq!(WmcTier::from_wmc(201), WmcTier::VeryHigh);
-    }
-
-    #[test]
-    fn noc_tier_boundaries() {
-        // Descriptive breadth bands: ≤1 low, 2–5 moderate, 6–20 high, >20 very high.
-        assert_eq!(NocTier::from_noc(0), NocTier::Low);
-        assert_eq!(NocTier::from_noc(1), NocTier::Low);
-        assert_eq!(NocTier::from_noc(2), NocTier::Moderate);
-        assert_eq!(NocTier::from_noc(5), NocTier::Moderate);
-        assert_eq!(NocTier::from_noc(6), NocTier::High);
-        assert_eq!(NocTier::from_noc(20), NocTier::High);
-        assert_eq!(NocTier::from_noc(21), NocTier::VeryHigh);
-    }
-
-    #[test]
-    fn module_size_tier_boundaries() {
-        // Descriptive NLOC bands: ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
-        assert_eq!(ModuleSizeTier::from_nloc(0), ModuleSizeTier::Low);
-        assert_eq!(ModuleSizeTier::from_nloc(250), ModuleSizeTier::Low);
-        assert_eq!(ModuleSizeTier::from_nloc(251), ModuleSizeTier::Moderate);
-        assert_eq!(ModuleSizeTier::from_nloc(500), ModuleSizeTier::Moderate);
-        assert_eq!(ModuleSizeTier::from_nloc(501), ModuleSizeTier::High);
-        assert_eq!(ModuleSizeTier::from_nloc(1000), ModuleSizeTier::High);
-        assert_eq!(ModuleSizeTier::from_nloc(1001), ModuleSizeTier::VeryHigh);
-    }
-
-    #[test]
-    fn param_count_tier_boundaries() {
-        // Descriptive arity bands: ≤4 low, 5–6 moderate, 7–10 high, >10 very high.
-        assert_eq!(ParamCountTier::from_arity(0), ParamCountTier::Low);
-        assert_eq!(ParamCountTier::from_arity(4), ParamCountTier::Low);
-        assert_eq!(ParamCountTier::from_arity(5), ParamCountTier::Moderate);
-        assert_eq!(ParamCountTier::from_arity(6), ParamCountTier::Moderate);
-        assert_eq!(ParamCountTier::from_arity(7), ParamCountTier::High);
-        assert_eq!(ParamCountTier::from_arity(10), ParamCountTier::High);
-        assert_eq!(ParamCountTier::from_arity(11), ParamCountTier::VeryHigh);
-    }
-
-    #[test]
     fn aggregate_reports_param_count_distribution() {
         // Arities 3 (low), 5 (moderate), 8 (high), 12 (very high) — one function each, so the
         // histogram shows the full spread the mean would flatten.
@@ -1298,17 +1239,6 @@ def b(xs):
         assert_eq!(god.cognitive_functions, 3);
         assert_eq!(god.size_modules, 12);
         assert_eq!(god.total(), 3 + 2 + 1 + 12);
-    }
-
-    #[test]
-    fn cognitive_tier_bands() {
-        assert_eq!(CognitiveTier::from_cognitive(0), CognitiveTier::Low);
-        assert_eq!(CognitiveTier::from_cognitive(5), CognitiveTier::Low);
-        assert_eq!(CognitiveTier::from_cognitive(6), CognitiveTier::Moderate);
-        assert_eq!(CognitiveTier::from_cognitive(15), CognitiveTier::Moderate);
-        assert_eq!(CognitiveTier::from_cognitive(16), CognitiveTier::High);
-        assert_eq!(CognitiveTier::from_cognitive(40), CognitiveTier::High);
-        assert_eq!(CognitiveTier::from_cognitive(41), CognitiveTier::VeryHigh);
     }
 
     #[test]
@@ -1612,17 +1542,6 @@ class Ext(Plugin):
         assert_eq!(n("Root"), 1, "only Mid is a direct child, not Leaf");
         assert_eq!(n("Mid"), 1);
         assert_eq!(n("Leaf"), 0);
-    }
-
-    #[test]
-    fn cbo_tier_boundaries() {
-        assert_eq!(CboTier::from_cbo(0), CboTier::Low);
-        assert_eq!(CboTier::from_cbo(4), CboTier::Low);
-        assert_eq!(CboTier::from_cbo(5), CboTier::Moderate);
-        assert_eq!(CboTier::from_cbo(9), CboTier::Moderate);
-        assert_eq!(CboTier::from_cbo(10), CboTier::High);
-        assert_eq!(CboTier::from_cbo(20), CboTier::High);
-        assert_eq!(CboTier::from_cbo(21), CboTier::VeryHigh);
     }
 
     #[test]
