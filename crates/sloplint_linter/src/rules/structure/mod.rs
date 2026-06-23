@@ -19,32 +19,6 @@ pub mod oversized_file;
 pub mod redundant_type_hint;
 pub mod verbose_naming;
 
-use crate::registry::{RegisteredRule, RuleGroup};
-
-pub fn rules() -> Vec<RegisteredRule> {
-    vec![
-        RegisteredRule::new(RuleGroup::Stable, || {
-            Box::new(defensive_except::DefensiveExcept)
-        }),
-        RegisteredRule::new(RuleGroup::Stable, || {
-            Box::new(oversized_file::OversizedFile)
-        }),
-        RegisteredRule::new(RuleGroup::Stable, || Box::new(deep_nesting::DeepNesting)),
-        RegisteredRule::new(RuleGroup::Preview, || {
-            Box::new(redundant_type_hint::RedundantTypeHint)
-        }),
-        RegisteredRule::new(RuleGroup::Preview, || {
-            Box::new(verbose_naming::VerboseNaming)
-        }),
-        RegisteredRule::new(RuleGroup::Preview, || {
-            Box::new(deep_data_nesting::DeepDataNesting)
-        }),
-        RegisteredRule::new(RuleGroup::Preview, || {
-            Box::new(dispatch_ladder::DispatchLadder)
-        }),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

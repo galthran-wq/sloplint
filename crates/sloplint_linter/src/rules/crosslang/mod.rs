@@ -6,15 +6,6 @@
 
 pub mod cross_language;
 
-use crate::registry::{RegisteredRule, RuleGroup};
-
-/// This category's registry entries. SLP250 ships in preview until corpus precision is proven.
-pub fn rules() -> Vec<RegisteredRule> {
-    vec![RegisteredRule::new(RuleGroup::Preview, || {
-        Box::new(cross_language::CrossLanguage)
-    })]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
