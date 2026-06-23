@@ -10,11 +10,15 @@
 
 mod badges;
 mod corrupted;
+mod cross_file;
 mod ghost;
 mod hook;
 mod init;
 mod output;
 use badges::write_badges;
+use cross_file::{
+    attribute_clones, attribute_fanout, attribute_ghost_scaffolding, attribute_undeclared_imports,
+};
 use output::{
     class_row, function_row, metrics_json, metrics_markdown, opt_ratio, package_row,
     print_metrics_panel,
@@ -32,18 +36,17 @@ use ignore::WalkBuilder;
 use sloplint_clone::{extract_functions, find_clones, CloneConfig, ClonePair, FunctionUnit};
 use sloplint_diagnostics::fix;
 use sloplint_diagnostics::render::render_diagnostics;
-use sloplint_diagnostics::{Diagnostic, Severity};
+use sloplint_diagnostics::Diagnostic;
 use sloplint_linter::config::{Config, Selector};
 use sloplint_linter::detect;
 use sloplint_linter::imports;
 use sloplint_linter::lint::{check_file, FileContext, Rule};
 use sloplint_linter::registry::Registry;
-use sloplint_linter::stdlib;
 use sloplint_linter::suppression::Suppressions;
 use sloplint_metrics::graph::{self, ImportGraph, ModuleInput};
 use sloplint_metrics::test_proxies::{self, FileTestStats, TestProxies};
 use sloplint_metrics::{aggregate, file_metrics, FileMetrics, FunctionMetrics, RepoMetrics};
-use sloplint_python::{parse, Ranged, TextRange};
+use sloplint_python::{parse, Ranged};
 use sloplint_report::ReportEntry;
 
 #[derive(Parser)]
@@ -742,7 +745,7 @@ fn apply_fixes(results: &mut [FileResult], allow_unsafe: bool) -> (usize, bool) 
 }
 
 /// One file's parsed source and accumulated diagnostics.
-struct FileResult {
+pub(crate) struct FileResult {
     path: String,
     source: String,
     diagnostics: Vec<Diagnostic>,
@@ -751,189 +754,12 @@ struct FileResult {
     suppressions: Suppressions,
 }
 
-/// Run cross-file clone detection and push exactly one `SLP020` diagnostic onto each
-/// clone-involved function, pointing at its lowest-index duplicate.
-///
-/// Reporting every pair would be O(n^2) on a cluster of N identical functions (N(N-1)
-/// diagnostics), burying real signal. Collapsing to one finding per function keeps output
-/// proportional to the number of duplicated functions while still flagging each of them.
-fn attribute_clones(
-    units: &[FunctionUnit],
-    unit_result: &[usize],
-    clone_config: &CloneConfig,
-    results: &mut [FileResult],
-) {
-    // For each clone-involved function, keep its lowest-index partner (deterministic).
-    let mut partner: HashMap<usize, (usize, f64)> = HashMap::new();
-    let mut record = |from: usize, to: usize, similarity: f64| {
-        partner
-            .entry(from)
-            .and_modify(|best| {
-                if to < best.0 {
-                    *best = (to, similarity);
-                }
-            })
-            .or_insert((to, similarity));
-    };
-    for pair in find_clones(units, clone_config) {
-        record(pair.a, pair.b, pair.similarity);
-        record(pair.b, pair.a, pair.similarity);
-    }
-
-    let mut involved: Vec<usize> = partner.keys().copied().collect();
-    involved.sort_unstable();
-    for unit_index in involved {
-        let (partner_index, similarity) = partner[&unit_index];
-        let unit = &units[unit_index];
-        let partner_unit = &units[partner_index];
-        let result_index = unit_result[unit_index];
-        let partner_result = unit_result[partner_index];
-        let percent = (similarity * 100.0).round() as u32;
-
-        let partner_line = line_of(
-            &results[partner_result].source,
-            partner_unit.range.start().into(),
-        );
-        let partner_path = results[partner_result].path.clone();
-
-        results[result_index].diagnostics.push(Diagnostic::new(
-            "SLP020",
-            format!(
-                "duplicate of {partner_path}:{partner_line} (function `{}`, {percent}% similar)",
-                partner_unit.name
-            ),
-            unit.range,
-            Severity::Warning,
-        ));
-    }
-}
-
-/// Flag directories holding more than `max_modules` Python files directly (flat fanout —
-/// SLP090). One diagnostic per over-full directory, attributed to its first file.
-fn attribute_fanout(results: &mut [FileResult], selector: &Selector, max_modules: usize) {
-    let mut by_dir: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (index, result) in results.iter().enumerate() {
-        let dir = Path::new(&result.path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-        by_dir.entry(dir).or_default().push(index);
-    }
-
-    for (dir, indices) in by_dir {
-        if indices.len() <= max_modules {
-            continue;
-        }
-        let representative = indices[0];
-        if !selector.is_enabled("SLP090", &results[representative].path) {
-            continue;
-        }
-        let shown_dir = if dir.is_empty() { "." } else { &dir };
-        let count = indices.len();
-        results[representative].diagnostics.push(Diagnostic::new(
-            "SLP090",
-            format!(
-                "directory `{shown_dir}` holds {count} Python modules (max {max_modules}); \
-                 split it into sub-packages"
-            ),
-            TextRange::default(),
-            Severity::Warning,
-        ));
-    }
-}
-
-/// SLP180: flag third-party imports not declared in the project's dependency manifest.
-///
-/// Whole-project, so emission (not collection) is gated per-path: imports are collected for
-/// every file (above) so the first-party set is complete, and a per-path `ignore` only
-/// suppresses the *finding*. Resolves the manifest once from the working directory; if none
-/// declares dependencies, the rule stays silent (conservative — false negatives over false
-/// positives).
-fn attribute_undeclared_imports(
-    import_scans: &[(String, Vec<imports::ImportRef>)],
-    all_paths: &[String],
-    extra: &[String],
-    selector: &Selector,
-    results: &mut [FileResult],
-) {
-    let cwd = match env::current_dir() {
-        Ok(cwd) => cwd,
-        Err(_) => return,
-    };
-    let Some(declared) = imports::resolve_declared(&cwd) else {
-        return; // no manifest declaring deps -> ambiguous, don't fire.
-    };
-    // First-party names must reflect the whole project tree, not just the scanned paths —
-    // otherwise `sloplint check one_file.py` (or a pre-commit run over changed files only)
-    // would flag local packages outside the scan as undeclared. Walk the manifest's project
-    // root for that, then union the scanned paths (cheap, and covers files above the root).
-    let mut first_party = first_party_under(&declared.root);
-    first_party.extend(imports::first_party_names(all_paths));
-    let extra_set: std::collections::HashSet<String> =
-        extra.iter().map(|e| imports::normalize_dist(e)).collect();
-
-    let by_path: HashMap<String, usize> = results
-        .iter()
-        .enumerate()
-        .map(|(i, r)| (r.path.clone(), i))
-        .collect();
-
-    let findings = imports::findings(
-        import_scans,
-        &first_party,
-        &declared,
-        &extra_set,
-        stdlib::is_stdlib,
-    );
-    for finding in findings {
-        if !selector.is_enabled("SLP180", &finding.path) {
-            continue;
-        }
-        if let Some(&index) = by_path.get(finding.path.as_str()) {
-            results[index].diagnostics.push(Diagnostic::new(
-                "SLP180",
-                finding.message,
-                finding.range,
-                Severity::Warning,
-            ));
-        }
-    }
-}
-
-/// SLP240: flag ghost scaffolding (unreferenced top-level defs + ghost config flags) across the
-/// project. Whole-project like SLP180: scans are collected for every file (so references are
-/// complete), then emission is gated per-path via `is_enabled`.
-fn attribute_ghost_scaffolding(
-    scans: &[ghost::FileScan],
-    selector: &Selector,
-    results: &mut [FileResult],
-) {
-    let by_path: HashMap<String, usize> = results
-        .iter()
-        .enumerate()
-        .map(|(i, r)| (r.path.clone(), i))
-        .collect();
-    for finding in ghost::findings(scans) {
-        if !selector.is_enabled("SLP240", &finding.path) {
-            continue;
-        }
-        if let Some(&index) = by_path.get(finding.path.as_str()) {
-            results[index].diagnostics.push(Diagnostic::new(
-                "SLP240",
-                finding.message,
-                finding.range,
-                Severity::Warning,
-            ));
-        }
-    }
-}
-
 /// First-party (project-local) top-level module names found by walking the project `root`.
 ///
 /// Honors `.gitignore` (so `.venv/` etc. are skipped) via the same `ignore` walker used for
 /// discovery. Names are computed from paths relative to `root`. Over-collecting is safe — a
 /// name treated as first-party is never flagged, preserving the false-negative bias.
-fn first_party_under(root: &Path) -> std::collections::HashSet<String> {
+pub(crate) fn first_party_under(root: &Path) -> std::collections::HashSet<String> {
     let mut rels = Vec::new();
     for result in WalkBuilder::new(root).build().flatten() {
         let path = result.path();
@@ -947,7 +773,7 @@ fn first_party_under(root: &Path) -> std::collections::HashSet<String> {
 }
 
 /// 1-based line number for a byte offset.
-fn line_of(source: &str, offset: u32) -> usize {
+pub(crate) fn line_of(source: &str, offset: u32) -> usize {
     let offset = (offset as usize).min(source.len());
     source[..offset].bytes().filter(|&b| b == b'\n').count() + 1
 }
