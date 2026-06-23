@@ -27,7 +27,7 @@ impl Rule for DeepNesting {
         for function in functions {
             if let Some(range) = first_too_deep(&function.body, 0, max_depth) {
                 diagnostics.push(Diagnostic::new(
-                    "SLP082",
+                    self.code(),
                     format!(
                         "nesting deeper than {max_depth} levels in function `{}`",
                         function.name

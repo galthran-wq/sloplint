@@ -58,7 +58,7 @@ impl Rule for PhantomGuard {
         findings.sort_by_key(|p| u32::from(p.range.start()));
         for phantom in findings {
             diagnostics.push(Diagnostic::new(
-                "SLP210",
+                self.code(),
                 phantom.message(),
                 phantom.range,
                 Severity::Warning,

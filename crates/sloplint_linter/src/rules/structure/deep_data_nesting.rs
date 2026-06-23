@@ -30,6 +30,7 @@ impl Rule for DeepDataNesting {
 
     fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
         let mut visitor = NestingVisitor {
+            code: self.code(),
             max_depth: ctx.limits.data_nesting_max_depth,
             diagnostics,
         };
@@ -43,13 +44,14 @@ impl Rule for DeepDataNesting {
 /// root of a statement-level expression tree (we stop the trait's expression recursion and
 /// walk expressions ourselves in `scan`, so we can track container-of-container nesting).
 struct NestingVisitor<'a> {
+    code: &'static str,
     max_depth: usize,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
 impl<'a> Visitor<'a> for NestingVisitor<'a> {
     fn visit_expr(&mut self, expr: &'a Expr) {
-        scan(expr, false, self.max_depth, self.diagnostics);
+        scan(self.code, expr, false, self.max_depth, self.diagnostics);
     }
 }
 
@@ -57,6 +59,7 @@ impl<'a> Visitor<'a> for NestingVisitor<'a> {
 /// `parent_is_container` is true when `expr` is a direct element/key/value of an enclosing
 /// container — used to report only the *outermost* container of a nested chain.
 fn scan(
+    code: &'static str,
     expr: &Expr,
     parent_is_container: bool,
     max_depth: usize,
@@ -67,7 +70,7 @@ fn scan(
         let depth = container_depth(expr);
         if depth > max_depth {
             diagnostics.push(Diagnostic::new(
-                "SLP084",
+                code,
                 format!(
                     "data-structure literal nested {depth} levels deep (max {max_depth}); \
                      model it with a named type (e.g. a dataclass) instead of an inline literal"
@@ -83,7 +86,7 @@ fn scan(
     let elements = elements.unwrap_or_default();
     for child in direct_child_exprs(expr) {
         let is_element = elements.iter().any(|element| ptr::eq(*element, child));
-        scan(child, is_element, max_depth, diagnostics);
+        scan(code, child, is_element, max_depth, diagnostics);
     }
 }
 

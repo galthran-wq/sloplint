@@ -20,21 +20,21 @@ impl Rule for AsciiOnly {
         for (idx, ch) in ctx.source.char_indices() {
             if ch.is_ascii() {
                 if let Some(start) = run_start.take() {
-                    push_run(diagnostics, start, idx);
+                    push_run(self.code(), diagnostics, start, idx);
                 }
             } else if run_start.is_none() {
                 run_start = Some(idx);
             }
         }
         if let Some(start) = run_start {
-            push_run(diagnostics, start, ctx.source.len());
+            push_run(self.code(), diagnostics, start, ctx.source.len());
         }
     }
 }
 
-fn push_run(diagnostics: &mut Vec<Diagnostic>, start: usize, end: usize) {
+fn push_run(code: &'static str, diagnostics: &mut Vec<Diagnostic>, start: usize, end: usize) {
     diagnostics.push(Diagnostic::new(
-        "SLP050",
+        code,
         "non-ASCII character; sloplint enforces ASCII-only source",
         TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32)),
         Severity::Warning,

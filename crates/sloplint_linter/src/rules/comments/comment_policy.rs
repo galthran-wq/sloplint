@@ -29,7 +29,7 @@ impl Rule for CommentPolicy {
             }
             diagnostics.push(
                 Diagnostic::new(
-                    "SLP010",
+                    self.code(),
                     "comment is not allowed (comments are banned by default; allow specific paths in config)",
                     token.range(),
                     Severity::Warning,
