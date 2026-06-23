@@ -21,6 +21,12 @@ use sloplint_macros::ViolationMetadata;
 /// runs on a duck-typed object or fails only at runtime, slipping past review. Deliberately
 /// narrow — only names that are never idiomatic Python — to avoid false positives; allowlist
 /// via `[crosslang] allow`. Preview (the FP-riskiest rule).
+///
+/// ## Example
+/// ```python
+/// label = value.toString()    # JS idiom -- Python uses str(value)
+/// size = buffer.length        # `.length` -- Python uses len(buffer)
+/// ```
 #[derive(ViolationMetadata)]
 pub struct CrossLanguage;
 

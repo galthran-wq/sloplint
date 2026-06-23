@@ -20,6 +20,13 @@ use sloplint_macros::ViolationMetadata;
 /// `NameError` or a no-op (CWE-693, Protection Mechanism Failure). Curated to security-guard
 /// names (not a general undefined-name lint — that's Ruff's `F821`); only bare-name
 /// calls/decorators are considered, and a near-miss is reported as a likely typo.
+///
+/// ## Example
+/// ```python
+/// @requires_auth          # never defined or imported in this module
+/// def delete_account(user):
+///     ...
+/// ```
 #[derive(ViolationMetadata)]
 pub struct PhantomGuard;
 

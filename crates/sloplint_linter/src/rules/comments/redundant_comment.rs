@@ -23,6 +23,12 @@ const MAX_COMMENT_WORDS: usize = 6;
 /// ## Why is this bad?
 /// A "what" comment that restates the code adds no information and rots as the code changes.
 /// Directives and ticketed TODOs are exempt (they aren't prose). Heuristic, so preview.
+///
+/// ## Example
+/// ```python
+/// # compute total
+/// total = compute_total()
+/// ```
 #[derive(ViolationMetadata)]
 pub struct RedundantComment;
 

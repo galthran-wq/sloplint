@@ -36,6 +36,7 @@ fn rule_explains_one_rule() {
     );
     assert!(stdout.contains("## What it does"), "doc:\n{stdout}");
     assert!(stdout.contains("## Why is this bad?"), "doc:\n{stdout}");
+    assert!(stdout.contains("## Example"), "doc:\n{stdout}");
 }
 
 #[test]

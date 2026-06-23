@@ -17,6 +17,12 @@ use sloplint_macros::ViolationMetadata;
 /// These phrasings are strong LLM tells — the model narrating rather than documenting, or
 /// admitting an unfinished corner (a semantic-incompleteness signal). WHY-comments, license
 /// headers, directives, and ticketed TODOs are exempt; the lexicon extends via `[comments] extra`.
+///
+/// ## Example
+/// ```python
+/// # Step 1: parse the input
+/// data = parse(raw)  # this should work for now
+/// ```
 #[derive(ViolationMetadata)]
 pub struct CommentTells;
 

@@ -15,6 +15,12 @@ use sloplint_macros::ViolationMetadata;
 /// The annotation carries no information the literal doesn't. Conservative — only builtin
 /// scalar types paired with a matching literal — so anything non-obvious is left alone. Preview,
 /// since module constants legitimately annotate sometimes.
+///
+/// ## Example
+/// ```python
+/// count: int = 0
+/// name: str = "x"
+/// ```
 #[derive(ViolationMetadata)]
 pub struct RedundantTypeHint;
 

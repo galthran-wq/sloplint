@@ -12,6 +12,11 @@ use sloplint_macros::ViolationMetadata;
 /// ## Why is this bad?
 /// AI tends to dump everything into one enormous module, and Ruff has no file-length gate.
 /// Long modules are hard to navigate and signal missing decomposition.
+///
+/// ## Example
+/// ```python
+/// # one module of 2_000+ lines, well past `file_max_lines` (default 400)
+/// ```
 #[derive(ViolationMetadata)]
 pub struct OversizedFile;
 

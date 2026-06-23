@@ -15,6 +15,18 @@ use sloplint_macros::ViolationMetadata;
 /// Hand-unrolled dispatch is a textbook generated-code shape — verbose and error-prone — that
 /// should be a lookup table (`dict`), `match`, or polymorphism; Ruff has no equivalent.
 /// Conservative (uniform same-subject chains only); preview-gated.
+///
+/// ## Example
+/// ```python
+/// if kind == "a":
+///     return A()
+/// elif kind == "b":
+///     return B()
+/// elif kind == "c":
+///     return C()
+/// elif kind == "d":
+///     return D()
+/// ```
 #[derive(ViolationMetadata)]
 pub struct DispatchLadder;
 

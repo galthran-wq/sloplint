@@ -223,9 +223,9 @@ mod tests {
         }
     }
 
-    /// Every shipped rule carries a `## What it does` doc-comment — now machine-readable via the
-    /// `ViolationMetadata` derive — and a non-empty rule name, so the rule explainer can describe
-    /// each one. Guards against a new rule landing without ruff-style docs.
+    /// Every shipped rule carries the full ruff-style doc triad — `## What it does`,
+    /// `## Why is this bad?`, and `## Example` — machine-readable via the `ViolationMetadata`
+    /// derive, plus a non-empty rule name. Guards against a new rule landing with partial docs.
     #[test]
     fn every_shipped_rule_is_documented() {
         for rule in Registry::shipped().catalog() {
@@ -234,12 +234,17 @@ mod tests {
                 "{} has an empty rule_name",
                 rule.code
             );
-            assert!(
-                rule.explanation.is_some(),
-                "{} ({}) is missing its `## What it does` doc-comment",
-                rule.code,
-                rule.name
-            );
+            let explanation = rule.explanation.unwrap_or_else(|| {
+                panic!("{} ({}) is missing its doc-comment", rule.code, rule.name)
+            });
+            for heading in ["## What it does", "## Why is this bad?", "## Example"] {
+                assert!(
+                    explanation.contains(heading),
+                    "{} ({}) is missing the `{heading}` doc heading",
+                    rule.code,
+                    rule.name
+                );
+            }
         }
     }
 
