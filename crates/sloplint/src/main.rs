@@ -17,6 +17,7 @@ mod ghost;
 mod hook;
 mod init;
 mod output;
+mod rule_docs;
 use badges::write_badges;
 use compute::{clone_stats_for, concentration_for};
 use cross_file::{
@@ -69,6 +70,11 @@ enum Command {
     Parse {
         /// Path to a `.py` file.
         file: String,
+    },
+    /// Explain a rule (like `ruff rule`): print a rule's docs, or list all rules with no argument.
+    Rule {
+        /// Rule code to explain, e.g. `SLP030`. Omit to list every rule.
+        rule: Option<String>,
     },
     /// Check Python files for slop, honoring `sloplint.toml`.
     Check {
@@ -243,6 +249,10 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Command::Parse { file } => match run_parse(&file) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => tool_error(err),
+        },
+        Command::Rule { rule } => match rule_docs::run_rule(rule.as_deref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => tool_error(err),
         },
