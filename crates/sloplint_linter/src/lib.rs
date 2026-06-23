@@ -11,6 +11,7 @@ mod codes;
 pub mod config;
 pub mod detect;
 pub mod fanout;
+pub mod ghost;
 pub mod imports;
 pub mod lint;
 pub mod registry;
