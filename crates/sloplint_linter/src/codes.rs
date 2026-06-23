@@ -55,5 +55,11 @@ pub(crate) fn whole_project_rules() -> Vec<RegisteredMeta> {
     vec![
         RegisteredMeta::new(RuleGroup::Stable, || Box::new(crate::clones::Clones)),
         RegisteredMeta::new(RuleGroup::Stable, || Box::new(crate::fanout::Fanout)),
+        RegisteredMeta::new(RuleGroup::Preview, || {
+            Box::new(crate::imports::UndeclaredImports)
+        }),
+        RegisteredMeta::new(RuleGroup::Preview, || {
+            Box::new(crate::ghost::GhostScaffolding)
+        }),
     ]
 }

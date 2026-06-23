@@ -119,12 +119,12 @@ pub(crate) fn attribute_undeclared_imports(
         stdlib::is_stdlib,
     );
     for finding in findings {
-        if !selector.is_enabled("SLP180", &finding.path) {
+        if !selector.is_enabled(imports::UndeclaredImports.code(), &finding.path) {
             continue;
         }
         if let Some(&index) = by_path.get(finding.path.as_str()) {
             results[index].diagnostics.push(Diagnostic::new(
-                "SLP180",
+                imports::UndeclaredImports.code(),
                 finding.message,
                 finding.range,
                 Severity::Warning,
@@ -147,12 +147,12 @@ pub(crate) fn attribute_ghost_scaffolding(
         .map(|(i, r)| (r.path.clone(), i))
         .collect();
     for finding in ghost::findings(scans) {
-        if !selector.is_enabled("SLP240", &finding.path) {
+        if !selector.is_enabled(ghost::GhostScaffolding.code(), &finding.path) {
             continue;
         }
         if let Some(&index) = by_path.get(finding.path.as_str()) {
             results[index].diagnostics.push(Diagnostic::new(
-                "SLP240",
+                ghost::GhostScaffolding.code(),
                 finding.message,
                 finding.range,
                 Severity::Warning,
