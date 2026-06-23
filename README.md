@@ -83,6 +83,7 @@ sloplint metrics src --format packages   # per-package feed: coupling, cycles, a
 sloplint metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
 sloplint metrics src --badges badges/    # emit SVG + shields-endpoint badges
 sloplint init                            # wire sloplint into your AI coding tool (see below)
+sloplint rule SLP030                     # explain a rule (or `sloplint rule` to list all) — like `ruff rule`
 sloplint parse file.py                   # dump AST + tokens (debug aid)
 ```
 

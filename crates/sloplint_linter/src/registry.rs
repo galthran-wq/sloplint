@@ -57,6 +57,12 @@ impl Registry {
         self.rules.iter().map(|rule| rule.code)
     }
 
+    /// The registered rules, for the `rule` explainer (code, group, and a constructor that yields
+    /// the rule's `ViolationMetadata`).
+    pub fn rules(&self) -> &[RegisteredRule] {
+        &self.rules
+    }
+
     /// Instantiate the rules enabled for `path` under `selector`: in scope (stable, or
     /// preview when enabled) and not deselected by config / path overrides.
     pub fn enabled_for(&self, selector: &Selector, path: &str) -> Vec<Box<dyn Rule>> {
