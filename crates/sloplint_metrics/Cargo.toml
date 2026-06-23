@@ -10,4 +10,4 @@ sloplint_python.workspace = true
 petgraph.workspace = true
 
 [dev-dependencies]
-insta = "1"
+insta.workspace = true
