@@ -6,6 +6,7 @@
 //! - `SLP080` oversized file (stable).
 //! - `SLP082` deep nesting — control flow (stable).
 //! - `SLP084` deep data-structure nesting — expression tree (preview — heuristic).
+//! - `SLP130` literal-dispatch / isinstance ladder (preview — heuristic).
 //!
 //! (`SLP090` flat-directory fanout is a whole-tree analysis handled in the CLI, not a
 //! per-file rule, so it isn't registered here.)
@@ -13,6 +14,7 @@
 pub mod deep_data_nesting;
 pub mod deep_nesting;
 pub mod defensive_except;
+pub mod dispatch_ladder;
 pub mod oversized_file;
 pub mod redundant_type_hint;
 pub mod verbose_naming;
@@ -36,6 +38,9 @@ pub fn rules() -> Vec<RegisteredRule> {
         }),
         RegisteredRule::new(RuleGroup::Preview, || {
             Box::new(deep_data_nesting::DeepDataNesting)
+        }),
+        RegisteredRule::new(RuleGroup::Preview, || {
+            Box::new(dispatch_ladder::DispatchLadder)
         }),
     ]
 }
@@ -97,6 +102,34 @@ mod tests {
         deep_data_nesting::DeepDataNesting,
         "structure",
         "SLP084"
+    );
+    test_rule!(
+        slp130_dispatch_ladder,
+        dispatch_ladder::DispatchLadder,
+        "structure",
+        "SLP130"
+    );
+    // Threshold: the same 4-branch ladder is spared when the branch limit is raised to 4 (a
+    // chain must *exceed* the limit) and flagged when lowered to 2.
+    test_rule!(
+        slp130_threshold_raised,
+        dispatch_ladder::DispatchLadder,
+        "structure",
+        "SLP130_threshold",
+        Limits {
+            dispatch_max_branches: 4,
+            ..Default::default()
+        }
+    );
+    test_rule!(
+        slp130_threshold_lowered,
+        dispatch_ladder::DispatchLadder,
+        "structure",
+        "SLP130_threshold",
+        Limits {
+            dispatch_max_branches: 2,
+            ..Default::default()
+        }
     );
     // Threshold: the same 4-deep literal is spared when the depth limit is raised above it
     // and flagged when lowered below it.

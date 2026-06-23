@@ -1,0 +1,5 @@
+---
+source: crates/sloplint_linter/src/rules/structure/mod.rs
+expression: rendered
+---
+4:8 SLP130 [warning] dispatch ladder: 4 `==` branches on the same value — use a lookup table (dict) or `match` instead of an if/elif chain
