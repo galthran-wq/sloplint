@@ -395,79 +395,63 @@ impl RiskHistogram {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write;
+
+    /// Render a tier's band map over its boundary values: each value with the band it lands in.
+    /// One snapshot pins every threshold — an off-by-one drift in any `from_*` cutoff flips a
+    /// label and fails the test. Replaces the per-tier `assert_eq!` ladders; the boundary values
+    /// (each band's last-in and first-out) are the same the asserts checked.
+    fn bands(name: &str, values: &[usize], label: impl Fn(usize) -> &'static str) -> String {
+        let mut out = format!("{name}\n");
+        for &v in values {
+            writeln!(out, "  {v:>4} => {}", label(v)).unwrap();
+        }
+        out
+    }
 
     #[test]
-    fn risk_tier_boundaries_follow_mccabe() {
-        assert_eq!(RiskTier::from_cyclomatic(1), RiskTier::Low);
-        assert_eq!(RiskTier::from_cyclomatic(10), RiskTier::Low);
-        assert_eq!(RiskTier::from_cyclomatic(11), RiskTier::Moderate);
-        assert_eq!(RiskTier::from_cyclomatic(20), RiskTier::Moderate);
-        assert_eq!(RiskTier::from_cyclomatic(21), RiskTier::High);
-        assert_eq!(RiskTier::from_cyclomatic(50), RiskTier::High);
-        assert_eq!(RiskTier::from_cyclomatic(51), RiskTier::VeryHigh);
-    }
-    #[test]
-    fn wmc_tier_boundaries() {
-        // Descriptive bands: ≤20 low, 21–50 moderate, 51–200 high, >200 very high.
-        assert_eq!(WmcTier::from_wmc(0), WmcTier::Low);
-        assert_eq!(WmcTier::from_wmc(20), WmcTier::Low);
-        assert_eq!(WmcTier::from_wmc(21), WmcTier::Moderate);
-        assert_eq!(WmcTier::from_wmc(50), WmcTier::Moderate);
-        assert_eq!(WmcTier::from_wmc(51), WmcTier::High);
-        assert_eq!(WmcTier::from_wmc(200), WmcTier::High);
-        assert_eq!(WmcTier::from_wmc(201), WmcTier::VeryHigh);
-    }
-    #[test]
-    fn noc_tier_boundaries() {
-        // Descriptive breadth bands: ≤1 low, 2–5 moderate, 6–20 high, >20 very high.
-        assert_eq!(NocTier::from_noc(0), NocTier::Low);
-        assert_eq!(NocTier::from_noc(1), NocTier::Low);
-        assert_eq!(NocTier::from_noc(2), NocTier::Moderate);
-        assert_eq!(NocTier::from_noc(5), NocTier::Moderate);
-        assert_eq!(NocTier::from_noc(6), NocTier::High);
-        assert_eq!(NocTier::from_noc(20), NocTier::High);
-        assert_eq!(NocTier::from_noc(21), NocTier::VeryHigh);
-    }
-    #[test]
-    fn module_size_tier_boundaries() {
-        // Descriptive NLOC bands: ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
-        assert_eq!(ModuleSizeTier::from_nloc(0), ModuleSizeTier::Low);
-        assert_eq!(ModuleSizeTier::from_nloc(250), ModuleSizeTier::Low);
-        assert_eq!(ModuleSizeTier::from_nloc(251), ModuleSizeTier::Moderate);
-        assert_eq!(ModuleSizeTier::from_nloc(500), ModuleSizeTier::Moderate);
-        assert_eq!(ModuleSizeTier::from_nloc(501), ModuleSizeTier::High);
-        assert_eq!(ModuleSizeTier::from_nloc(1000), ModuleSizeTier::High);
-        assert_eq!(ModuleSizeTier::from_nloc(1001), ModuleSizeTier::VeryHigh);
-    }
-    #[test]
-    fn param_count_tier_boundaries() {
-        // Descriptive arity bands: ≤4 low, 5–6 moderate, 7–10 high, >10 very high.
-        assert_eq!(ParamCountTier::from_arity(0), ParamCountTier::Low);
-        assert_eq!(ParamCountTier::from_arity(4), ParamCountTier::Low);
-        assert_eq!(ParamCountTier::from_arity(5), ParamCountTier::Moderate);
-        assert_eq!(ParamCountTier::from_arity(6), ParamCountTier::Moderate);
-        assert_eq!(ParamCountTier::from_arity(7), ParamCountTier::High);
-        assert_eq!(ParamCountTier::from_arity(10), ParamCountTier::High);
-        assert_eq!(ParamCountTier::from_arity(11), ParamCountTier::VeryHigh);
-    }
-    #[test]
-    fn cognitive_tier_bands() {
-        assert_eq!(CognitiveTier::from_cognitive(0), CognitiveTier::Low);
-        assert_eq!(CognitiveTier::from_cognitive(5), CognitiveTier::Low);
-        assert_eq!(CognitiveTier::from_cognitive(6), CognitiveTier::Moderate);
-        assert_eq!(CognitiveTier::from_cognitive(15), CognitiveTier::Moderate);
-        assert_eq!(CognitiveTier::from_cognitive(16), CognitiveTier::High);
-        assert_eq!(CognitiveTier::from_cognitive(40), CognitiveTier::High);
-        assert_eq!(CognitiveTier::from_cognitive(41), CognitiveTier::VeryHigh);
-    }
-    #[test]
-    fn cbo_tier_boundaries() {
-        assert_eq!(CboTier::from_cbo(0), CboTier::Low);
-        assert_eq!(CboTier::from_cbo(4), CboTier::Low);
-        assert_eq!(CboTier::from_cbo(5), CboTier::Moderate);
-        assert_eq!(CboTier::from_cbo(9), CboTier::Moderate);
-        assert_eq!(CboTier::from_cbo(10), CboTier::High);
-        assert_eq!(CboTier::from_cbo(20), CboTier::High);
-        assert_eq!(CboTier::from_cbo(21), CboTier::VeryHigh);
+    fn tier_band_boundaries() {
+        let mut report = String::new();
+        // McCabe cyclomatic: ≤10 low, 11–20 moderate, 21–50 high, >50 very high.
+        report.push_str(&bands(
+            "RiskTier::from_cyclomatic",
+            &[1, 10, 11, 20, 21, 50, 51],
+            |v| RiskTier::from_cyclomatic(v).label(),
+        ));
+        // Cognitive: ≤5 low, 6–15 moderate, 16–40 high, >40 very high.
+        report.push_str(&bands(
+            "CognitiveTier::from_cognitive",
+            &[0, 5, 6, 15, 16, 40, 41],
+            |v| CognitiveTier::from_cognitive(v).label(),
+        ));
+        // WMC: ≤20 low, 21–50 moderate, 51–200 high, >200 very high.
+        report.push_str(&bands(
+            "WmcTier::from_wmc",
+            &[0, 20, 21, 50, 51, 200, 201],
+            |v| WmcTier::from_wmc(v).label(),
+        ));
+        // NOC breadth: ≤1 low, 2–5 moderate, 6–20 high, >20 very high.
+        report.push_str(&bands("NocTier::from_noc", &[0, 1, 2, 5, 6, 20, 21], |v| {
+            NocTier::from_noc(v).label()
+        }));
+        // CBO: ≤4 low, 5–9 moderate, 10–20 high, >20 very high.
+        report.push_str(&bands(
+            "CboTier::from_cbo",
+            &[0, 4, 5, 9, 10, 20, 21],
+            |v| CboTier::from_cbo(v).label(),
+        ));
+        // Module NLOC: ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
+        report.push_str(&bands(
+            "ModuleSizeTier::from_nloc",
+            &[0, 250, 251, 500, 501, 1000, 1001],
+            |v| ModuleSizeTier::from_nloc(v).label(),
+        ));
+        // Arity: ≤4 low, 5–6 moderate, 7–10 high, >10 very high.
+        report.push_str(&bands(
+            "ParamCountTier::from_arity",
+            &[0, 4, 5, 6, 7, 10, 11],
+            |v| ParamCountTier::from_arity(v).label(),
+        ));
+        insta::assert_snapshot!(report);
     }
 }

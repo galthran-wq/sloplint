@@ -1,0 +1,60 @@
+---
+source: crates/sloplint_metrics/src/risk.rs
+expression: report
+---
+RiskTier::from_cyclomatic
+     1 => low
+    10 => low
+    11 => moderate
+    20 => moderate
+    21 => high
+    50 => high
+    51 => very high
+CognitiveTier::from_cognitive
+     0 => low
+     5 => low
+     6 => moderate
+    15 => moderate
+    16 => high
+    40 => high
+    41 => very high
+WmcTier::from_wmc
+     0 => low
+    20 => low
+    21 => moderate
+    50 => moderate
+    51 => high
+   200 => high
+   201 => very high
+NocTier::from_noc
+     0 => low
+     1 => low
+     2 => moderate
+     5 => moderate
+     6 => high
+    20 => high
+    21 => very high
+CboTier::from_cbo
+     0 => low
+     4 => low
+     5 => moderate
+     9 => moderate
+    10 => high
+    20 => high
+    21 => very high
+ModuleSizeTier::from_nloc
+     0 => low
+   250 => low
+   251 => moderate
+   500 => moderate
+   501 => high
+  1000 => high
+  1001 => very high
+ParamCountTier::from_arity
+     0 => low
+     4 => low
+     5 => moderate
+     6 => moderate
+     7 => high
+    10 => high
+    11 => very high
