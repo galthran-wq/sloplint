@@ -572,8 +572,11 @@ codebase is, computed without running anything:
   "assertion_density": 3.24,   // assertions per test function (asserts + self.assertX +
                                // pytest.raises + self.fail), null when there are no test fns
   "assertion_free_tests": 9,
-  "assertion_free_rate": 0.09  // fraction of test fns whose body asserts nothing ("test
+  "assertion_free_rate": 0.09, // fraction of test fns whose body asserts nothing ("test
                                // theater"); null when there are no test fns
+  "production_functions": 540, "functions_with_doctest": 318,
+  "doctest_examples": 1204,    // `>>>` example lines across production docstrings
+  "doctest_coverage": 0.589    // functions_with_doctest / production_functions; null when none
 }
 ```
 
@@ -584,6 +587,14 @@ the shape "test theater" actually takes (print-spam "tests" that exercise code b
 assertion-free stubs). A rate near 1.0 next to a high test:code ratio flags a suite that *looks*
 tested but isn't. (The complementary *empty test scaffolding* form — `tests/` dirs holding only
 empty `__init__.py` — is already caught by `test_code_ratio` = 0.0.)
+
+**Doctest coverage** captures a testing style the path-based `test_code_ratio` is blind to:
+doctests live in the docstrings of *production* files, so a codebase tested primarily via doctests
+(common in scientific and educational libraries — e.g. TheAlgorithms/Python doctests 76% of its
+files) otherwise reads as essentially untested. `doctest_coverage` is the fraction of production
+functions whose docstring carries a `>>>` example, reported alongside `test_code_ratio` (not folded
+into it). Detection is a deterministic `>>>` scan — no execution — so it stays a descriptive proxy,
+not coverage.
 
 > Earlier releases keyed this on *cognitive complexity* (a "trivial-test rate"), which was
 > backwards — a disciplined arrange-act-assert test is deliberately branch-free, so good tests

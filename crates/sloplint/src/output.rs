@@ -241,6 +241,12 @@ fn test_proxies_json(proxies: &TestProxies) -> serde_json::Value {
         // theater"). High alongside a high test_code_ratio = a suite that looks tested but isn't.
         "assertion_free_tests": proxies.assertion_free_tests,
         "assertion_free_rate": proxies.assertion_free_rate,
+        // Doctest-awareness: doctests live in production docstrings, so the path-based
+        // test_code_ratio misses this whole testing style. Reported alongside, not folded in.
+        "production_functions": proxies.production_functions,
+        "functions_with_doctest": proxies.functions_with_doctest,
+        "doctest_examples": proxies.doctest_examples,
+        "doctest_coverage": proxies.doctest_coverage,
     })
 }
 
@@ -350,8 +356,10 @@ fn test_proxies_markdown(proxies: &TestProxies) -> String {
          test:code ratio {} ({} test / {} prod LoC), assertion density {} ({} assertions over \
          {} test functions), assertion-free rate {} ({} of {} test functions assert nothing). A \
          high assertion-free rate next to a high test:code ratio flags a suite that looks tested \
-         but verifies little. These suggest under-testing across a cohort; they are never a \
-         per-repo pass/fail verdict.\n",
+         but verifies little. Doctest coverage {} ({} of {} production functions carry a `>>>` \
+         example; {} examples) captures doctests, which live in production files and so are \
+         invisible to the path-based test:code ratio. These suggest under-testing across a \
+         cohort; they are never a per-repo pass/fail verdict.\n",
         opt_ratio(proxies.test_code_ratio),
         proxies.test_loc,
         proxies.production_loc,
@@ -361,6 +369,10 @@ fn test_proxies_markdown(proxies: &TestProxies) -> String {
         opt_ratio(proxies.assertion_free_rate),
         proxies.assertion_free_tests,
         proxies.test_functions,
+        opt_ratio(proxies.doctest_coverage),
+        proxies.functions_with_doctest,
+        proxies.production_functions,
+        proxies.doctest_examples,
     )
 }
 
@@ -621,6 +633,13 @@ pub(crate) fn print_test_proxies_table(proxies: &TestProxies) {
         opt_ratio(proxies.assertion_free_rate),
         proxies.assertion_free_tests,
         proxies.test_functions,
+    );
+    println!(
+        "  doctest coverage    {}  ({} of {} prod fns doctested; {} examples)",
+        opt_ratio(proxies.doctest_coverage),
+        proxies.functions_with_doctest,
+        proxies.production_functions,
+        proxies.doctest_examples,
     );
     println!("  (test proxies are static estimates, not coverage — descriptive only)");
 }
