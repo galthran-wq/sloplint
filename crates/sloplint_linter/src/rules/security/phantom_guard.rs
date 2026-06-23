@@ -28,7 +28,7 @@ impl Rule for PhantomGuard {
         "SLP210"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_source(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
         let module = ctx.parsed.syntax();
 
         // 1. Collect every name bound anywhere in the module (over-approximate — more bound names

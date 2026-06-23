@@ -27,7 +27,7 @@ impl Rule for MockData {
         "SLP230"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_source(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
         // Placeholder data is *expected* in tests; only production code is slop.
         if is_test_path(ctx.path) {
             return;

@@ -29,7 +29,7 @@ impl Rule for CrossLanguage {
         "SLP250"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_source(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
         let module = ctx.parsed.syntax();
         // Qt's Python bindings (PyQt/PySide) are camelCase by design — `toString`/`indexOf`/… are
         // their real API, not foreign idioms — so skip a file that imports them entirely.
@@ -273,7 +273,7 @@ mod tests {
             comment_phrases_extra: &[],
             crosslang_allow: &[],
         };
-        CrossLanguage.check(&ctx, &mut diags);
+        CrossLanguage.check_source(&ctx, &mut diags);
         diags.into_iter().map(|d| d.message).collect()
     }
 
@@ -333,7 +333,7 @@ mod tests {
             comment_phrases_extra: &[],
             crosslang_allow: &allow,
         };
-        CrossLanguage.check(&ctx, &mut diags);
+        CrossLanguage.check_source(&ctx, &mut diags);
         assert!(diags.is_empty(), "allow extra suppresses toString");
     }
 }

@@ -63,8 +63,9 @@ pub trait Rule: sloplint_diagnostics::ViolationMetadata {
     /// AST walk, so statement rules don't each re-walk the tree. Default: no-op.
     fn check_stmt(&self, _stmt: &Stmt, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
 
-    /// One-shot whole-file hook (raw source / line count), called once per file during
-    /// [`check_file`]. For rules that scan the source text rather than walk a tree. Default: no-op.
+    /// One-shot whole-file hook, called once per file during [`check_file`]. For rules whose
+    /// analysis doesn't fit the shared token/AST node dispatch — a raw-source/line scan, or a
+    /// rule that runs its own bespoke AST walk (controlled-recursion or two-pass). Default: no-op.
     fn check_source(&self, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
 
     /// Batch hook called once per file with the ranges of all `Name` tokens (source order),

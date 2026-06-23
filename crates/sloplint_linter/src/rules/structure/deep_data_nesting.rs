@@ -27,7 +27,7 @@ impl Rule for DeepDataNesting {
         "SLP084"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_source(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
         let mut visitor = NestingVisitor {
             code: self.code(),
             max_depth: ctx.limits.data_nesting_max_depth,
