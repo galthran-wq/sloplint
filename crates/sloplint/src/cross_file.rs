@@ -8,6 +8,7 @@ use std::env;
 use sloplint_clone::{CloneConfig, FunctionUnit};
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::Selector;
+use sloplint_linter::registry::WholeProjectRule;
 use sloplint_linter::{clones, fanout, imports, stdlib};
 use sloplint_python::TextRange;
 
@@ -38,7 +39,7 @@ pub(crate) fn attribute_clones(
     };
     for finding in found {
         results[finding.file].diagnostics.push(Diagnostic::new(
-            "SLP020",
+            clones::Clones.code(),
             finding.message,
             finding.range,
             Severity::Warning,
@@ -57,7 +58,7 @@ pub(crate) fn attribute_fanout(
     // honor per-path selection, and attach each finding to its directory's representative file.
     let paths: Vec<String> = results.iter().map(|result| result.path.clone()).collect();
     for finding in fanout::findings(&paths, max_modules) {
-        if !selector.is_enabled("SLP090", &finding.path) {
+        if !selector.is_enabled(fanout::Fanout.code(), &finding.path) {
             continue;
         }
         if let Some(result) = results
@@ -65,7 +66,7 @@ pub(crate) fn attribute_fanout(
             .find(|result| result.path == finding.path)
         {
             result.diagnostics.push(Diagnostic::new(
-                "SLP090",
+                fanout::Fanout.code(),
                 finding.message,
                 TextRange::default(),
                 Severity::Warning,

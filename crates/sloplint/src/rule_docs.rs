@@ -8,7 +8,7 @@
 use std::fmt::Write;
 
 use anyhow::anyhow;
-use sloplint_linter::registry::{RegisteredRule, Registry, RuleGroup};
+use sloplint_linter::registry::{Registry, RuleDoc, RuleGroup};
 
 /// Print one rule's docs (`code` given) or the full rule list (`code` is `None`), as human text
 /// or JSON (`as_json`). The JSON form mirrors `ruff rule --output-format json` — machine-readable
@@ -26,44 +26,40 @@ pub fn run_rule(code: Option<&str>, as_json: bool) -> anyhow::Result<()> {
 
 /// One rule's machine-readable metadata: code, kebab name, preview flag, and the rendered
 /// `## What it does` explanation (or null).
-fn rule_json(rule: &RegisteredRule) -> serde_json::Value {
-    let built = rule.build();
+fn rule_json(entry: &RuleDoc) -> serde_json::Value {
     serde_json::json!({
-        "code": rule.code,
-        "name": to_kebab(built.rule_name()),
-        "preview": rule.group == RuleGroup::Preview,
-        "explanation": built.explanation(),
+        "code": entry.code,
+        "name": to_kebab(entry.name),
+        "preview": entry.group == RuleGroup::Preview,
+        "explanation": entry.explanation,
     })
 }
 
 /// Every rule as a JSON array, sorted by code.
 fn rule_list_json(registry: &Registry) -> String {
-    let mut rules: Vec<&RegisteredRule> = registry.rules().iter().collect();
-    rules.sort_by_key(|rule| rule.code);
-    let array: Vec<serde_json::Value> = rules.iter().map(|rule| rule_json(rule)).collect();
+    let mut catalog = registry.catalog();
+    catalog.sort_by_key(|entry| entry.code);
+    let array: Vec<serde_json::Value> = catalog.iter().map(rule_json).collect();
     serde_json::to_string_pretty(&array).expect("rule metadata serializes")
 }
 
 /// One rule as a JSON object; errors on an unknown code.
 fn rule_detail_json(registry: &Registry, code: &str) -> anyhow::Result<String> {
     let want = code.to_ascii_uppercase();
-    let rule = registry
-        .rules()
+    let catalog = registry.catalog();
+    let entry = catalog
         .iter()
-        .find(|rule| rule.code == want)
+        .find(|entry| entry.code == want)
         .ok_or_else(|| anyhow!("unknown rule `{code}` (run `sloplint rule` to list all rules)"))?;
-    Ok(serde_json::to_string_pretty(&rule_json(rule)).expect("rule metadata serializes"))
+    Ok(serde_json::to_string_pretty(&rule_json(entry)).expect("rule metadata serializes"))
 }
 
 /// One line per registered rule — `CODE  kebab-name  (stability)` — sorted by code.
 fn rule_list(registry: &Registry) -> String {
     let mut rows: Vec<(&'static str, String, &'static str)> = registry
-        .rules()
+        .catalog()
         .iter()
-        .map(|rule| {
-            let name = to_kebab(rule.build().rule_name());
-            (rule.code, name, group_label(rule.group))
-        })
+        .map(|entry| (entry.code, to_kebab(entry.name), group_label(entry.group)))
         .collect();
     rows.sort_by_key(|(code, _, _)| *code);
 
@@ -71,29 +67,28 @@ fn rule_list(registry: &Registry) -> String {
     for (code, name, group) in rows {
         writeln!(out, "{code}  {name}  ({group})").unwrap();
     }
-    // Whole-tree rules (SLP020 clones, SLP090 fanout, SLP180 imports, SLP220 corrupted, SLP240
-    // ghost) run during `check` but aren't per-file registry rules, so they don't appear above yet.
-    out.push_str("\nWhole-tree rules run during `check` are not listed here yet.\n");
+    // The remaining whole-tree rules (SLP180 imports, SLP220 corrupted, SLP240 ghost) run during
+    // `check` but aren't yet in the catalog, so they don't appear above.
+    out.push_str("\nWhole-tree rules SLP180, SLP220 and SLP240 run during `check` are not listed here yet.\n");
     out
 }
 
 /// A rule's code/name/stability header followed by its `## What it does` documentation.
 fn rule_detail(registry: &Registry, code: &str) -> anyhow::Result<String> {
     let want = code.to_ascii_uppercase();
-    let rule = registry
-        .rules()
+    let catalog = registry.catalog();
+    let entry = catalog
         .iter()
-        .find(|rule| rule.code == want)
+        .find(|entry| entry.code == want)
         .ok_or_else(|| anyhow!("unknown rule `{code}` (run `sloplint rule` to list all rules)"))?;
 
-    let built = rule.build();
     let mut out = format!(
         "{} ({}) [{}]\n",
-        rule.code,
-        to_kebab(built.rule_name()),
-        group_label(rule.group)
+        entry.code,
+        to_kebab(entry.name),
+        group_label(entry.group)
     );
-    if let Some(explanation) = built.explanation() {
+    if let Some(explanation) = entry.explanation {
         out.push('\n');
         out.push_str(explanation);
     }
@@ -204,12 +199,12 @@ mod tests {
     #[test]
     fn every_shipped_rule_has_a_renderable_detail() {
         let registry = Registry::shipped();
-        for rule in registry.rules() {
-            let out = rule_detail(&registry, rule.code).unwrap();
+        for entry in registry.catalog() {
+            let out = rule_detail(&registry, entry.code).unwrap();
             assert!(
                 out.contains("## What it does"),
                 "{} lacks docs:\n{out}",
-                rule.code
+                entry.code
             );
         }
     }

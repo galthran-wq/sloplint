@@ -7,6 +7,36 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use sloplint_macros::ViolationMetadata;
+
+use crate::registry::WholeProjectRule;
+
+/// ## What it does
+/// Flags directories that hold more than `dir_max_modules` Python modules directly (a flat
+/// "dumping ground" of files in one folder, rather than a deliberate package structure).
+///
+/// ## Why is this bad?
+/// A directory with dozens of unrelated modules has no architectural shape: it signals missing
+/// sub-packages and makes it hard to find anything or reason about cohesion. Such flat fanout is
+/// a frequent tell of code generated file-by-file without an organizing module layout.
+///
+/// ## Example
+/// ```text
+/// myapp/            # 40 *.py files dumped here, no sub-packages
+///   user_create.py
+///   user_update.py
+///   user_delete.py
+///   ...
+/// ```
+#[derive(ViolationMetadata)]
+pub struct Fanout;
+
+impl WholeProjectRule for Fanout {
+    fn code(&self) -> &'static str {
+        "SLP090"
+    }
+}
+
 /// One over-full directory, reported on its first module (in input order).
 pub struct Finding {
     /// The file the `SLP090` diagnostic attaches to — the directory's first module.

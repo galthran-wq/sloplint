@@ -5,6 +5,8 @@
 //! proven. A rule is instantiated for a file only when it is both in scope (stable, or
 //! preview-enabled) and selected by the per-path config.
 
+use sloplint_diagnostics::ViolationMetadata;
+
 use crate::config::Selector;
 use crate::lint::Rule;
 
@@ -36,31 +38,101 @@ impl RegisteredRule {
     }
 }
 
+/// A whole-tree rule (clones, fanout, …): it analyzes the whole project at once rather than one
+/// file at a time, so it is not a per-file [`Rule`] and is driven by the binary's cross-file pass.
+/// It still carries a code and `ViolationMetadata`, so the rule explainer and the docs guard treat
+/// it like any other shipped rule.
+pub trait WholeProjectRule: ViolationMetadata {
+    /// Stable code, e.g. `"SLP020"` — the single source of truth for the rule's code.
+    fn code(&self) -> &'static str;
+}
+
+/// A whole-tree rule known to the registry: its code, stability, and a constructor yielding its
+/// metadata. The per-file analog is [`RegisteredRule`]; whole-tree rules carry documentation but
+/// no per-file analysis hook, so they appear in [`Registry::codes`] and [`Registry::catalog`] but
+/// never in [`Registry::enabled_for`].
+pub struct RegisteredMeta {
+    pub code: &'static str,
+    pub group: RuleGroup,
+    make: fn() -> Box<dyn WholeProjectRule>,
+}
+
+impl RegisteredMeta {
+    /// Register a whole-tree rule under `group`. The code is taken from the rule itself
+    /// (`code()`), the single source of truth — no separate code argument to drift from it.
+    pub fn new(group: RuleGroup, make: fn() -> Box<dyn WholeProjectRule>) -> Self {
+        let code = make().code();
+        Self { code, group, make }
+    }
+
+    /// The rule's metadata (name + `## What it does` explanation).
+    pub fn metadata(&self) -> Box<dyn WholeProjectRule> {
+        (self.make)()
+    }
+}
+
+/// One catalog entry for the rule explainer and the docs guard: a rule's code, stability, name,
+/// and rendered explanation — sourced uniformly from per-file and whole-tree rules.
+pub struct RuleDoc {
+    pub code: &'static str,
+    pub group: RuleGroup,
+    pub name: &'static str,
+    pub explanation: Option<&'static str>,
+}
+
 /// A catalog of rules. Construct via [`Registry::shipped`] for the real set, or
 /// [`Registry::new`] in tests.
 pub struct Registry {
     rules: Vec<RegisteredRule>,
+    meta: Vec<RegisteredMeta>,
 }
 
 impl Registry {
     pub fn new(rules: Vec<RegisteredRule>) -> Self {
-        Self { rules }
+        Self {
+            rules,
+            meta: Vec::new(),
+        }
     }
 
-    /// All rules that ship with sloplint, aggregated from every category.
+    /// All rules that ship with sloplint — per-file rules plus whole-tree rules.
     pub fn shipped() -> Self {
-        Self::new(crate::codes::shipped_rules())
+        Self {
+            rules: crate::codes::shipped_rules(),
+            meta: crate::codes::whole_project_rules(),
+        }
     }
 
-    /// The codes of every registered rule (regardless of selection).
+    /// The codes of every registered rule — per-file and whole-tree — regardless of selection.
     pub fn codes(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.rules.iter().map(|rule| rule.code)
+        self.rules
+            .iter()
+            .map(|rule| rule.code)
+            .chain(self.meta.iter().map(|rule| rule.code))
     }
 
-    /// The registered rules, for the `rule` explainer (code, group, and a constructor that yields
-    /// the rule's `ViolationMetadata`).
-    pub fn rules(&self) -> &[RegisteredRule] {
-        &self.rules
+    /// Every shipped rule — per-file and whole-tree — as a uniform documentation entry, for the
+    /// `rule` explainer and the docs guard. Sorted by the caller.
+    pub fn catalog(&self) -> Vec<RuleDoc> {
+        let from_rules = self.rules.iter().map(|rule| {
+            let built = rule.build();
+            RuleDoc {
+                code: rule.code,
+                group: rule.group,
+                name: built.rule_name(),
+                explanation: built.explanation(),
+            }
+        });
+        let from_meta = self.meta.iter().map(|rule| {
+            let built = rule.metadata();
+            RuleDoc {
+                code: rule.code,
+                group: rule.group,
+                name: built.rule_name(),
+                explanation: built.explanation(),
+            }
+        });
+        from_rules.chain(from_meta).collect()
     }
 
     /// Instantiate the rules enabled for `path` under `selector`: in scope (stable, or
@@ -156,18 +228,17 @@ mod tests {
     /// each one. Guards against a new rule landing without ruff-style docs.
     #[test]
     fn every_shipped_rule_is_documented() {
-        for rule in &Registry::shipped().rules {
-            let built = rule.build();
+        for rule in Registry::shipped().catalog() {
             assert!(
-                !built.rule_name().is_empty(),
+                !rule.name.is_empty(),
                 "{} has an empty rule_name",
                 rule.code
             );
             assert!(
-                built.explanation().is_some(),
+                rule.explanation.is_some(),
                 "{} ({}) is missing its `## What it does` doc-comment",
                 rule.code,
-                built.rule_name()
+                rule.name
             );
         }
     }

@@ -6,7 +6,7 @@
 //! itself (`code()`), so this table records only stability and the constructor — there is no code
 //! literal here to drift from the rule.
 
-use crate::registry::{RegisteredRule, RuleGroup};
+use crate::registry::{RegisteredMeta, RegisteredRule, RuleGroup};
 use crate::rules;
 
 /// Declare the shipped rules as a central `Group => RulePath` table and generate
@@ -45,4 +45,15 @@ map_codes! {
     Preview => rules::placeholders::mock_data::MockData,
     // Cross-language
     Preview => rules::crosslang::cross_language::CrossLanguage,
+}
+
+/// Whole-tree rules: they analyze the whole project at once (every function, every path) and are
+/// driven by the binary's cross-file pass, so they are not per-file [`shipped_rules`]. Listed here
+/// so the catalog, `codes()`, and the docs guard see them like any other shipped rule. Their code
+/// comes from the rule itself (`code()`), the single source of truth.
+pub(crate) fn whole_project_rules() -> Vec<RegisteredMeta> {
+    vec![
+        RegisteredMeta::new(RuleGroup::Stable, || Box::new(crate::clones::Clones)),
+        RegisteredMeta::new(RuleGroup::Stable, || Box::new(crate::fanout::Fanout)),
+    ]
 }

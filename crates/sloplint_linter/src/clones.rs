@@ -7,7 +7,40 @@
 use std::collections::HashMap;
 
 use sloplint_clone::{find_clones, CloneConfig, FunctionUnit};
+use sloplint_macros::ViolationMetadata;
 use sloplint_python::TextRange;
+
+use crate::registry::WholeProjectRule;
+
+/// ## What it does
+/// Flags functions that are exact or near-duplicate copies of another function anywhere in the
+/// project — verbatim copy-paste, and "same logic, slightly different" (renamed identifiers,
+/// reordered or lightly edited bodies).
+///
+/// ## Why is this bad?
+/// Duplicated logic multiplies the cost of every future change: a bug fix or behavior tweak has
+/// to be found and applied in each copy, and the copies silently drift when one is updated and
+/// the others are forgotten. Near-duplicates are a common tell of generated code pasted in
+/// repeatedly instead of being factored into a shared helper.
+///
+/// ## Example
+/// ```python
+/// def total_with_tax(items):
+///     total = sum(i.price for i in items)
+///     return total * 1.2
+///
+/// def grand_total(products):  # same logic, renamed — a near-duplicate of total_with_tax
+///     subtotal = sum(p.price for p in products)
+///     return subtotal * 1.2
+/// ```
+#[derive(ViolationMetadata)]
+pub struct Clones;
+
+impl WholeProjectRule for Clones {
+    fn code(&self) -> &'static str {
+        "SLP020"
+    }
+}
 
 /// One SLP020 finding: a clone-involved function pointing at its lowest-index partner.
 pub struct Finding {
