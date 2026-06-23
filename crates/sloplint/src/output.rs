@@ -1,7 +1,9 @@
 //! Machine-readable and human renderings of the `metrics` command: the per-panel JSON tree, the
 //! markdown PR summary, and the small `Option<f64>` ratio formatter shared with the text view.
 
-use sloplint_metrics::graph::{ImportGraph, PackageRow};
+use std::io::{self, Write};
+
+use sloplint_metrics::graph::{Concentration, ImportGraph, PackageRow};
 use sloplint_metrics::test_proxies::TestProxies;
 use sloplint_metrics::{FileMetrics, RepoMetrics};
 
@@ -554,6 +556,73 @@ pub(crate) fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         god.wmc_classes,
         god.size_modules,
     );
+}
+
+/// Emit one JSONL row per package: the first-party import graph collapsed to directory level.
+/// The package-level discovery feed, mirroring `print_function_rows`/`print_class_rows`.
+pub(crate) fn print_package_rows(graph: &ImportGraph) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for row in graph.package_rows() {
+        let _ = writeln!(out, "{}", package_row(&row));
+    }
+}
+
+/// Print the package module-count concentration block beneath a metric panel: how piled the
+/// modules are across packages, and which package holds the most. A descriptive distribution
+/// statistic — never a gate (a small repo's one main package scores high and that's fine).
+pub(crate) fn print_concentration(c: &Concentration) {
+    let largest = match &c.largest_package {
+        Some((name, modules)) => format!("{name}, {modules}/{} modules", c.total_modules),
+        None => "n/a".to_string(),
+    };
+    println!(
+        "  max package share   {:.2}  ({largest})",
+        c.max_package_share
+    );
+    println!(
+        "  module-count gini   {:.2}  (over {} packages)",
+        c.module_count_gini, c.packages
+    );
+}
+
+/// Print the duplication-density block beneath a metric panel: the SLP020 clone ratio plus
+/// the pair count and largest cluster. Descriptive — high duplication is a vibe-slop tell
+/// ("a scraper per site" → copy-paste), but it's a cohort signal, never a per-repo gate.
+pub(crate) fn print_clone_density(c: &CloneStats) {
+    println!(
+        "  clone ratio         {:.2}  ({} fns in clones / {} ; {} pairs, largest cluster {})",
+        c.ratio(),
+        c.functions_in_clones,
+        c.total_functions,
+        c.pairs,
+        c.largest_cluster,
+    );
+}
+
+/// Print the static test proxies block once, beneath the panel(s). Always the full
+/// project-wide split (production vs test), independent of `--scope` — descriptive only, NOT
+/// coverage and never a gate.
+pub(crate) fn print_test_proxies_table(proxies: &TestProxies) {
+    println!(
+        "  test:code ratio     {}  ({} test / {} prod LoC)",
+        opt_ratio(proxies.test_code_ratio),
+        proxies.test_loc,
+        proxies.production_loc,
+    );
+    println!(
+        "  assertion density   {}  ({} assertions / {} test fns)",
+        opt_ratio(proxies.assertion_density),
+        proxies.assertions,
+        proxies.test_functions,
+    );
+    println!(
+        "  assertion-free rate {}  ({} of {} test fns assert nothing)",
+        opt_ratio(proxies.assertion_free_rate),
+        proxies.assertion_free_tests,
+        proxies.test_functions,
+    );
+    println!("  (test proxies are static estimates, not coverage — descriptive only)");
 }
 
 #[cfg(test)]
