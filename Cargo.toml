@@ -35,5 +35,13 @@ sloplint_metrics = { path = "crates/sloplint_metrics" }
 sloplint_report = { path = "crates/sloplint_report" }
 sloplint_macros = { path = "crates/sloplint_macros" }
 
+# Lints inherited by every crate via `[lints] workspace = true`. `clippy::all` matches what CI
+# already enforces (`cargo clippy -- -D warnings`); `unsafe_code` is forbidden (sloplint uses none).
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
 [profile.release]
 lto = "thin"

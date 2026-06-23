@@ -7,3 +7,6 @@ description = "Rule-independent diagnostic abstractions (code, message, range, s
 
 [dependencies]
 ruff_text_size.workspace = true
+
+[lints]
+workspace = true
