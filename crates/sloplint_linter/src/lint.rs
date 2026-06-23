@@ -66,6 +66,17 @@ pub trait Rule: sloplint_diagnostics::ViolationMetadata {
     /// One-shot whole-file hook (raw source / line count), called once per file during
     /// [`check_file`]. For rules that scan the source text rather than walk a tree. Default: no-op.
     fn check_source(&self, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
+
+    /// Batch hook called once per file with the ranges of all `Name` tokens (source order),
+    /// collected during [`check_file`]'s single token pass — for name rules that need per-file
+    /// state (e.g. de-dup) without re-walking the token stream. Default: no-op.
+    fn check_names(
+        &self,
+        _ctx: &FileContext,
+        _names: &[TextRange],
+        _diagnostics: &mut Vec<Diagnostic>,
+    ) {
+    }
 }
 
 /// Walks the AST once, dispatching each statement to every rule's [`Rule::check_stmt`].
@@ -92,13 +103,22 @@ impl<'a> Visitor<'a> for NodeDispatch<'a, '_> {
 pub fn check_file(ctx: &FileContext, rules: &[&dyn Rule]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    // One token pass, shared by every comment rule (instead of one walk per rule).
+    // One token pass: dispatch each comment to comment rules, and collect every `Name` token's
+    // range for the name rules (so neither group re-walks the token stream).
+    let mut name_ranges: Vec<TextRange> = Vec::new();
     for token in ctx.parsed.tokens().iter() {
-        if token.kind() == TokenKind::Comment {
-            for rule in rules {
-                rule.check_comment(ctx, token.range(), &mut diagnostics);
+        match token.kind() {
+            TokenKind::Comment => {
+                for rule in rules {
+                    rule.check_comment(ctx, token.range(), &mut diagnostics);
+                }
             }
+            TokenKind::Name => name_ranges.push(token.range()),
+            _ => {}
         }
+    }
+    for rule in rules {
+        rule.check_names(ctx, &name_ranges, &mut diagnostics);
     }
 
     // One AST walk, shared by every statement rule (instead of one walk per rule).
