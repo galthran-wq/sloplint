@@ -7,7 +7,7 @@ use sloplint_metrics::graph::{Concentration, ImportGraph, PackageRow};
 use sloplint_metrics::test_proxies::TestProxies;
 use sloplint_metrics::{FileMetrics, RepoMetrics};
 
-use crate::CloneStats;
+use crate::{CloneStats, MeasuredFile, Scope};
 
 /// Render an optional ratio: a fixed-precision number, or `n/a` when undefined (no denominator).
 pub(crate) fn opt_ratio(value: Option<f64>) -> String {
@@ -623,6 +623,31 @@ pub(crate) fn print_test_proxies_table(proxies: &TestProxies) {
         proxies.test_functions,
     );
     println!("  (test proxies are static estimates, not coverage — descriptive only)");
+}
+
+/// Emit one JSONL row per function: raw per-function features plus the enclosing file's
+/// length and comment density. This is the discovery feed — `analyze.py` mines these rows
+/// for features that separate the slop and clean cohorts.
+pub(crate) fn print_function_rows(per_file: &[MeasuredFile], scope: &Scope) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for file in per_file.iter().filter(|f| scope.includes(&f.profiles)) {
+        for function in &file.metrics.functions {
+            let _ = writeln!(out, "{}", function_row(&file.path, &file.metrics, function));
+        }
+    }
+}
+
+/// Emit one JSONL row per class: size (methods, attributes) + LCOM4 cohesion. The class-level
+/// discovery feed, mirroring `print_function_rows`.
+pub(crate) fn print_class_rows(per_file: &[MeasuredFile], scope: &Scope) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for file in per_file.iter().filter(|f| scope.includes(&f.profiles)) {
+        for class in &file.metrics.classes {
+            let _ = writeln!(out, "{}", class_row(&file.path, class));
+        }
+    }
 }
 
 #[cfg(test)]
