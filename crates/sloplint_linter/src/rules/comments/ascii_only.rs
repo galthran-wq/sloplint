@@ -21,7 +21,7 @@ impl Rule for AsciiOnly {
         "SLP050"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_source(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
         let mut run_start: Option<usize> = None;
         for (idx, ch) in ctx.source.char_indices() {
             if ch.is_ascii() {
