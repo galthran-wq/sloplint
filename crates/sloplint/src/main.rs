@@ -600,7 +600,8 @@ fn scan_files(
         };
         // SLP220 (preview): an unparseable `.py` is reported as corrupted/truncated AI output
         // instead of being silently skipped — registry rules never see it, so this is handled here.
-        let slp220 = selector.preview() && selector.is_enabled("SLP220", &display);
+        let slp220 = selector.preview()
+            && selector.is_enabled(sloplint_linter::corrupted::Corrupted.code(), &display);
         let parsed = match parse(&source) {
             Ok(parsed) => parsed,
             Err(err) => {

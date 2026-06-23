@@ -17,6 +17,8 @@
 use std::collections::HashSet;
 
 use sloplint_diagnostics::{Diagnostic, Severity};
+use sloplint_linter::corrupted::Corrupted;
+use sloplint_linter::registry::WholeProjectRule;
 use sloplint_python::ast::ModModule;
 use sloplint_python::parser::Parsed;
 use sloplint_python::{Ranged, TextRange, TextSize, TokenKind};
@@ -105,7 +107,7 @@ pub fn scan_parsed(source: &str, parsed: &Parsed<ModModule>, prose_ratio: f64) -
 }
 
 fn diag(range: TextRange, message: String) -> Diagnostic {
-    Diagnostic::new("SLP220", message, range, Severity::Warning)
+    Diagnostic::new(Corrupted.code(), message, range, Severity::Warning)
 }
 
 /// Capitalize the first ASCII letter of a description for sentence start.

@@ -61,5 +61,6 @@ pub(crate) fn whole_project_rules() -> Vec<RegisteredMeta> {
         RegisteredMeta::new(RuleGroup::Preview, || {
             Box::new(crate::ghost::GhostScaffolding)
         }),
+        RegisteredMeta::new(RuleGroup::Preview, || Box::new(crate::corrupted::Corrupted)),
     ]
 }
