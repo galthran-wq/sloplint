@@ -664,4 +664,3 @@ git tag v0.2.0 && git push origin v0.2.0   # triggers .github/workflows/release.
 | `sloplint_clone` | near-duplicate function detection |
 | `sloplint_metrics` | quality metrics, import-graph architecture metrics, badges |
 | `sloplint_report` | output formatters (text/JSON/SARIF/markdown) |
-| `sloplint_dev` | development utilities (cf. `ruff_dev`) |
