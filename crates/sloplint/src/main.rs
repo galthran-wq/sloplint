@@ -531,35 +531,26 @@ impl FixMode {
     }
 }
 
-/// Returns `Ok(true)` when the run is clean, `Ok(false)` when there are findings or
-/// per-file read/parse errors, and `Err` only when the run could not start (bad config).
-fn run_check(
-    paths: &[String],
-    config_path: Option<&str>,
-    preview: bool,
-    format: Format,
-    fix_mode: FixMode,
-) -> anyhow::Result<bool> {
-    let config = load_config(config_path, preview, true)?;
-    let selector = config
-        .prepare()
-        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
-    let registry = Registry::shipped();
-    let clone_config = CloneConfig {
-        min_statements: config.clone.min_statements,
-        similarity: config.clone.similarity,
-        ..CloneConfig::default()
-    };
+/// Per-file lint pass for `check`: read+parse each file, run the enabled per-file rules,
+/// and collect the inputs the whole-project passes need — clone units (SLP020), import
+/// scans (SLP180), and ghost scans (SLP240). `had_error` flags any read/parse failure.
+struct Scanned {
+    results: Vec<FileResult>,
+    units: Vec<FunctionUnit>,
+    unit_result: Vec<usize>,
+    import_scans: Vec<(String, Vec<imports::ImportRef>)>,
+    ghost_scans: Vec<ghost::FileScan>,
+    had_error: bool,
+}
 
-    let (files, mut had_error) = discover_python_files(paths);
-
-    // First-party module names come from the full discovered tree (incl. files that fail to
-    // parse), so SLP180 never mistakes a local package for a third-party import.
-    let all_display: Vec<String> = files
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect();
-
+fn scan_files(
+    files: &[PathBuf],
+    selector: &Selector,
+    registry: &Registry,
+    clone_config: &CloneConfig,
+    config: &Config,
+) -> Scanned {
+    let mut had_error = false;
     // Per-file results are collected first; cross-file clone detection (SLP020) needs every
     // file's functions before it can report duplicates, so we render only at the end.
     let mut results: Vec<FileResult> = Vec::new();
@@ -572,7 +563,7 @@ fn run_check(
     // resolve ghost (unreferenced) scaffolding after the loop.
     let mut ghost_scans: Vec<ghost::FileScan> = Vec::new();
 
-    for path in &files {
+    for path in files {
         let display = path.to_string_lossy().to_string();
         let source = match fs::read_to_string(path) {
             Ok(source) => source,
@@ -603,7 +594,7 @@ fn run_check(
                 continue;
             }
         };
-        let rules = registry.enabled_for(&selector, &display);
+        let rules = registry.enabled_for(selector, &display);
         let refs: Vec<&dyn Rule> = rules.iter().map(|rule| rule.as_ref()).collect();
         let ctx = FileContext {
             path: &display,
@@ -649,6 +640,54 @@ fn run_check(
             suppressions,
         });
     }
+    Scanned {
+        results,
+        units,
+        unit_result,
+        import_scans,
+        ghost_scans,
+        had_error,
+    }
+}
+
+/// Returns `Ok(true)` when the run is clean, `Ok(false)` when there are findings or
+/// per-file read/parse errors, and `Err` only when the run could not start (bad config).
+fn run_check(
+    paths: &[String],
+    config_path: Option<&str>,
+    preview: bool,
+    format: Format,
+    fix_mode: FixMode,
+) -> anyhow::Result<bool> {
+    let config = load_config(config_path, preview, true)?;
+    let selector = config
+        .prepare()
+        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
+    let registry = Registry::shipped();
+    let clone_config = CloneConfig {
+        min_statements: config.clone.min_statements,
+        similarity: config.clone.similarity,
+        ..CloneConfig::default()
+    };
+
+    let (files, mut had_error) = discover_python_files(paths);
+
+    // First-party module names come from the full discovered tree (incl. files that fail to
+    // parse), so SLP180 never mistakes a local package for a third-party import.
+    let all_display: Vec<String> = files
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+
+    let Scanned {
+        mut results,
+        units,
+        unit_result,
+        import_scans,
+        ghost_scans,
+        had_error: scan_err,
+    } = scan_files(&files, &selector, &registry, &clone_config, &config);
+    had_error |= scan_err;
 
     attribute_clones(&units, &unit_result, &clone_config, &mut results);
     attribute_fanout(&mut results, &selector, config.limits.dir_max_modules);
