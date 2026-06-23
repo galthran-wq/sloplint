@@ -19,7 +19,7 @@ impl Rule for OversizedFile {
         let lines = ctx.source.lines().count();
         if lines > ctx.limits.file_max_lines {
             diagnostics.push(Diagnostic::new(
-                "SLP080",
+                self.code(),
                 format!(
                     "file has {lines} lines (max {}); split it into smaller modules",
                     ctx.limits.file_max_lines

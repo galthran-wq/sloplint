@@ -26,7 +26,7 @@ impl Rule for DefensiveExcept {
                 let ExceptHandler::ExceptHandler(handler) = handler;
                 if is_broad(handler.type_.as_deref()) && is_low_value(&handler.body) {
                     diagnostics.push(Diagnostic::new(
-                        "SLP030",
+                        self.code(),
                         "broad except whose body only passes, logs, or re-raises adds no value",
                         handler.range(),
                         Severity::Warning,

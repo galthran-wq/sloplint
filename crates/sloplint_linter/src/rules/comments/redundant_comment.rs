@@ -42,7 +42,7 @@ impl Rule for RedundantComment {
             let code_words = associated_code_words(ctx.source, token.range());
             if overlap_ratio(&comment_words, &code_words) >= OVERLAP_THRESHOLD {
                 diagnostics.push(Diagnostic::new(
-                    "SLP001",
+                    self.code(),
                     "comment restates the code (redundant 'what' comment)",
                     token.range(),
                     Severity::Warning,

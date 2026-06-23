@@ -29,7 +29,7 @@ impl Rule for RedundantTypeHint {
             if let Expr::Name(name) = annotation {
                 if restates_literal(name.id.as_str(), value) {
                     diagnostics.push(Diagnostic::new(
-                        "SLP040",
+                        self.code(),
                         format!(
                             "type hint `{}` restates the literal value",
                             name.id.as_str()

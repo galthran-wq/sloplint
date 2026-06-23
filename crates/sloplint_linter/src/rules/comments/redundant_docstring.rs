@@ -27,7 +27,7 @@ impl Rule for RedundantDocstring {
         collect_functions(&ctx.parsed.syntax().body, &mut functions);
         for function in functions {
             if let Some(doc_range) = docstring_range(function) {
-                check_docstring(ctx.source, function, doc_range, diagnostics);
+                check_docstring(self.code(), ctx.source, function, doc_range, diagnostics);
             }
         }
     }
@@ -47,6 +47,7 @@ fn docstring_range(function: &StmtFunctionDef) -> Option<TextRange> {
 }
 
 fn check_docstring(
+    rule_code: &'static str,
     source: &str,
     function: &StmtFunctionDef,
     doc_range: TextRange,
@@ -72,7 +73,7 @@ fn check_docstring(
 
     if overlap_ratio(&doc_words, &code_words) >= OVERLAP_THRESHOLD {
         diagnostics.push(Diagnostic::new(
-            "SLP002",
+            rule_code,
             "docstring restates the signature (redundant docstring)",
             doc_range,
             Severity::Warning,

@@ -109,6 +109,32 @@ mod tests {
         ])
     }
 
+    /// The code a rule is registered under must equal the code it reports. Config selection and
+    /// inline suppression key off the *registered* code, so a mismatch would target a code the
+    /// rule never emits — a silent drift. Each rule now derives its diagnostic code from
+    /// `code()`, so this single check guards the whole registered -> reported chain.
+    #[test]
+    fn shipped_rule_registration_matches_reported_code() {
+        for rule in &Registry::shipped().rules {
+            assert_eq!(
+                rule.code,
+                rule.build().code(),
+                "rule registered as {} reports a different code",
+                rule.code,
+            );
+        }
+    }
+
+    /// Codes are stable public identifiers (config, suppressions); two rules sharing one would be
+    /// ambiguous.
+    #[test]
+    fn shipped_rule_codes_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for code in Registry::shipped().codes() {
+            assert!(seen.insert(code), "duplicate rule code: {code}");
+        }
+    }
+
     #[test]
     fn stable_rule_registers_selects_and_emits() {
         let config = Config::default();

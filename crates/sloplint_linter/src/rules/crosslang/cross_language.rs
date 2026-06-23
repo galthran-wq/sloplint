@@ -53,7 +53,12 @@ impl Rule for CrossLanguage {
         let mut findings: Vec<(TextRange, String)> = finder.found.into_values().collect();
         findings.sort_by_key(|(range, _)| u32::from(range.start()));
         for (range, message) in findings {
-            diagnostics.push(Diagnostic::new("SLP250", message, range, Severity::Warning));
+            diagnostics.push(Diagnostic::new(
+                self.code(),
+                message,
+                range,
+                Severity::Warning,
+            ));
         }
     }
 }

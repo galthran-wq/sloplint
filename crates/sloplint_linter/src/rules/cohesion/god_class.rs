@@ -40,7 +40,7 @@ impl Rule for GodClass {
                 && cohesion.components > ctx.limits.lcom4_max_components
             {
                 diagnostics.push(Diagnostic::new(
-                    "SLP120",
+                    self.code(),
                     format!(
                         "class `{}` has low cohesion: its methods split into {} unrelated \
                          groups (LCOM4={}) — consider splitting it",

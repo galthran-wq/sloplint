@@ -41,7 +41,12 @@ impl Rule for CommentTells {
                 continue;
             }
             if let Some((severity, message)) = classify(body, ctx.comment_phrases_extra) {
-                diagnostics.push(Diagnostic::new("SLP004", message, token.range(), severity));
+                diagnostics.push(Diagnostic::new(
+                    self.code(),
+                    message,
+                    token.range(),
+                    severity,
+                ));
             }
         }
     }

@@ -34,7 +34,7 @@ impl Rule for VerboseNaming {
             if words > max_words {
                 seen.insert(text);
                 diagnostics.push(Diagnostic::new(
-                    "SLP060",
+                    self.code(),
                     format!("identifier `{text}` is verbose ({words} words)"),
                     token.range(),
                     Severity::Warning,
