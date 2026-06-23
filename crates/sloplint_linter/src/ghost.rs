@@ -26,10 +26,39 @@
 
 use std::collections::HashSet;
 
+use sloplint_macros::ViolationMetadata;
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, ExprContext, ModModule, Stmt};
 use sloplint_python::parser::Parsed;
 use sloplint_python::{Ranged, TextRange};
+
+use crate::registry::WholeProjectRule;
+
+/// ## What it does
+/// Flags ghost scaffolding across the project: a top-level `def`/`class` referenced nowhere
+/// (no use, import, or `__all__`/string mention), or a `settings.ENABLE_X`-style read of an
+/// UPPER_SNAKE config flag that is assigned nowhere. Decorated defs and base/abstract/protocol
+/// types are allowlisted, as are `os.environ`/`os.getenv` reads.
+///
+/// ## Why is this bad?
+/// A multi-turn agent often scaffolds an abstraction or feature flag in one step and forgets to
+/// wire it up: it reads as intentional structure but is dead, dangling, or gated on a flag that
+/// does not exist. Conservative and name-based, so it is preview-gated.
+///
+/// ## Example
+/// ```python
+/// class PaymentGateway:        # defined here, referenced nowhere in the project
+///     def charge(self, amount):
+///         ...
+/// ```
+#[derive(ViolationMetadata)]
+pub struct GhostScaffolding;
+
+impl WholeProjectRule for GhostScaffolding {
+    fn code(&self) -> &'static str {
+        "SLP240"
+    }
+}
 
 /// Config-object receiver names whose UPPER_SNAKE attributes are treated as config flags.
 const CONFIG_RECEIVERS: &[&str] = &[

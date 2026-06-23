@@ -15,9 +15,35 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use sloplint_macros::ViolationMetadata;
 use sloplint_python::ast::{ModModule, Stmt};
 use sloplint_python::parser::Parsed;
 use sloplint_python::{Ranged, TextRange};
+
+use crate::registry::WholeProjectRule;
+
+/// ## What it does
+/// Flags a third-party import whose distribution is not declared in the project's dependency
+/// manifest (`pyproject.toml`, falling back to `requirements*.txt`). Stdlib, first-party/local,
+/// and relative imports are never flagged.
+///
+/// ## Why is this bad?
+/// An import with no declared dependency breaks on a clean install — the code only runs because
+/// the package happens to be present in the author's environment. It's a common tell of generated
+/// code that reaches for a library without updating the manifest.
+///
+/// ## Example
+/// ```python
+/// import requests   # used here, but absent from pyproject.toml / requirements.txt
+/// ```
+#[derive(ViolationMetadata)]
+pub struct UndeclaredImports;
+
+impl WholeProjectRule for UndeclaredImports {
+    fn code(&self) -> &'static str {
+        "SLP180"
+    }
+}
 
 /// A single third-party-looking import found in a file: its top-level module name and the
 /// source range to point a diagnostic at.
