@@ -49,7 +49,7 @@ impl Registry {
 
     /// All rules that ship with sloplint, aggregated from every category.
     pub fn shipped() -> Self {
-        Self::new(shipped_rules())
+        Self::new(crate::codes::shipped_rules())
     }
 
     /// The codes of every registered rule (regardless of selection).
@@ -73,17 +73,6 @@ impl Registry {
             .map(|rule| rule.build())
             .collect()
     }
-}
-
-/// The shipped rule catalog. Each rule slice contributes its category's rules here.
-fn shipped_rules() -> Vec<RegisteredRule> {
-    let mut rules = crate::rules::comments::rules();
-    rules.extend(crate::rules::structure::rules());
-    rules.extend(crate::rules::cohesion::rules());
-    rules.extend(crate::rules::security::rules());
-    rules.extend(crate::rules::placeholders::rules());
-    rules.extend(crate::rules::crosslang::rules());
-    rules
 }
 
 #[cfg(test)]

@@ -11,26 +11,6 @@ pub mod comment_tells;
 pub mod redundant_comment;
 pub mod redundant_docstring;
 
-use crate::registry::{RegisteredRule, RuleGroup};
-
-/// This category's registry entries. High-confidence rules ship stable; the fuzzy
-/// overlap heuristics ship in preview until tuned against real corpora.
-pub fn rules() -> Vec<RegisteredRule> {
-    vec![
-        RegisteredRule::new(RuleGroup::Stable, || {
-            Box::new(comment_policy::CommentPolicy)
-        }),
-        RegisteredRule::new(RuleGroup::Stable, || Box::new(ascii_only::AsciiOnly)),
-        RegisteredRule::new(RuleGroup::Preview, || {
-            Box::new(redundant_comment::RedundantComment)
-        }),
-        RegisteredRule::new(RuleGroup::Preview, || {
-            Box::new(redundant_docstring::RedundantDocstring)
-        }),
-        RegisteredRule::new(RuleGroup::Preview, || Box::new(comment_tells::CommentTells)),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

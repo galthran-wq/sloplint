@@ -7,6 +7,7 @@
 //! - [`rules`]    — one file per rule, grouped by category.
 
 pub mod ast_util;
+mod codes;
 pub mod config;
 pub mod detect;
 pub mod imports;

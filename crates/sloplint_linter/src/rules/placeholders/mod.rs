@@ -5,15 +5,6 @@
 
 pub mod mock_data;
 
-use crate::registry::{RegisteredRule, RuleGroup};
-
-/// This category's registry entries. SLP230 ships in preview until its precision is corpus-validated.
-pub fn rules() -> Vec<RegisteredRule> {
-    vec![RegisteredRule::new(RuleGroup::Preview, || {
-        Box::new(mock_data::MockData)
-    })]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
