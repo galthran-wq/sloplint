@@ -72,6 +72,17 @@ fn json_reports_test_proxies_with_exact_counts() {
         "assertion_free_rate = {free}"
     );
 
+    // Doctest-awareness: the production file's `add()` carries a `>>>` example, `mul()` does not,
+    // so doctest coverage is 1/2 — a signal the path-based test:code ratio is blind to.
+    assert_eq!(proxies["production_functions"], 2);
+    assert_eq!(proxies["functions_with_doctest"], 1);
+    assert_eq!(proxies["doctest_examples"], 1);
+    let doctest_coverage = proxies["doctest_coverage"].as_f64().unwrap();
+    assert!(
+        (doctest_coverage - 0.5).abs() < 1e-9,
+        "doctest_coverage = {doctest_coverage}"
+    );
+
     // test:code ratio = test LoC / production LoC, computed from the same line definition.
     let expected_ratio = loc("tests/test_calc.py") as f64 / loc("src/calc.py") as f64;
     let ratio = proxies["test_code_ratio"].as_f64().unwrap();
@@ -135,6 +146,10 @@ fn text_and_markdown_label_the_proxies_as_not_coverage() {
     assert!(
         text.contains("assertion-free rate"),
         "text table has the assertion-free rate:\n{text}"
+    );
+    assert!(
+        text.contains("doctest coverage"),
+        "text table has doctest coverage:\n{text}"
     );
     assert!(
         text.contains("not coverage"),

@@ -1,5 +1,6 @@
-//! Static test proxies: **test:code ratio** and **assertion density**, plus an
-//! **assertion-free-test rate** test-substance signal.
+//! Static test proxies: **test:code ratio** and **assertion density**, an
+//! **assertion-free-test rate** test-substance signal, and **doctest coverage** (doctests live
+//! in production docstrings, so a doctested repo is otherwise misread as untested).
 //!
 //! ## What this is — and is NOT
 //!
@@ -85,6 +86,15 @@ pub struct FileTestStats {
     /// Assertions inside those test functions: `assert` statements plus assertion calls
     /// (`self.assertX`, `self.fail`, `pytest.raises`/`warns`/`deprecated_call`). Test files only.
     pub assertions: usize,
+    /// Functions defined in this file (module-level, methods, and nested) — the denominator for
+    /// doctest coverage. Production files only.
+    pub production_functions: usize,
+    /// Of those functions, how many carry a doctest (a docstring with a `>>>` example line).
+    /// Production files only.
+    pub functions_with_doctest: usize,
+    /// `>>>` example lines across *every* docstring in the file (module, class, and function),
+    /// the doctest-volume signal. Production files only.
+    pub doctest_examples: usize,
 }
 
 /// Gather the per-file test signals for one parsed file. `loc` is the file's physical line count
@@ -93,12 +103,18 @@ pub struct FileTestStats {
 /// the metric panels agree; [`is_test_file`] is the path heuristic that classifier defaults to.
 pub fn file_test_stats(is_test: bool, loc: usize, parsed: &Parsed<ModModule>) -> FileTestStats {
     if !is_test {
+        // Doctests live in production docstrings (the very modules they test), so a doctested
+        // codebase otherwise reads as untested. Count them on the production side only.
+        let doctests = scan_doctests(parsed);
         return FileTestStats {
             is_test: false,
             loc,
             test_functions: 0,
             assertion_free_tests: 0,
             assertions: 0,
+            production_functions: doctests.functions,
+            functions_with_doctest: doctests.functions_with_doctest,
+            doctest_examples: doctests.examples,
         };
     }
 
@@ -116,6 +132,9 @@ pub fn file_test_stats(is_test: bool, loc: usize, parsed: &Parsed<ModModule>) ->
         test_functions: tests.len(),
         assertion_free_tests,
         assertions,
+        production_functions: 0,
+        functions_with_doctest: 0,
+        doctest_examples: 0,
     }
 }
 
@@ -141,6 +160,18 @@ pub struct TestProxies {
     /// alongside a high `test_code_ratio` flags a suite that looks tested but verifies little —
     /// descriptive, never a gate.
     pub assertion_free_rate: Option<f64>,
+    /// Functions across production files (the doctest-coverage denominator).
+    pub production_functions: usize,
+    /// Production functions carrying a doctest (a docstring with a `>>>` example).
+    pub functions_with_doctest: usize,
+    /// `>>>` example lines across all production docstrings — doctest volume.
+    pub doctest_examples: usize,
+    /// `functions_with_doctest / production_functions` (0.0–1.0): the share of production
+    /// functions exercised by a doctest. `None` when there are no production functions. Counts a
+    /// testing style the path-based `test_code_ratio` is blind to (doctests live in production
+    /// files), so a doctested repo no longer reads as untested. Still a descriptive proxy, not
+    /// coverage — a `>>>` example is not a guaranteed-meaningful test.
+    pub doctest_coverage: Option<f64>,
 }
 
 /// Roll per-file test signals up into the project-level proxies.
@@ -156,6 +187,9 @@ pub fn aggregate_test_proxies(stats: &[FileTestStats]) -> TestProxies {
         } else {
             proxies.production_files += 1;
             proxies.production_loc += file.loc;
+            proxies.production_functions += file.production_functions;
+            proxies.functions_with_doctest += file.functions_with_doctest;
+            proxies.doctest_examples += file.doctest_examples;
         }
     }
     proxies.test_code_ratio = if proxies.production_loc == 0 {
@@ -172,6 +206,11 @@ pub fn aggregate_test_proxies(stats: &[FileTestStats]) -> TestProxies {
         None
     } else {
         Some(proxies.assertion_free_tests as f64 / proxies.test_functions as f64)
+    };
+    proxies.doctest_coverage = if proxies.production_functions == 0 {
+        None
+    } else {
+        Some(proxies.functions_with_doctest as f64 / proxies.production_functions as f64)
     };
     proxies
 }
@@ -283,6 +322,77 @@ fn receiver_is(expr: &Expr, names: &[&str]) -> bool {
     matches!(expr, Expr::Name(name) if names.contains(&name.id.as_str()))
 }
 
+/// Doctest signals for one production file.
+#[derive(Default)]
+struct DoctestCounts {
+    /// Functions defined anywhere in the file (module-level, methods, nested).
+    functions: usize,
+    /// Functions whose docstring carries at least one `>>>` example.
+    functions_with_doctest: usize,
+    /// `>>>` example lines across every docstring (module, class, function).
+    examples: usize,
+}
+
+/// Walk a file counting doctest signals: `>>>` example lines in every docstring (module, class,
+/// function), how many functions carry one, and the total function count. Deterministic and
+/// execution-free — a docstring is the first statement of a body when it is a string literal, and
+/// an example is a line whose first non-space characters are `>>>`.
+fn scan_doctests(parsed: &Parsed<ModModule>) -> DoctestCounts {
+    let mut counts = DoctestCounts::default();
+    let body = &parsed.syntax().body;
+    // Module docstring.
+    if let Some(doc) = docstring_text(body) {
+        counts.examples += count_doctest_examples(doc);
+    }
+    walk_doctests(body, &mut counts);
+    counts
+}
+
+fn walk_doctests(body: &[Stmt], counts: &mut DoctestCounts) {
+    for stmt in body {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                counts.functions += 1;
+                if let Some(doc) = docstring_text(&function.body) {
+                    let examples = count_doctest_examples(doc);
+                    counts.examples += examples;
+                    if examples > 0 {
+                        counts.functions_with_doctest += 1;
+                    }
+                }
+                walk_doctests(&function.body, counts);
+            }
+            Stmt::ClassDef(class) => {
+                if let Some(doc) = docstring_text(&class.body) {
+                    counts.examples += count_doctest_examples(doc);
+                }
+                walk_doctests(&class.body, counts);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The text of a body's docstring — its first statement, when that is a string-literal
+/// expression — or `None`.
+fn docstring_text(body: &[Stmt]) -> Option<&str> {
+    match body.first() {
+        Some(Stmt::Expr(expr)) => match expr.value.as_ref() {
+            Expr::StringLiteral(string) => Some(string.value.to_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Count doctest example lines in a docstring: lines whose first non-whitespace characters are the
+/// `>>>` prompt. Continuation (`...`) and expected-output lines are not counted as examples.
+fn count_doctest_examples(doc: &str) -> usize {
+    doc.lines()
+        .filter(|line| line.trim_start().starts_with(">>>"))
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,6 +415,7 @@ mod tests {
             ("assertion_free.py", true),
             ("local_helper.py", true),
             ("unittest_methods.py", true),
+            ("doctested.py", false),
         ];
         let mut out = String::new();
         for (name, is_test) in cases {
@@ -366,6 +477,9 @@ mod tests {
                 test_functions: 0,
                 assertion_free_tests: 0,
                 assertions: 0,
+                production_functions: 0,
+                functions_with_doctest: 0,
+                doctest_examples: 0,
             },
             FileTestStats {
                 is_test: false,
@@ -373,6 +487,9 @@ mod tests {
                 test_functions: 0,
                 assertion_free_tests: 0,
                 assertions: 0,
+                production_functions: 0,
+                functions_with_doctest: 0,
+                doctest_examples: 0,
             },
             FileTestStats {
                 is_test: true,
@@ -380,6 +497,9 @@ mod tests {
                 test_functions: 4,
                 assertion_free_tests: 1,
                 assertions: 10,
+                production_functions: 0,
+                functions_with_doctest: 0,
+                doctest_examples: 0,
             },
         ];
         let proxies = aggregate_test_proxies(&stats);
@@ -405,6 +525,9 @@ mod tests {
             test_functions: 0,
             assertion_free_tests: 0,
             assertions: 0,
+            production_functions: 0,
+            functions_with_doctest: 0,
+            doctest_examples: 0,
         }];
         let proxies = aggregate_test_proxies(&only_tests);
         assert_eq!(proxies.test_code_ratio, None);
@@ -412,5 +535,68 @@ mod tests {
         assert_eq!(proxies.assertion_density, None);
         // No test functions → assertion-free rate undefined (never a misleading 0).
         assert_eq!(proxies.assertion_free_rate, None);
+    }
+
+    #[test]
+    fn doctests_counted_on_production_files() {
+        let source = fixture_source("test_proxies/doctested.py");
+        let parsed = parse(&source).expect("fixture parses");
+        // A production file: its doctests are the test signal, not test_* functions.
+        let stats = file_test_stats(false, source.lines().count(), &parsed);
+        assert!(!stats.is_test);
+        assert!(
+            stats.functions_with_doctest >= 2,
+            "expected the two doctested functions, got {stats:?}"
+        );
+        assert!(stats.production_functions >= stats.functions_with_doctest);
+        assert!(
+            stats.doctest_examples >= 3,
+            "expected >>> examples across the docstrings, got {stats:?}"
+        );
+    }
+
+    #[test]
+    fn doctest_coverage_aggregates_and_is_none_without_functions() {
+        let stats = vec![
+            FileTestStats {
+                is_test: false,
+                loc: 40,
+                test_functions: 0,
+                assertion_free_tests: 0,
+                assertions: 0,
+                production_functions: 4,
+                functions_with_doctest: 3,
+                doctest_examples: 9,
+            },
+            // A doctest-free production file pulls coverage down.
+            FileTestStats {
+                is_test: false,
+                loc: 10,
+                test_functions: 0,
+                assertion_free_tests: 0,
+                assertions: 0,
+                production_functions: 0,
+                functions_with_doctest: 0,
+                doctest_examples: 0,
+            },
+        ];
+        let proxies = aggregate_test_proxies(&stats);
+        assert_eq!(proxies.production_functions, 4);
+        assert_eq!(proxies.functions_with_doctest, 3);
+        assert_eq!(proxies.doctest_examples, 9);
+        assert_eq!(proxies.doctest_coverage, Some(0.75));
+
+        // No production functions → coverage undefined, never a misleading 0.
+        let only_tests = vec![FileTestStats {
+            is_test: true,
+            loc: 30,
+            test_functions: 1,
+            assertion_free_tests: 0,
+            assertions: 1,
+            production_functions: 0,
+            functions_with_doctest: 0,
+            doctest_examples: 0,
+        }];
+        assert_eq!(aggregate_test_proxies(&only_tests).doctest_coverage, None);
     }
 }
