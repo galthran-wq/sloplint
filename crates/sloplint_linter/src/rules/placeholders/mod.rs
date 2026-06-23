@@ -9,7 +9,7 @@ use crate::registry::{RegisteredRule, RuleGroup};
 
 /// This category's registry entries. SLP230 ships in preview until its precision is corpus-validated.
 pub fn rules() -> Vec<RegisteredRule> {
-    vec![RegisteredRule::new("SLP230", RuleGroup::Preview, || {
+    vec![RegisteredRule::new(RuleGroup::Preview, || {
         Box::new(mock_data::MockData)
     })]
 }

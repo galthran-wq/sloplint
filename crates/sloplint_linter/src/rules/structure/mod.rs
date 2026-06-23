@@ -21,22 +21,20 @@ use crate::registry::{RegisteredRule, RuleGroup};
 
 pub fn rules() -> Vec<RegisteredRule> {
     vec![
-        RegisteredRule::new("SLP030", RuleGroup::Stable, || {
+        RegisteredRule::new(RuleGroup::Stable, || {
             Box::new(defensive_except::DefensiveExcept)
         }),
-        RegisteredRule::new("SLP080", RuleGroup::Stable, || {
+        RegisteredRule::new(RuleGroup::Stable, || {
             Box::new(oversized_file::OversizedFile)
         }),
-        RegisteredRule::new("SLP082", RuleGroup::Stable, || {
-            Box::new(deep_nesting::DeepNesting)
-        }),
-        RegisteredRule::new("SLP040", RuleGroup::Preview, || {
+        RegisteredRule::new(RuleGroup::Stable, || Box::new(deep_nesting::DeepNesting)),
+        RegisteredRule::new(RuleGroup::Preview, || {
             Box::new(redundant_type_hint::RedundantTypeHint)
         }),
-        RegisteredRule::new("SLP060", RuleGroup::Preview, || {
+        RegisteredRule::new(RuleGroup::Preview, || {
             Box::new(verbose_naming::VerboseNaming)
         }),
-        RegisteredRule::new("SLP084", RuleGroup::Preview, || {
+        RegisteredRule::new(RuleGroup::Preview, || {
             Box::new(deep_data_nesting::DeepDataNesting)
         }),
     ]

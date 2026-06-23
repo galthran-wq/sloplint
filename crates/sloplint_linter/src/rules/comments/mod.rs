@@ -17,21 +17,17 @@ use crate::registry::{RegisteredRule, RuleGroup};
 /// overlap heuristics ship in preview until tuned against real corpora.
 pub fn rules() -> Vec<RegisteredRule> {
     vec![
-        RegisteredRule::new("SLP010", RuleGroup::Stable, || {
+        RegisteredRule::new(RuleGroup::Stable, || {
             Box::new(comment_policy::CommentPolicy)
         }),
-        RegisteredRule::new("SLP050", RuleGroup::Stable, || {
-            Box::new(ascii_only::AsciiOnly)
-        }),
-        RegisteredRule::new("SLP001", RuleGroup::Preview, || {
+        RegisteredRule::new(RuleGroup::Stable, || Box::new(ascii_only::AsciiOnly)),
+        RegisteredRule::new(RuleGroup::Preview, || {
             Box::new(redundant_comment::RedundantComment)
         }),
-        RegisteredRule::new("SLP002", RuleGroup::Preview, || {
+        RegisteredRule::new(RuleGroup::Preview, || {
             Box::new(redundant_docstring::RedundantDocstring)
         }),
-        RegisteredRule::new("SLP004", RuleGroup::Preview, || {
-            Box::new(comment_tells::CommentTells)
-        }),
+        RegisteredRule::new(RuleGroup::Preview, || Box::new(comment_tells::CommentTells)),
     ]
 }
 
