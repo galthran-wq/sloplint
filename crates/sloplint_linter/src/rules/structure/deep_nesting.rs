@@ -6,6 +6,7 @@ use sloplint_python::{Ranged, TextRange};
 
 use crate::ast_util::collect_functions;
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags the first statement nested deeper than the configured limit inside a function (one
@@ -14,6 +15,7 @@ use crate::lint::{FileContext, Rule};
 /// ## Why is this bad?
 /// Deep control-flow nesting is hard to follow and a complexity smell Ruff has no direct gate
 /// for (cognitive complexity captures it only indirectly).
+#[derive(ViolationMetadata)]
 pub struct DeepNesting;
 
 impl Rule for DeepNesting {

@@ -8,6 +8,7 @@ use sloplint_python::{Ranged, TextRange, TokenKind};
 use crate::lint::{FileContext, Rule};
 use crate::rules::comments::comment_policy::{comment_body, is_directive, is_ticketed_todo};
 use crate::words::{content_words, overlap_ratio};
+use sloplint_macros::ViolationMetadata;
 
 /// Share of a comment's content words that must also appear in the associated code before
 /// it's considered a restatement.
@@ -22,6 +23,7 @@ const MAX_COMMENT_WORDS: usize = 6;
 /// ## Why is this bad?
 /// A "what" comment that restates the code adds no information and rots as the code changes.
 /// Directives and ticketed TODOs are exempt (they aren't prose). Heuristic, so preview.
+#[derive(ViolationMetadata)]
 pub struct RedundantComment;
 
 impl Rule for RedundantComment {

@@ -6,6 +6,7 @@ use sloplint_python::Ranged;
 
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags a broad `except` whose body does nothing useful — a single `pass`, a bare re-raise,
@@ -15,6 +16,7 @@ use crate::lint::{FileContext, Rule};
 /// Such a handler adds no value and hides failures. Ruff's `BLE001` flags the blind
 /// `except Exception`; this adds the slice it doesn't — the no-value body. A handler that logs
 /// **and** re-raises (two statements) is legitimate and left alone.
+#[derive(ViolationMetadata)]
 pub struct DefensiveExcept;
 
 impl Rule for DefensiveExcept {

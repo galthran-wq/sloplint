@@ -6,6 +6,7 @@ use sloplint_python::Ranged;
 
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags a long `if`/`elif` chain testing the *same* value against a series of literals
@@ -15,6 +16,7 @@ use crate::lint::{FileContext, Rule};
 /// Hand-unrolled dispatch is a textbook generated-code shape — verbose and error-prone — that
 /// should be a lookup table (`dict`), `match`, or polymorphism; Ruff has no equivalent.
 /// Conservative (uniform same-subject chains only); preview-gated.
+#[derive(ViolationMetadata)]
 pub struct DispatchLadder;
 
 impl Rule for DispatchLadder {

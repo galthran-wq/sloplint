@@ -7,6 +7,7 @@ use sloplint_python::Ranged;
 
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags a class whose methods split into two or more unrelated groups by **LCOM4**
@@ -20,6 +21,7 @@ use crate::lint::{FileContext, Rule};
 /// methods are judged, and data/interface classes (`@dataclass`/`attrs`, `Protocol`, `ABC`,
 /// `Enum`, `NamedTuple`, `TypedDict`) are allowlisted, since their low method-cohesion is by
 /// design. Preview.
+#[derive(ViolationMetadata)]
 pub struct GodClass;
 
 impl Rule for GodClass {

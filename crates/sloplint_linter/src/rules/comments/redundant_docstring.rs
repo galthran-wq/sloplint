@@ -6,6 +6,7 @@ use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
 use crate::words::{content_words, overlap_ratio};
+use sloplint_macros::ViolationMetadata;
 
 const OVERLAP_THRESHOLD: f64 = 0.5;
 const MIN_DOC_WORDS: usize = 2;
@@ -19,6 +20,7 @@ const MAX_DOC_WORDS: usize = 12;
 /// A docstring that echoes the signature carries nothing the code doesn't. Docstrings that
 /// introduce external concepts (units, algorithms, invariants) have low overlap and are left
 /// alone; module/class docstrings are out of scope. Preview until tuned.
+#[derive(ViolationMetadata)]
 pub struct RedundantDocstring;
 
 impl Rule for RedundantDocstring {

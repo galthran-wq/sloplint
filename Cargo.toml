@@ -31,6 +31,7 @@ sloplint_linter = { path = "crates/sloplint_linter" }
 sloplint_clone = { path = "crates/sloplint_clone" }
 sloplint_metrics = { path = "crates/sloplint_metrics" }
 sloplint_report = { path = "crates/sloplint_report" }
+sloplint_macros = { path = "crates/sloplint_macros" }
 
 [profile.release]
 lto = "thin"

@@ -8,6 +8,7 @@ use sloplint_python::ast::{Expr, ExprContext, Stmt};
 use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags wrong-language idioms leaking into Python: camelCase methods (`toString`, `charAt`,
@@ -20,6 +21,7 @@ use crate::lint::{FileContext, Rule};
 /// runs on a duck-typed object or fails only at runtime, slipping past review. Deliberately
 /// narrow — only names that are never idiomatic Python — to avoid false positives; allowlist
 /// via `[crosslang] allow`. Preview (the FP-riskiest rule).
+#[derive(ViolationMetadata)]
 pub struct CrossLanguage;
 
 impl Rule for CrossLanguage {

@@ -10,12 +10,14 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::{Ranged, TokenKind};
 
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// Example rule (`SLP000`): flags the literal `TODO` inside a comment.
 ///
 /// Its only purpose is to exercise the token-phase seam and the snapshot harness. It is
 /// intentionally **not** part of [`crate::lint::all_rules`], so it never affects corpus
 /// metrics or real runs.
+#[derive(ViolationMetadata)]
 pub struct ExampleTodo;
 
 impl Rule for ExampleTodo {

@@ -10,6 +10,16 @@ pub mod render;
 
 pub use fix::{Applicability, Applied, Edit, Fix};
 
+/// Ruff-style rule metadata, derived from a rule's doc-comment by
+/// `#[derive(ViolationMetadata)]` (see the `sloplint_macros` crate). Mirrors ruff's
+/// `ViolationMetadata`: `rule_name` is the rule type's name; `explanation` is its rendered
+/// `## What it does` / `## Why is this bad?` doc block (the single source of truth for a rule's
+/// prose), or `None` when the rule carries no doc-comment.
+pub trait ViolationMetadata {
+    fn rule_name(&self) -> &'static str;
+    fn explanation(&self) -> Option<&'static str>;
+}
+
 use ruff_text_size::TextRange;
 
 /// How serious a finding is. Drives exit codes and badge colors.

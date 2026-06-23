@@ -37,7 +37,7 @@ pub struct FileContext<'a> {
 
 /// A single lint rule. Rules push findings rather than returning them, so one AST/token
 /// pass can fan out to many rules cheaply.
-pub trait Rule {
+pub trait Rule: sloplint_diagnostics::ViolationMetadata {
     /// Stable code, e.g. `"SLP001"`. Used in output, config, and suppressions.
     fn code(&self) -> &'static str;
 

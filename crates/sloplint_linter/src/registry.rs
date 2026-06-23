@@ -86,12 +86,15 @@ mod tests {
     use crate::config::Config;
     use crate::lint::{check_file, FileContext};
     use sloplint_diagnostics::{Diagnostic, Severity};
+    use sloplint_macros::ViolationMetadata;
     use sloplint_python::{parse, TextRange, TextSize};
 
     /// Test rules that always emit one finding — exercise register → select → emit. Two distinct
     /// codes so the stable/preview fixtures are independent (the registry derives each code from
     /// the rule, so the two fixtures must be different types to register under different codes).
+    #[derive(ViolationMetadata)]
     struct AlwaysFlag;
+    #[derive(ViolationMetadata)]
     struct AlwaysFlagPreview;
 
     impl Rule for AlwaysFlag {
@@ -150,6 +153,27 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for code in Registry::shipped().codes() {
             assert!(seen.insert(code), "duplicate rule code: {code}");
+        }
+    }
+
+    /// Every shipped rule carries a `## What it does` doc-comment — now machine-readable via the
+    /// `ViolationMetadata` derive — and a non-empty rule name, so the rule explainer can describe
+    /// each one. Guards against a new rule landing without ruff-style docs.
+    #[test]
+    fn every_shipped_rule_is_documented() {
+        for rule in &Registry::shipped().rules {
+            let built = rule.build();
+            assert!(
+                !built.rule_name().is_empty(),
+                "{} has an empty rule_name",
+                rule.code
+            );
+            assert!(
+                built.explanation().is_some(),
+                "{} ({}) is missing its `## What it does` doc-comment",
+                rule.code,
+                built.rule_name()
+            );
         }
     }
 

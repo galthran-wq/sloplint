@@ -8,6 +8,7 @@ use sloplint_python::ast::{Decorator, ExceptHandler, Expr, ExprContext, Paramete
 use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags a call to / decorator of a known security-guard name (`validate_token`,
@@ -19,6 +20,7 @@ use crate::lint::{FileContext, Rule};
 /// `NameError` or a no-op (CWE-693, Protection Mechanism Failure). Curated to security-guard
 /// names (not a general undefined-name lint — that's Ruff's `F821`); only bare-name
 /// calls/decorators are considered, and a near-miss is reported as a likely typo.
+#[derive(ViolationMetadata)]
 pub struct PhantomGuard;
 
 impl Rule for PhantomGuard {
