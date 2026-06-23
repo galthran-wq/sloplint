@@ -7,7 +7,7 @@
 //! (or `INSTA_UPDATE=always cargo test`).
 
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_python::{Ranged, TokenKind};
+use sloplint_python::TextRange;
 
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
@@ -25,16 +25,19 @@ impl Rule for ExampleTodo {
         "SLP000"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        for token in ctx.parsed.tokens().iter() {
-            if token.kind() == TokenKind::Comment && ctx.source[token.range()].contains("TODO") {
-                diagnostics.push(Diagnostic::new(
-                    "SLP000",
-                    "example: TODO found in comment",
-                    token.range(),
-                    Severity::Warning,
-                ));
-            }
+    fn check_comment(
+        &self,
+        ctx: &FileContext,
+        range: TextRange,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if ctx.source[range].contains("TODO") {
+            diagnostics.push(Diagnostic::new(
+                "SLP000",
+                "example: TODO found in comment",
+                range,
+                Severity::Warning,
+            ));
         }
     }
 }

@@ -43,11 +43,6 @@ pub trait Rule: sloplint_diagnostics::ViolationMetadata {
     /// Stable code, e.g. `"SLP001"`. Used in output, config, and suppressions.
     fn code(&self) -> &'static str;
 
-    /// Legacy whole-file entry point: inspect `ctx` and append findings. Rules that have moved to
-    /// single-pass node hooks (e.g. [`Rule::check_comment`]) leave this as the default no-op — a
-    /// rule runs either here or via its node hooks, never both.
-    fn check(&self, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
-
     /// Single-pass hook called once per comment token (in source order) during [`check_file`]'s
     /// token pass, so comment rules don't each re-walk the token stream. `range` is the comment
     /// token's range. Default: no-op.
@@ -97,10 +92,11 @@ impl<'a> Visitor<'a> for NodeDispatch<'a, '_> {
 }
 
 /// Run the given rules over an already-parsed file, collecting all findings.
-/// Run `rules` over one parsed file in a single pass: one walk of the token stream dispatches each
-/// comment to [`Rule::check_comment`], then any rule still on the legacy [`Rule::check`] runs. The
-/// rendered output is range-sorted (see `sloplint_diagnostics::render`), so the emission order here
-/// is not observable.
+/// Run `rules` over one parsed file in a single pass, in four phases: one token walk dispatches
+/// each comment to [`Rule::check_comment`] and collects every `Name` range for
+/// [`Rule::check_names`]; one AST walk dispatches each statement to [`Rule::check_stmt`]; then
+/// [`Rule::check_source`] runs once per file for whole-file rules. The rendered output is
+/// range-sorted (see `sloplint_diagnostics::render`), so the emission order here is not observable.
 pub fn check_file(ctx: &FileContext, rules: &[&dyn Rule]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -137,11 +133,6 @@ pub fn check_file(ctx: &FileContext, rules: &[&dyn Rule]) -> Vec<Diagnostic> {
     // One-shot whole-source pass (file-level rules: line count, raw-char scan).
     for rule in rules {
         rule.check_source(ctx, &mut diagnostics);
-    }
-
-    // Legacy whole-file pass for rules not yet migrated to node hooks.
-    for rule in rules {
-        rule.check(ctx, &mut diagnostics);
     }
 
     diagnostics
