@@ -271,3 +271,202 @@ pub(crate) fn class_is_abstract(class: &StmtClassDef) -> bool {
 
     abstract_base || abc_metaclass || has_abstractmethod
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file_metrics;
+    use sloplint_python::parse;
+
+    /// Build `FileMetrics` for one source file (the cross-file resolution tests then run
+    /// `resolve_inheritance` over several of these).
+    fn metrics(source: &str) -> FileMetrics {
+        file_metrics(source, &parse(source).unwrap())
+    }
+
+    /// DIT resolves over the whole project by class name: a chain `Grandchild -> Child -> Root`
+    /// split across two files gives depths 2/1/0, and bases that don't resolve to a first-party
+    /// class (`object`, a third-party import) terminate at 0.
+    #[test]
+    fn dit_resolves_first_party_chain_across_files() {
+        let mut base = metrics("class Root(object):\n    pass\n");
+        let mut derived = metrics(
+            "\
+from base import Root
+from third_party import Plugin
+
+
+class Child(Root):
+    pass
+
+class Grandchild(Child):
+    pass
+
+class External(Plugin):
+    pass
+",
+        );
+        resolve_inheritance(&mut [&mut base, &mut derived]);
+
+        let dit = |file: &FileMetrics, name: &str| {
+            file.classes.iter().find(|c| c.name == name).unwrap().dit
+        };
+        assert_eq!(dit(&base, "Root"), 0, "object is external → root");
+        assert_eq!(dit(&derived, "Child"), 1, "Root is first-party");
+        assert_eq!(dit(&derived, "Grandchild"), 2, "Child -> Root");
+        assert_eq!(
+            dit(&derived, "External"),
+            0,
+            "Plugin is third-party → invisible"
+        );
+    }
+    #[test]
+    fn dit_takes_longest_path_and_survives_name_cycles() {
+        // Multiple inheritance: D(B, C), B(A), C(A), A. Longest path D->B->A (or D->C->A) = 2.
+        let mut multi = metrics(
+            "\
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    pass
+",
+        );
+        resolve_inheritance(&mut [&mut multi]);
+        let dit = |name: &str| multi.classes.iter().find(|c| c.name == name).unwrap().dit;
+        assert_eq!(dit("D"), 2, "longest path to a root is two hops");
+
+        // A name collision can synthesize a cycle (X(Y), Y(X)); resolution must still halt
+        // rather than recurse forever.
+        let mut cyclic = metrics("class X(Y):\n    pass\n\nclass Y(X):\n    pass\n");
+        resolve_inheritance(&mut [&mut cyclic]);
+        // No assertion on the (ill-defined) depth — the contract is that the pass terminates.
+    }
+    #[test]
+    fn noc_counts_direct_first_party_children_across_files() {
+        let mut base = metrics(
+            "\
+from third_party import Plugin
+
+
+class Base:
+    pass
+
+class A(Base):
+    pass
+
+class B(Base):
+    pass
+
+class Ext(Plugin):
+    pass
+",
+        );
+        // A third child of Base, defined in another file — NOC must see across the project.
+        let mut more = metrics("from base import Base\n\nclass C(Base):\n    pass\n");
+        resolve_inheritance(&mut [&mut base, &mut more]);
+
+        let noc = |file: &FileMetrics, name: &str| {
+            file.classes.iter().find(|c| c.name == name).unwrap().noc
+        };
+        assert_eq!(noc(&base, "Base"), 3, "A, B (same file) + C (cross-file)");
+        assert_eq!(noc(&base, "A"), 0, "a leaf has no children");
+        assert_eq!(
+            noc(&base, "Ext"),
+            0,
+            "Ext has no children; its third-party base doesn't make it one"
+        );
+        // A grandchild does not count toward the grandparent's NOC — breadth is one level only.
+        let mut chain = metrics(
+            "class Root:\n    pass\n\nclass Mid(Root):\n    pass\n\nclass Leaf(Mid):\n    pass\n",
+        );
+        resolve_inheritance(&mut [&mut chain]);
+        let n = |name: &str| chain.classes.iter().find(|c| c.name == name).unwrap().noc;
+        assert_eq!(n("Root"), 1, "only Mid is a direct child, not Leaf");
+        assert_eq!(n("Mid"), 1);
+        assert_eq!(n("Leaf"), 0);
+    }
+    #[test]
+    fn cbo_counts_distinct_first_party_classes_via_all_sources() {
+        // `Hub` couples to first-party classes via: base (Base), annotation (Widget on a param +
+        // Result return), instantiation (Engine()), and isinstance (Plugin). `int`/`list` are not
+        // first-party → dropped. Self-references and third-party names don't count.
+        let mut file = metrics(
+            "\
+class Base:
+    pass
+
+class Widget:
+    pass
+
+class Engine:
+    pass
+
+class Result:
+    pass
+
+class Plugin:
+    pass
+
+class Hub(Base):
+    def run(self, w: Widget, n: int) -> Result:
+        items: list = []
+        e = Engine()
+        if isinstance(w, Plugin):
+            return Result()
+        return Hub()
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let hub = file.classes.iter().find(|c| c.name == "Hub").unwrap();
+        // Base, Widget, Engine, Result, Plugin = 5 distinct first-party classes. `int`/`list`
+        // dropped (not first-party); `Hub` (self) and `Result()` counted once via the annotation.
+        assert_eq!(hub.cbo, 5, "coupled: {:?}", hub.coupled);
+    }
+    #[test]
+    fn cbo_resolves_across_files_and_excludes_self_and_external() {
+        let mut a = metrics(
+            "from third_party import External\n\nclass Service:\n    def make(self) -> 'Helper':\n        return Helper()\n",
+        );
+        // Helper lives in another file — cross-file resolution must see it.
+        let mut b = metrics("class Helper:\n    pass\n");
+        resolve_inheritance(&mut [&mut a, &mut b]);
+        let service = a.classes.iter().find(|c| c.name == "Service").unwrap();
+        // Helper() instantiation resolves first-party; External is third-party (dropped); the
+        // 'Helper' string forward-ref in the return annotation is NOT counted (documented lower
+        // bound) but the Helper() call is, so cbo = 1.
+        assert_eq!(service.cbo, 1, "coupled: {:?}", service.coupled);
+    }
+    #[test]
+    fn cbo_does_not_descend_into_nested_classes() {
+        // A nested class is its own unit; its coupling (to Target) belongs to Inner, not Outer.
+        // Outer couples only to what it uses directly (Other, via instantiation in its own method).
+        let mut file = metrics(
+            "\
+class Target:
+    pass
+
+class Other:
+    pass
+
+class Outer:
+    class Inner:
+        def use(self, x: Target) -> Target:
+            return Target()
+
+    def f(self):
+        return Other()
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let cbo = |name: &str| file.classes.iter().find(|c| c.name == name).unwrap().cbo;
+        assert_eq!(cbo("Outer"), 1, "Other only — Target belongs to Inner");
+        assert_eq!(cbo("Inner"), 1, "Target");
+    }
+}
