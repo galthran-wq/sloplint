@@ -51,3 +51,30 @@ fn rule_errors_on_unknown_code() {
     assert_eq!(code, 2, "unknown rule should exit 2 (tool error)");
     assert!(stderr.contains("unknown rule"), "stderr:\n{stderr}");
 }
+
+#[test]
+fn rule_json_lists_all_rules() {
+    let (stdout, _err, code) = run(&["rule", "--format", "json"]);
+    assert_eq!(code, 0);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON array");
+    let arr = value.as_array().expect("array");
+    assert!(arr
+        .iter()
+        .any(|r| r["code"] == "SLP030" && r["name"] == "defensive-except"));
+}
+
+#[test]
+fn rule_json_explains_one_rule() {
+    let (stdout, _err, code) = run(&["rule", "SLP030", "--format", "json"]);
+    assert_eq!(code, 0);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON object");
+    assert_eq!(value["code"], "SLP030");
+    assert_eq!(value["preview"], false);
+}
+
+#[test]
+fn rule_json_errors_on_unknown_code() {
+    let (_out, stderr, code) = run(&["rule", "SLP999", "--format", "json"]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("unknown rule"), "stderr:\n{stderr}");
+}
