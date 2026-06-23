@@ -5,6 +5,7 @@ use sloplint_python::{Ranged, TokenKind};
 
 use crate::lint::{FileContext, Rule};
 use crate::rules::comments::comment_policy::{comment_body, is_directive, is_ticketed_todo};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Where comments are allowed (so SLP010 doesn't already ban them), flags three text-only
@@ -16,6 +17,7 @@ use crate::rules::comments::comment_policy::{comment_body, is_directive, is_tick
 /// These phrasings are strong LLM tells — the model narrating rather than documenting, or
 /// admitting an unfinished corner (a semantic-incompleteness signal). WHY-comments, license
 /// headers, directives, and ticketed TODOs are exempt; the lexicon extends via `[comments] extra`.
+#[derive(ViolationMetadata)]
 pub struct CommentTells;
 
 impl Rule for CommentTells {

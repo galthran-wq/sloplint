@@ -4,6 +4,7 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::{TextRange, TextSize};
 
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags any non-ASCII character anywhere in the source — emoji, accented letters, smart
@@ -12,6 +13,7 @@ use crate::lint::{FileContext, Rule};
 /// ## Why is this bad?
 /// Non-ASCII in source is a strong AI tell and a portability hazard: encoding-dependent
 /// behavior and invisible look-alike characters that pass review but break tooling.
+#[derive(ViolationMetadata)]
 pub struct AsciiOnly;
 
 impl Rule for AsciiOnly {

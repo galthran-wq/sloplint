@@ -8,6 +8,7 @@ use sloplint_python::ast::{Expr, Stmt};
 use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags mock/placeholder data in non-test code: `user@example.com` emails, `123-456-7890`
@@ -18,6 +19,7 @@ use crate::lint::{FileContext, Rule};
 /// Agents seed plausible placeholder data to make code "run", then never replace it — it
 /// compiles, a test asserts the placeholder, and it ships. Cheap, deterministic, high-precision
 /// literal checks; restricted to non-test paths (a fixture's `test@example.com` is expected).
+#[derive(ViolationMetadata)]
 pub struct MockData;
 
 impl Rule for MockData {

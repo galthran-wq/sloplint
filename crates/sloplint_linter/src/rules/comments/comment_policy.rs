@@ -4,6 +4,7 @@ use sloplint_diagnostics::{Diagnostic, Edit, Fix, Severity};
 use sloplint_python::{Ranged, TextRange, TextSize, TokenKind};
 
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags prose comments. sloplint's opinionated default is that production code carries no
@@ -14,6 +15,7 @@ use crate::lint::{FileContext, Rule};
 /// Comments drift from the code they describe and are a common vehicle for AI narration; code
 /// should be self-explanatory. Paths that legitimately want comments (migrations, some tests)
 /// opt back in via `allow_comments` in config.
+#[derive(ViolationMetadata)]
 pub struct CommentPolicy;
 
 impl Rule for CommentPolicy {

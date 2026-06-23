@@ -6,6 +6,7 @@ use sloplint_python::Ranged;
 
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags an annotation that merely restates a trivially-inferable literal type —
@@ -15,6 +16,7 @@ use crate::lint::{FileContext, Rule};
 /// The annotation carries no information the literal doesn't. Conservative — only builtin
 /// scalar types paired with a matching literal — so anything non-obvious is left alone. Preview,
 /// since module constants legitimately annotate sometimes.
+#[derive(ViolationMetadata)]
 pub struct RedundantTypeHint;
 
 impl Rule for RedundantTypeHint {

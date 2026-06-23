@@ -6,6 +6,7 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::{Ranged, TokenKind};
 
 use crate::lint::{FileContext, Rule};
+use sloplint_macros::ViolationMetadata;
 
 /// ## What it does
 /// Flags identifiers with more words than the configured limit (splitting on `_` and camelCase
@@ -14,6 +15,7 @@ use crate::lint::{FileContext, Rule};
 /// ## Why is this bad?
 /// AI-generated code rarely writes `i` or `buf`; over-long mechanical names hurt readability.
 /// Preview — naming taste is subjective and this is a heuristic.
+#[derive(ViolationMetadata)]
 pub struct VerboseNaming;
 
 impl Rule for VerboseNaming {
