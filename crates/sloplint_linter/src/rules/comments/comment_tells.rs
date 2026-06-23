@@ -1,7 +1,7 @@
 //! SLP004: AI-narration comment tells.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_python::{Ranged, TokenKind};
+use sloplint_python::TextRange;
 
 use crate::lint::{FileContext, Rule};
 use crate::rules::comments::comment_policy::{comment_body, is_directive, is_ticketed_todo};
@@ -25,27 +25,22 @@ impl Rule for CommentTells {
         "SLP004"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        for token in ctx.parsed.tokens().iter() {
-            if token.kind() != TokenKind::Comment {
-                continue;
-            }
-            let body = comment_body(&ctx.source[token.range()]);
-            if body.is_empty()
-                || is_directive(body)
-                || is_ticketed_todo(body)
-                || is_license_or_why(body)
-            {
-                continue;
-            }
-            if let Some((severity, message)) = classify(body, ctx.comment_phrases_extra) {
-                diagnostics.push(Diagnostic::new(
-                    self.code(),
-                    message,
-                    token.range(),
-                    severity,
-                ));
-            }
+    fn check_comment(
+        &self,
+        ctx: &FileContext,
+        range: TextRange,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let body = comment_body(&ctx.source[range]);
+        if body.is_empty()
+            || is_directive(body)
+            || is_ticketed_todo(body)
+            || is_license_or_why(body)
+        {
+            return;
+        }
+        if let Some((severity, message)) = classify(body, ctx.comment_phrases_extra) {
+            diagnostics.push(Diagnostic::new(self.code(), message, range, severity));
         }
     }
 }

@@ -1,7 +1,7 @@
 //! SLP010: comments are banned by default.
 
 use sloplint_diagnostics::{Diagnostic, Edit, Fix, Severity};
-use sloplint_python::{Ranged, TextRange, TextSize, TokenKind};
+use sloplint_python::{TextRange, TextSize};
 
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
@@ -23,26 +23,26 @@ impl Rule for CommentPolicy {
         "SLP010"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        for token in ctx.parsed.tokens().iter() {
-            if token.kind() != TokenKind::Comment {
-                continue;
-            }
-            let body = comment_body(&ctx.source[token.range()]);
-            if is_directive(body) || is_ticketed_todo(body) {
-                continue;
-            }
-            diagnostics.push(
-                Diagnostic::new(
-                    self.code(),
-                    "comment is not allowed (comments are banned by default; allow specific paths in config)",
-                    token.range(),
-                    Severity::Warning,
-                )
-                // Deleting a prose comment never changes runtime behavior, so the fix is Safe.
-                .with_fix(Fix::safe_edit(deletion_edit(ctx.source, token.range()))),
-            );
+    fn check_comment(
+        &self,
+        ctx: &FileContext,
+        range: TextRange,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let body = comment_body(&ctx.source[range]);
+        if is_directive(body) || is_ticketed_todo(body) {
+            return;
         }
+        diagnostics.push(
+            Diagnostic::new(
+                self.code(),
+                "comment is not allowed (comments are banned by default; allow specific paths in config)",
+                range,
+                Severity::Warning,
+            )
+            // Deleting a prose comment never changes runtime behavior, so the fix is Safe.
+            .with_fix(Fix::safe_edit(deletion_edit(ctx.source, range))),
+        );
     }
 }
 
