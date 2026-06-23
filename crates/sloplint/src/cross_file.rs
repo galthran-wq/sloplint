@@ -2,14 +2,13 @@
 //! SLP090 directory fanout, SLP180 undeclared imports, SLP240 ghost scaffolding. Each runs after
 //! the per-file pass and attributes its findings back onto the affected `FileResult`s.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::env;
-use std::path::Path;
 
 use sloplint_clone::{find_clones, CloneConfig, FunctionUnit};
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::Selector;
-use sloplint_linter::{imports, stdlib};
+use sloplint_linter::{fanout, imports, stdlib};
 use sloplint_python::TextRange;
 
 use crate::ghost;
@@ -79,34 +78,24 @@ pub(crate) fn attribute_fanout(
     selector: &Selector,
     max_modules: usize,
 ) {
-    let mut by_dir: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (index, result) in results.iter().enumerate() {
-        let dir = Path::new(&result.path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-        by_dir.entry(dir).or_default().push(index);
-    }
-
-    for (dir, indices) in by_dir {
-        if indices.len() <= max_modules {
+    // SLP090's logic lives in the linter (`fanout`); here we just feed it the discovered paths,
+    // honor per-path selection, and attach each finding to its directory's representative file.
+    let paths: Vec<String> = results.iter().map(|result| result.path.clone()).collect();
+    for finding in fanout::findings(&paths, max_modules) {
+        if !selector.is_enabled("SLP090", &finding.path) {
             continue;
         }
-        let representative = indices[0];
-        if !selector.is_enabled("SLP090", &results[representative].path) {
-            continue;
+        if let Some(result) = results
+            .iter_mut()
+            .find(|result| result.path == finding.path)
+        {
+            result.diagnostics.push(Diagnostic::new(
+                "SLP090",
+                finding.message,
+                TextRange::default(),
+                Severity::Warning,
+            ));
         }
-        let shown_dir = if dir.is_empty() { "." } else { &dir };
-        let count = indices.len();
-        results[representative].diagnostics.push(Diagnostic::new(
-            "SLP090",
-            format!(
-                "directory `{shown_dir}` holds {count} Python modules (max {max_modules}); \
-                 split it into sub-packages"
-            ),
-            TextRange::default(),
-            Severity::Warning,
-        ));
     }
 }
 

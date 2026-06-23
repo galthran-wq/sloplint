@@ -10,6 +10,7 @@ pub mod ast_util;
 mod codes;
 pub mod config;
 pub mod detect;
+pub mod fanout;
 pub mod imports;
 pub mod lint;
 pub mod registry;
