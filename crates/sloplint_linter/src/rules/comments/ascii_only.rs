@@ -5,9 +5,13 @@ use sloplint_python::{TextRange, TextSize};
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
 /// Flags any non-ASCII character anywhere in the source — emoji, accented letters, smart
-/// quotes — in code, comments, or string literals alike. A strong AI tell and a
-/// portability win. One finding is reported per contiguous non-ASCII run.
+/// quotes — in code, comments, or string literals alike (one finding per contiguous run).
+///
+/// ## Why is this bad?
+/// Non-ASCII in source is a strong AI tell and a portability hazard: encoding-dependent
+/// behavior and invisible look-alike characters that pass review but break tooling.
 pub struct AsciiOnly;
 
 impl Rule for AsciiOnly {

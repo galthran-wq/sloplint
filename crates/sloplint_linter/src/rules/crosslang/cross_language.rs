@@ -1,24 +1,4 @@
-//! SLP250: cross-language pollution — idioms from other languages leaking into Python.
-//!
-//! A model fluent in JS/Java/PHP/C# writing Python emits `x.toString()`, `s.length`, or
-//! `array_push(arr, v)`. It's simply wrong code ("badness, not provenance") that often runs on a
-//! duck-typed object or fails only at runtime, slipping past review.
-//!
-//! The hard part is **false positives**: a bare name has no receiver type, and many foreign-looking
-//! names are legitimate Python (`re.sub`, `click.echo`, `stack.push`, `df.contains`, `queue.size`).
-//! So this rule is deliberately narrow — it flags only names that are *never* idiomatic Python:
-//!
-//! - **camelCase methods** (`toString`, `charAt`, `substring`, `forEach`, `indexOf`, …) — PEP 8
-//!   makes camelCase method names un-Pythonic, so these are unambiguous regardless of receiver.
-//! - **foreign attributes** `.length` / `.prototype` / `.__proto__` (Python uses `len(x)`).
-//! - **`console.log`-family** calls.
-//! - **foreign bare builtins** (`array_push`, `var_dump`, `println`, …) that aren't Python.
-//!
-//! FP-prone names (`push`/`size`/`contains`/`sub`/`echo`/`map`/`filter`/…) are deliberately **not**
-//! in the blocklist. An allow-list suppresses any name; extend it via `[crosslang] allow`.
-//! Preview-gated — the FP-riskiest of the rules. Qt-binding files (PyQt/PySide, camelCase by design)
-//! are skipped entirely; `console.log` is not flagged (collides with `rich.Console.log`). A known
-//! residual FP is `xml.dom` NodeList's real `.length` — allow-list it if you use `xml.dom`.
+//! SLP250: cross-language pollution.
 
 use std::collections::HashMap;
 
@@ -29,6 +9,17 @@ use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags wrong-language idioms leaking into Python: camelCase methods (`toString`, `charAt`,
+/// `forEach`), foreign attributes (`.length`, `.prototype`), and foreign bare builtins
+/// (`array_push`, `println`). `console.log` is deliberately *not* flagged (it collides with
+/// `rich.Console.log`).
+///
+/// ## Why is this bad?
+/// A model fluent in JS/Java/PHP/C# emits these in Python; it is simply wrong code that often
+/// runs on a duck-typed object or fails only at runtime, slipping past review. Deliberately
+/// narrow — only names that are never idiomatic Python — to avoid false positives; allowlist
+/// via `[crosslang] allow`. Preview (the FP-riskiest rule).
 pub struct CrossLanguage;
 
 impl Rule for CrossLanguage {

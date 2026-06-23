@@ -1,16 +1,19 @@
 //! SLP010: comments are banned by default.
-//!
-//! sloplint's opinionated default is that production code shouldn't carry prose comments.
-//! Functional comments are exempt — tool directives (`# noqa`, `# type:`), the shebang,
-//! encoding declarations, and TODO/FIXME that reference a ticket. Paths that legitimately
-//! want comments (migrations, some tests) opt back in via `allow_comments` in config; the
-//! CLI passes that through by simply not selecting SLP010 for those files.
 
 use sloplint_diagnostics::{Diagnostic, Edit, Fix, Severity};
 use sloplint_python::{Ranged, TextRange, TextSize, TokenKind};
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags prose comments. sloplint's opinionated default is that production code carries no
+/// comments; functional comments are exempt — tool directives (`# noqa`, `# type:`), the
+/// shebang, encoding declarations, and TODO/FIXME that reference a ticket.
+///
+/// ## Why is this bad?
+/// Comments drift from the code they describe and are a common vehicle for AI narration; code
+/// should be self-explanatory. Paths that legitimately want comments (migrations, some tests)
+/// opt back in via `allow_comments` in config.
 pub struct CommentPolicy;
 
 impl Rule for CommentPolicy {

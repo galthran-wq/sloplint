@@ -1,21 +1,4 @@
 //! SLP210: phantom security-guard calls and decorators.
-//!
-//! AI models routinely emit *fake security scaffolding* — a call to `validate_token(...)` /
-//! `sanitize_input(...)` or a `@requires_auth` / `@login_required` decorator whose target is never
-//! defined, imported, or otherwise bound in the module. The code *reads* as defended; at runtime
-//! it's a `NameError` (or the name resolves to something unrelated and the "check" is a no-op).
-//!
-//! This is badness, not provenance: an undefined security helper is objectively broken,
-//! security-relevant code (CWE-693, Protection Mechanism Failure). It is **not** a general
-//! undefined-name lint (that's Ruff's `F821`): SLP210 deliberately fires only on a curated catalog
-//! of security-guard names, so a missing guard reads as a security finding, not a typo report.
-//!
-//! Resolution is per-module and conservative: a guard name is "bound" if it is imported, defined
-//! (def/class), assigned, a parameter, an `except ... as` name, a `global`/`nonlocal` declaration,
-//! or any store-context target anywhere in the file. Only **bare-name** calls/decorators are
-//! considered — `obj.validate_token(...)` / `@app.login_required` resolve via the receiver and are
-//! never flagged. A near-miss (a bound name one edit away) is reported as a likely typo rather than
-//! a hard phantom finding, to cut false positives.
 
 use std::collections::HashMap;
 
@@ -26,6 +9,16 @@ use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags a call to / decorator of a known security-guard name (`validate_token`,
+/// `sanitize_input`, `@requires_auth`, `@login_required`) that is never defined, imported, or
+/// otherwise bound in the module.
+///
+/// ## Why is this bad?
+/// AI emits fake security scaffolding — the code *reads* as defended but at runtime is a
+/// `NameError` or a no-op (CWE-693, Protection Mechanism Failure). Curated to security-guard
+/// names (not a general undefined-name lint — that's Ruff's `F821`); only bare-name
+/// calls/decorators are considered, and a near-miss is reported as a likely typo.
 pub struct PhantomGuard;
 
 impl Rule for PhantomGuard {

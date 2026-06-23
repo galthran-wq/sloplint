@@ -11,10 +11,14 @@ const OVERLAP_THRESHOLD: f64 = 0.5;
 const MIN_DOC_WORDS: usize = 2;
 const MAX_DOC_WORDS: usize = 12;
 
+/// ## What it does
 /// Flags a function/method docstring that merely restates the signature and body —
-/// `"""Return the sum of a and b."""` over `def add(a, b): return a + b`. Docstrings that
-/// introduce external concepts (units, algorithms, invariants) have low overlap and are
-/// left alone. Module/class docstrings are out of scope. Preview group until tuned.
+/// `"""Return the sum of a and b."""` over `def add(a, b): return a + b`.
+///
+/// ## Why is this bad?
+/// A docstring that echoes the signature carries nothing the code doesn't. Docstrings that
+/// introduce external concepts (units, algorithms, invariants) have low overlap and are left
+/// alone; module/class docstrings are out of scope. Preview until tuned.
 pub struct RedundantDocstring;
 
 impl Rule for RedundantDocstring {

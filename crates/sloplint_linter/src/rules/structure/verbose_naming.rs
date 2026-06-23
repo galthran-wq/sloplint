@@ -1,9 +1,4 @@
 //! SLP060: verbose mechanical naming (preview).
-//!
-//! AI-generated code rarely writes `i` or `buf`; it writes
-//! `calculate_total_value_for_user`. Flags identifiers with more words than the configured
-//! limit (splitting on `_` and camelCase humps), reporting each distinct name once. Preview
-//! — naming taste is subjective and this is a heuristic.
 
 use std::collections::HashSet;
 
@@ -12,6 +7,13 @@ use sloplint_python::{Ranged, TokenKind};
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags identifiers with more words than the configured limit (splitting on `_` and camelCase
+/// humps), reporting each distinct name once — `calculate_total_value_for_user`.
+///
+/// ## Why is this bad?
+/// AI-generated code rarely writes `i` or `buf`; over-long mechanical names hurt readability.
+/// Preview — naming taste is subjective and this is a heuristic.
 pub struct VerboseNaming;
 
 impl Rule for VerboseNaming {
