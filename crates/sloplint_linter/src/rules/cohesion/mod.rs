@@ -7,7 +7,7 @@ pub mod god_class;
 use crate::registry::{RegisteredRule, RuleGroup};
 
 pub fn rules() -> Vec<RegisteredRule> {
-    vec![RegisteredRule::new("SLP120", RuleGroup::Preview, || {
+    vec![RegisteredRule::new(RuleGroup::Preview, || {
         Box::new(god_class::GodClass)
     })]
 }

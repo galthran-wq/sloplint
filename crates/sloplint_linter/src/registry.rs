@@ -23,7 +23,10 @@ pub struct RegisteredRule {
 }
 
 impl RegisteredRule {
-    pub const fn new(code: &'static str, group: RuleGroup, make: fn() -> Box<dyn Rule>) -> Self {
+    /// Register a rule under `group`. The code is taken from the rule itself (`code()`), so it
+    /// has a single source of truth — there is no separate code argument to drift from it.
+    pub fn new(group: RuleGroup, make: fn() -> Box<dyn Rule>) -> Self {
+        let code = make().code();
         Self { code, group, make }
     }
 
@@ -85,8 +88,11 @@ mod tests {
     use sloplint_diagnostics::{Diagnostic, Severity};
     use sloplint_python::{parse, TextRange, TextSize};
 
-    /// Test rule that always emits one finding — exercises register → select → emit.
+    /// Test rules that always emit one finding — exercise register → select → emit. Two distinct
+    /// codes so the stable/preview fixtures are independent (the registry derives each code from
+    /// the rule, so the two fixtures must be different types to register under different codes).
     struct AlwaysFlag;
+    struct AlwaysFlagPreview;
 
     impl Rule for AlwaysFlag {
         fn code(&self) -> &'static str {
@@ -94,7 +100,21 @@ mod tests {
         }
         fn check(&self, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
             diagnostics.push(Diagnostic::new(
-                "SLP999",
+                self.code(),
+                "always flags",
+                TextRange::empty(TextSize::from(0)),
+                Severity::Warning,
+            ));
+        }
+    }
+
+    impl Rule for AlwaysFlagPreview {
+        fn code(&self) -> &'static str {
+            "SLP998"
+        }
+        fn check(&self, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+            diagnostics.push(Diagnostic::new(
+                self.code(),
                 "always flags",
                 TextRange::empty(TextSize::from(0)),
                 Severity::Warning,
@@ -104,23 +124,21 @@ mod tests {
 
     fn registry() -> Registry {
         Registry::new(vec![
-            RegisteredRule::new("SLP999", RuleGroup::Stable, || Box::new(AlwaysFlag)),
-            RegisteredRule::new("SLP998", RuleGroup::Preview, || Box::new(AlwaysFlag)),
+            RegisteredRule::new(RuleGroup::Stable, || Box::new(AlwaysFlag)),
+            RegisteredRule::new(RuleGroup::Preview, || Box::new(AlwaysFlagPreview)),
         ])
     }
 
-    /// The code a rule is registered under must equal the code it reports. Config selection and
-    /// inline suppression key off the *registered* code, so a mismatch would target a code the
-    /// rule never emits — a silent drift. Each rule now derives its diagnostic code from
-    /// `code()`, so this single check guards the whole registered -> reported chain.
+    /// Every shipped code is a well-formed `SLP` identifier (`SLP` + three digits). Codes are
+    /// stable public identifiers (config, suppressions), so a typo'd or off-format code would be
+    /// a silent contract break.
     #[test]
-    fn shipped_rule_registration_matches_reported_code() {
-        for rule in &Registry::shipped().rules {
-            assert_eq!(
-                rule.code,
-                rule.build().code(),
-                "rule registered as {} reports a different code",
-                rule.code,
+    fn shipped_rule_codes_are_well_formed() {
+        for code in Registry::shipped().codes() {
+            let digits = code.strip_prefix("SLP");
+            assert!(
+                digits.is_some_and(|d| d.len() == 3 && d.bytes().all(|b| b.is_ascii_digit())),
+                "malformed rule code: {code}"
             );
         }
     }
