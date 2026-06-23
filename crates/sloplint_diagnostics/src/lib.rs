@@ -4,6 +4,16 @@
 //! how they're rendered (text / JSON / SARIF / PR comment). Keeping these abstractions in a
 //! seam crate lets every downstream crate depend on the diagnostic model without pulling in
 //! the rule engine.
+//!
+//! ## Dependencies
+//! Every other crate gets ruff's AST/range types through the `sloplint_python` seam (so a
+//! parser-tag bump is a one-file change). This crate is the deliberate exception: it depends on
+//! `ruff_text_size` *directly* — only for `TextRange`/`TextSize`, which a `Diagnostic`'s span
+//! needs. `ruff_text_size` is a tiny, ultra-stable type crate pinned at the same ruff tag as the
+//! rest of the seam, so it carries no real version risk; routing it through `sloplint_python`
+//! would instead pull the full lexer/parser into this lightweight seam crate, defeating its whole
+//! purpose (depend on the diagnostic model without the rule/parse engine). The direct dep is the
+//! intentional, lower-cost choice — a second, narrowly-blessed seam.
 
 pub mod fix;
 pub mod render;
