@@ -7,3 +7,6 @@ description = "Clone-detection engine: normalized-AST token winnowing + MinHash/
 
 [dependencies]
 sloplint_python.workspace = true
+
+[lints]
+workspace = true

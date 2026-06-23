@@ -9,3 +9,6 @@ description = "Output formatters: text, JSON, SARIF, and GitHub-markdown PR summ
 sloplint_diagnostics.workspace = true
 sloplint_python.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

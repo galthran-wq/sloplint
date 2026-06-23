@@ -17,3 +17,6 @@ globset = "0.4"
 
 [dev-dependencies]
 insta.workspace = true
+
+[lints]
+workspace = true
