@@ -344,9 +344,15 @@ fn run_parse(path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Load config from an explicit `--config` path, or discover `sloplint.toml` from the cwd up.
-/// `--preview` forces preview rules on regardless of the file's setting.
-fn load_config(config_path: Option<&str>, preview: bool) -> anyhow::Result<Config> {
+/// Load the config: from `config_path` if given, else discovered from the cwd up. When
+/// `strict_discovery` is false (the `metrics` command), a discovery error degrades to the
+/// default config with a warning rather than failing — metrics should still run without a
+/// readable config. `preview` forces preview rules on.
+fn load_config(
+    config_path: Option<&str>,
+    preview: bool,
+    strict_discovery: bool,
+) -> anyhow::Result<Config> {
     let mut config = match config_path {
         Some(path) => {
             let text =
@@ -356,7 +362,14 @@ fn load_config(config_path: Option<&str>, preview: bool) -> anyhow::Result<Confi
         None => {
             let cwd =
                 env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
-            Config::discover(&cwd)?
+            match Config::discover(&cwd) {
+                Ok(config) => config,
+                Err(err) if strict_discovery => return Err(err.into()),
+                Err(err) => {
+                    eprintln!("sloplint: ignoring discovered config for metrics ({err})");
+                    Config::default()
+                }
+            }
         }
     };
     if preview {
@@ -393,7 +406,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
         return Ok(HookOutcome::Clean);
     }
 
-    let config = load_config(config_path, preview)?;
+    let config = load_config(config_path, preview, true)?;
     let selector = config
         .prepare()
         .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
@@ -526,7 +539,7 @@ fn run_check(
     format: Format,
     fix_mode: FixMode,
 ) -> anyhow::Result<bool> {
-    let config = load_config(config_path, preview)?;
+    let config = load_config(config_path, preview, true)?;
     let selector = config
         .prepare()
         .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
@@ -874,7 +887,7 @@ fn run_metrics(
     // Profiles drive classification (which panel a file feeds) the same way they drive `check`'s
     // rule config. Load best-effort: an explicit --config is strict, discovery falls back to the
     // built-in profiles so a malformed ancestor toml can't break `metrics`.
-    let config = load_metrics_config(config_path)?;
+    let config = load_config(config_path, false, false)?;
     let selector = config
         .prepare()
         .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
@@ -1084,27 +1097,6 @@ fn run_metrics(
 /// parse error fails the run), but *discovery* is best-effort: an unrelated or malformed ancestor
 /// `sloplint.toml` must not break `metrics`, so we fall back to the built-in defaults with a
 /// warning.
-fn load_metrics_config(config_path: Option<&str>) -> anyhow::Result<Config> {
-    match config_path {
-        Some(path) => {
-            let text =
-                fs::read_to_string(path).map_err(|e| anyhow!("reading config {path}: {e}"))?;
-            Config::from_toml_str(&text).map_err(|e| anyhow!("parsing config {path}: {e}"))
-        }
-        None => {
-            let cwd =
-                env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
-            match Config::discover(&cwd) {
-                Ok(config) => Ok(config),
-                Err(err) => {
-                    eprintln!("sloplint: ignoring discovered config for metrics ({err})");
-                    Ok(Config::default())
-                }
-            }
-        }
-    }
-}
-
 /// A measured file: its display path, source, per-function metrics, and the names of the profiles
 /// its path belongs to (used to place it into one or more metric panels).
 pub(crate) struct MeasuredFile {
