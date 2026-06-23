@@ -117,3 +117,39 @@ impl ImportGraph {
         crate::modularity::analyze(self.graph.node_count(), &edges, &declared)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::graph_of;
+
+    #[test]
+    fn propagation_cost_empty_and_single() {
+        // No modules -> 0.0 (degenerate, defined to avoid NaN).
+        assert_eq!(ImportGraph::build(Vec::new()).propagation_cost(), 0.0);
+        // A lone module reaches only itself: 1/1^2 = 1.0 (the diagonal is counted).
+        let g = graph_of(&[("solo.py", "")]);
+        assert_eq!(g.propagation_cost(), 1.0);
+    }
+
+    #[test]
+    fn propagation_cost_disconnected_is_one_over_n() {
+        // Two modules, no first-party edges: each reaches only itself -> 2/4 = 0.5 = 1/N.
+        let g = graph_of(&[("a.py", "import os\n"), ("b.py", "import sys\n")]);
+        assert!((g.propagation_cost() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn propagation_cost_linear_chain() {
+        // a -> b -> c. Reachable (incl. self): a={a,b,c}=3, b={b,c}=2, c={c}=1 -> 6/9.
+        let g = graph_of(&[("a.py", "import b\n"), ("b.py", "import c\n"), ("c.py", "")]);
+        assert!((g.propagation_cost() - 6.0 / 9.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn propagation_cost_is_one_for_a_full_cycle() {
+        // a <-> b: each reaches both -> 4/4 = 1.0. Cycles maximize propagation cost.
+        let g = graph_of(&[("a.py", "import b\n"), ("b.py", "import a\n")]);
+        assert_eq!(g.propagation_cost(), 1.0);
+    }
+}
