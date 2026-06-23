@@ -9,6 +9,7 @@
 pub mod clones;
 mod codes;
 pub mod config;
+pub mod corrupted;
 pub mod detect;
 pub mod fanout;
 pub mod ghost;

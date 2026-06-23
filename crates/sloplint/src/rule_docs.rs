@@ -67,9 +67,6 @@ fn rule_list(registry: &Registry) -> String {
     for (code, name, group) in rows {
         writeln!(out, "{code}  {name}  ({group})").unwrap();
     }
-    // SLP220 (corrupted) is the last whole-tree rule still outside the catalog — its detection
-    // lives in the binary (it fires on files that fail to parse, which never reach the rules).
-    out.push_str("\nWhole-tree rule SLP220 runs during `check` but is not listed here yet.\n");
     out
 }
 
