@@ -4,7 +4,6 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{Expr, Number, Stmt};
 use sloplint_python::Ranged;
 
-use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
 
@@ -24,26 +23,24 @@ impl Rule for RedundantTypeHint {
         "SLP040"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        walk_statements(&ctx.parsed.syntax().body, &mut |stmt| {
-            let Stmt::AnnAssign(node) = stmt else { return };
-            let Some(value) = &node.value else { return };
-            let annotation: &Expr = &node.annotation;
-            let value: &Expr = value;
-            if let Expr::Name(name) = annotation {
-                if restates_literal(name.id.as_str(), value) {
-                    diagnostics.push(Diagnostic::new(
-                        self.code(),
-                        format!(
-                            "type hint `{}` restates the literal value",
-                            name.id.as_str()
-                        ),
-                        node.annotation.range(),
-                        Severity::Warning,
-                    ));
-                }
+    fn check_stmt(&self, stmt: &Stmt, _ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let Stmt::AnnAssign(node) = stmt else { return };
+        let Some(value) = &node.value else { return };
+        let annotation: &Expr = &node.annotation;
+        let value: &Expr = value;
+        if let Expr::Name(name) = annotation {
+            if restates_literal(name.id.as_str(), value) {
+                diagnostics.push(Diagnostic::new(
+                    self.code(),
+                    format!(
+                        "type hint `{}` restates the literal value",
+                        name.id.as_str()
+                    ),
+                    node.annotation.range(),
+                    Severity::Warning,
+                ));
             }
-        });
+        }
     }
 }
 

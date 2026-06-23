@@ -4,7 +4,6 @@ use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{CmpOp, Expr, Stmt};
 use sloplint_python::Ranged;
 
-use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 use sloplint_macros::ViolationMetadata;
 
@@ -24,46 +23,44 @@ impl Rule for DispatchLadder {
         "SLP130"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_stmt(&self, stmt: &Stmt, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
+        let Stmt::If(node) = stmt else { return };
         let max = ctx.limits.dispatch_max_branches;
         let source = ctx.source;
-        walk_statements(&ctx.parsed.syntax().body, &mut |stmt| {
-            let Stmt::If(node) = stmt else { return };
-            // The chain's conditions: the leading `if` plus every `elif` (the trailing `else`,
-            // if any, carries no test and is skipped).
-            let tests: Vec<&Expr> = std::iter::once(node.test.as_ref())
-                .chain(
-                    node.elif_else_clauses
-                        .iter()
-                        .filter_map(|clause| clause.test.as_ref()),
-                )
-                .collect();
-            if tests.len() <= max {
-                return;
-            }
-            let n = tests.len();
-            match ladder_kind(&tests, source) {
-                Some(LadderKind::Literal) => diagnostics.push(Diagnostic::new(
-                    self.code(),
-                    format!(
-                        "dispatch ladder: {n} `==` branches on the same value — use a lookup \
+        // The chain's conditions: the leading `if` plus every `elif` (the trailing `else`,
+        // if any, carries no test and is skipped).
+        let tests: Vec<&Expr> = std::iter::once(node.test.as_ref())
+            .chain(
+                node.elif_else_clauses
+                    .iter()
+                    .filter_map(|clause| clause.test.as_ref()),
+            )
+            .collect();
+        if tests.len() <= max {
+            return;
+        }
+        let n = tests.len();
+        match ladder_kind(&tests, source) {
+            Some(LadderKind::Literal) => diagnostics.push(Diagnostic::new(
+                self.code(),
+                format!(
+                    "dispatch ladder: {n} `==` branches on the same value — use a lookup \
                          table (dict) or `match` instead of an if/elif chain"
-                    ),
-                    node.test.range(),
-                    Severity::Warning,
-                )),
-                Some(LadderKind::IsInstance) => diagnostics.push(Diagnostic::new(
-                    self.code(),
-                    format!(
-                        "isinstance ladder: {n} type checks on the same value — use \
+                ),
+                node.test.range(),
+                Severity::Warning,
+            )),
+            Some(LadderKind::IsInstance) => diagnostics.push(Diagnostic::new(
+                self.code(),
+                format!(
+                    "isinstance ladder: {n} type checks on the same value — use \
                          polymorphism or `match` instead of an if/elif chain"
-                    ),
-                    node.test.range(),
-                    Severity::Warning,
-                )),
-                None => {}
-            }
-        });
+                ),
+                node.test.range(),
+                Severity::Warning,
+            )),
+            None => {}
+        }
     }
 }
 
