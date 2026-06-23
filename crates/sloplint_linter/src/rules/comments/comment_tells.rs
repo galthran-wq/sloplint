@@ -1,18 +1,4 @@
-//! SLP004: AI-narration comment tells — hedging/deferral language and structural-noise comments.
-//!
-//! Where comments are allowed (so SLP010 doesn't already ban them), two text-only classes are
-//! strong LLM tells, no AST needed:
-//!
-//! - **Deferral / incompleteness** (`for now`, `in production this would`, `this would be`,
-//!   `placeholder`, `left as an exercise`) — a *semantic-incompleteness* signal: the model knew it
-//!   was cutting a corner. Reported at **error** severity.
-//! - **Hedging** (`should work`, `probably`, `not sure if`, `replace this with your actual`) —
-//!   uncertainty narration. **Warning**.
-//! - **Structural noise** — step narration (`# Step 1:`), ASCII dividers (`# ======`), and narrator
-//!   comments (`# This function handles…`): the model was narrating, not documenting. **Warning**.
-//!
-//! WHY-comments, license headers, tool directives (`# noqa`, `# type:`) and ticketed TODOs are
-//! exempt. The hedging/deferral lexicon is extendable via `[comments] extra`.
+//! SLP004: AI-narration comment tells.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::{Ranged, TokenKind};
@@ -20,6 +6,16 @@ use sloplint_python::{Ranged, TokenKind};
 use crate::lint::{FileContext, Rule};
 use crate::rules::comments::comment_policy::{comment_body, is_directive, is_ticketed_todo};
 
+/// ## What it does
+/// Where comments are allowed (so SLP010 doesn't already ban them), flags three text-only
+/// classes of AI narration: deferral/incompleteness (`for now`, `in production this would`;
+/// **error**), hedging (`should work`, `probably`; **warning**), and structural noise — step
+/// narration (`# Step 1:`), ASCII dividers (`# ======`), and narrator comments (**warning**).
+///
+/// ## Why is this bad?
+/// These phrasings are strong LLM tells — the model narrating rather than documenting, or
+/// admitting an unfinished corner (a semantic-incompleteness signal). WHY-comments, license
+/// headers, directives, and ticketed TODOs are exempt; the lexicon extends via `[comments] extra`.
 pub struct CommentTells;
 
 impl Rule for CommentTells {

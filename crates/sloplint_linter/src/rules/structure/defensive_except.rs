@@ -1,9 +1,4 @@
 //! SLP030: overly defensive try/except.
-//!
-//! Ruff's `BLE001` already flags a blind `except Exception`. We add the slice it doesn't:
-//! a broad handler whose body does *nothing useful* — a single `pass`, a bare re-raise, or
-//! a lone log call that swallows the error. A handler that logs **and** re-raises (two
-//! statements) is legitimate and deliberately left alone.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{ExceptHandler, Expr, Stmt};
@@ -12,6 +7,14 @@ use sloplint_python::Ranged;
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags a broad `except` whose body does nothing useful — a single `pass`, a bare re-raise,
+/// or a lone log call that swallows the error.
+///
+/// ## Why is this bad?
+/// Such a handler adds no value and hides failures. Ruff's `BLE001` flags the blind
+/// `except Exception`; this adds the slice it doesn't — the no-value body. A handler that logs
+/// **and** re-raises (two statements) is legitimate and left alone.
 pub struct DefensiveExcept;
 
 impl Rule for DefensiveExcept {

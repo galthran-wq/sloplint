@@ -15,10 +15,13 @@ const OVERLAP_THRESHOLD: f64 = 0.5;
 /// Only short comments are judged; long prose is more likely to add real context.
 const MAX_COMMENT_WORDS: usize = 6;
 
+/// ## What it does
 /// Flags an inline or standalone comment whose words mostly restate the code on (or right
-/// below) its line — `# compute total` next to `total = compute_total()`. Directives and
-/// ticketed TODOs are exempt (they aren't prose). Heuristic, so it ships in the preview
-/// group until tuned against real corpora.
+/// below) its line — `# compute total` next to `total = compute_total()`.
+///
+/// ## Why is this bad?
+/// A "what" comment that restates the code adds no information and rots as the code changes.
+/// Directives and ticketed TODOs are exempt (they aren't prose). Heuristic, so preview.
 pub struct RedundantComment;
 
 impl Rule for RedundantComment {

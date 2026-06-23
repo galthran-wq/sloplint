@@ -1,13 +1,4 @@
 //! SLP130: literal-dispatch and isinstance ladders.
-//!
-//! A long `if`/`elif` chain that tests the *same* value against a series of literals
-//! (`if x == "a": … elif x == "b": …`) or types (`if isinstance(x, A): … elif
-//! isinstance(x, B): …`) is hand-unrolled dispatch — a textbook generated-code shape that
-//! should be a lookup table (`dict`), `match`, or polymorphism. Ruff has no equivalent.
-//!
-//! Conservative by design: only *uniform* chains (every branch the same shape on the same
-//! subject) past `dispatch_max_branches` are flagged, so heterogeneous or side-effecting
-//! conditions are left alone. Preview-gated.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{CmpOp, Expr, Stmt};
@@ -16,6 +7,14 @@ use sloplint_python::Ranged;
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags a long `if`/`elif` chain testing the *same* value against a series of literals
+/// (`x == "a"` …) or types (`isinstance(x, A)` …) past `dispatch_max_branches`.
+///
+/// ## Why is this bad?
+/// Hand-unrolled dispatch is a textbook generated-code shape — verbose and error-prone — that
+/// should be a lookup table (`dict`), `match`, or polymorphism; Ruff has no equivalent.
+/// Conservative (uniform same-subject chains only); preview-gated.
 pub struct DispatchLadder;
 
 impl Rule for DispatchLadder {

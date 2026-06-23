@@ -1,13 +1,4 @@
-//! SLP230: mock / placeholder data left in production code.
-//!
-//! Agents routinely seed plausible-looking placeholder data to make code "run", then never replace
-//! it: `user@example.com` emails, `123-456-7890` phones, all-zero UUIDs, `password123`/`changeme`
-//! credentials, and dummy returns like `return {"foo": "bar"}` / `return "placeholder"`. It
-//! compiles, the test asserts the placeholder, and it ships — structurally-shallow-but-green slop.
-//!
-//! These are cheap, deterministic, high-precision literal checks with essentially no Ruff overlap
-//! (bandit's `S105`/`S106` flag *any* hardcoded password, not the placeholder *class*). The rule is
-//! restricted to **non-test** paths — a fixture's `test@example.com` is expected, not slop.
+//! SLP230: mock / placeholder data in production code.
 
 use std::collections::HashMap;
 
@@ -18,6 +9,15 @@ use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags mock/placeholder data in non-test code: `user@example.com` emails, `123-456-7890`
+/// phones, all-zero UUIDs, `password123`/`changeme` credentials, and dummy returns like
+/// `return {"foo": "bar"}` / `return "placeholder"`.
+///
+/// ## Why is this bad?
+/// Agents seed plausible placeholder data to make code "run", then never replace it — it
+/// compiles, a test asserts the placeholder, and it ships. Cheap, deterministic, high-precision
+/// literal checks; restricted to non-test paths (a fixture's `test@example.com` is expected).
 pub struct MockData;
 
 impl Rule for MockData {

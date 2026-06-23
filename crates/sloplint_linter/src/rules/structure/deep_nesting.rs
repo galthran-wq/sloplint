@@ -1,10 +1,4 @@
 //! SLP082: deep nesting inside a function.
-//!
-//! Ruff has no direct max-nesting gate (cognitive complexity captures it only indirectly),
-//! so this is ours. Within each function, flag the first statement nested deeper than the
-//! configured limit — one finding per function keeps the noise down. Nested function
-//! definitions start their own depth count (handled per-function), so a method inside a
-//! class doesn't inherit the class's nesting.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{ExceptHandler, Stmt};
@@ -13,6 +7,13 @@ use sloplint_python::{Ranged, TextRange};
 use crate::ast_util::collect_functions;
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags the first statement nested deeper than the configured limit inside a function (one
+/// finding per function); nested function definitions start their own depth count.
+///
+/// ## Why is this bad?
+/// Deep control-flow nesting is hard to follow and a complexity smell Ruff has no direct gate
+/// for (cognitive complexity captures it only indirectly).
 pub struct DeepNesting;
 
 impl Rule for DeepNesting {

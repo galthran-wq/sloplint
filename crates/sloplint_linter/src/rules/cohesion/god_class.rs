@@ -1,16 +1,4 @@
 //! SLP120: low-cohesion "god class" detector (preview).
-//!
-//! Flags a class whose methods split into ≥2 unrelated groups by **LCOM4** (connected
-//! components — see [`sloplint_metrics::cohesion`]). A catch-all `Utils`/`Manager`/`Service`
-//! that bundles unrelated methods around no shared state is "coincidental binding": it hides
-//! dependencies, resists reuse, and forces unrelated concerns to change together. A pure
-//! method/attribute *count* can't see it — a tidy-looking 5-method class can still be two
-//! disjoint concepts.
-//!
-//! High-precision guards: only classes with at least `lcom4_min_methods` methods are judged
-//! (small classes are too noisy), and data/interface classes — `@dataclass`/`attrs`,
-//! `Protocol`, `ABC`, `Enum`, `NamedTuple`, `TypedDict` — are allowlisted, since their low
-//! method-cohesion is by design. Both thresholds are configurable under `[limits]`; Preview.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_metrics::cohesion::class_cohesion;
@@ -20,6 +8,18 @@ use sloplint_python::Ranged;
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags a class whose methods split into two or more unrelated groups by **LCOM4**
+/// (connected components of methods linked by shared `self` state) — a catch-all
+/// `Utils`/`Manager`/`Service` that bundles unrelated methods around no shared state.
+///
+/// ## Why is this bad?
+/// Coincidental binding hides dependencies, resists reuse, and forces unrelated concerns to
+/// change together; a plain method/attribute *count* can't see it — a tidy-looking 5-method
+/// class can still be two disjoint concepts. Only classes with at least `lcom4_min_methods`
+/// methods are judged, and data/interface classes (`@dataclass`/`attrs`, `Protocol`, `ABC`,
+/// `Enum`, `NamedTuple`, `TypedDict`) are allowlisted, since their low method-cohesion is by
+/// design. Preview.
 pub struct GodClass;
 
 impl Rule for GodClass {

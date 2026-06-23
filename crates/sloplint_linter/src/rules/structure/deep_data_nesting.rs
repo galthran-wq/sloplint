@@ -1,16 +1,4 @@
 //! SLP084: deeply nested data-structure literals.
-//!
-//! This is the *expression-tree* nesting axis, distinct from SLP082's control-flow block
-//! nesting. A deep inline `{...: [{...}]}` literal is hard to read, hard to diff, and easy
-//! to get subtly wrong — the reader has to mentally unfold several levels of brackets, and
-//! a misplaced comma or key is nearly invisible. Modeling the same data with a named type
-//! (a dataclass, a small set of named values) makes the structure explicit and reviewable.
-//!
-//! We measure the maximum chain of *directly nested* container constructors
-//! (`list`/`dict`/`tuple`/`set` literals and `list`/`dict`/`set` comprehensions) and flag
-//! the outermost container of any chain deeper than the configured limit. A container
-//! reached only *through* a non-container expression (e.g. a function call) starts a fresh
-//! chain, so `[foo([[[[1]]]])]` is measured as the inner `[[[[1]]]]`, not the outer list.
 
 use std::ptr;
 
@@ -21,6 +9,15 @@ use sloplint_python::Ranged;
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags the outermost container of a chain of directly nested data-structure literals or
+/// comprehensions (`list`/`dict`/`tuple`/`set`) deeper than the configured limit —
+/// `{...: [{...}]}`.
+///
+/// ## Why is this bad?
+/// A deep inline literal is hard to read, hard to diff, and easy to get subtly wrong (a
+/// misplaced comma or key is nearly invisible); a named type (a dataclass) makes the structure
+/// explicit. This is the expression-tree nesting axis, distinct from SLP082's control flow.
 pub struct DeepDataNesting;
 
 impl Rule for DeepDataNesting {

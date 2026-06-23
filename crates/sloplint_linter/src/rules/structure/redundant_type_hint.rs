@@ -1,10 +1,4 @@
 //! SLP040: redundant type hint (preview).
-//!
-//! Flags an annotation that merely restates a trivially-inferable literal type, e.g.
-//! `count: int = 0` or `name: str = "x"`. The annotation carries no information the literal
-//! doesn't already. Conservative: only the builtin scalar types paired with a matching
-//! literal are flagged; anything non-obvious is left alone. Preview until tuned (module
-//! constants legitimately annotate sometimes).
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::ast::{Expr, Number, Stmt};
@@ -13,6 +7,14 @@ use sloplint_python::Ranged;
 use crate::ast_util::walk_statements;
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags an annotation that merely restates a trivially-inferable literal type —
+/// `count: int = 0`, `name: str = "x"`.
+///
+/// ## Why is this bad?
+/// The annotation carries no information the literal doesn't. Conservative — only builtin
+/// scalar types paired with a matching literal — so anything non-obvious is left alone. Preview,
+/// since module constants legitimately annotate sometimes.
 pub struct RedundantTypeHint;
 
 impl Rule for RedundantTypeHint {

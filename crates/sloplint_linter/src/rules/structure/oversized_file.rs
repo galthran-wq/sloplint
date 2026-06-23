@@ -1,13 +1,16 @@
 //! SLP080: oversized file.
-//!
-//! AI tends to dump everything into one enormous module. Ruff has no file-length gate, so
-//! this is genuinely ours: flag files longer than the configured line limit.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_python::TextRange;
 
 use crate::lint::{FileContext, Rule};
 
+/// ## What it does
+/// Flags a file longer than the configured line limit (`file_max_lines`).
+///
+/// ## Why is this bad?
+/// AI tends to dump everything into one enormous module, and Ruff has no file-length gate.
+/// Long modules are hard to navigate and signal missing decomposition.
 pub struct OversizedFile;
 
 impl Rule for OversizedFile {
