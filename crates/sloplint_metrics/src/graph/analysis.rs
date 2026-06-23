@@ -152,4 +152,136 @@ mod tests {
         let g = graph_of(&[("a.py", "import b\n"), ("b.py", "import a\n")]);
         assert_eq!(g.propagation_cost(), 1.0);
     }
+
+    #[test]
+    fn no_cycles_in_an_acyclic_graph() {
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", ""),
+        ]);
+        let report = g.cycles();
+        assert_eq!(report.tangle_count(), 0);
+        assert_eq!(report.largest_tangle(), 0);
+        assert_eq!(report.modules_in_cycles(), 0);
+        assert!(g.package_rows().iter().all(|r| !r.in_cycle));
+    }
+
+    #[test]
+    fn detects_a_two_module_mutual_import() {
+        // The minimal cycle: a <-> b.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", "from pkg import a\n"),
+        ]);
+        let report = g.cycles();
+        assert_eq!(
+            report.tangles,
+            vec![vec!["pkg.a".to_string(), "pkg.b".to_string()]]
+        );
+        assert_eq!(report.largest_tangle(), 2);
+        assert_eq!(report.modules_in_cycles(), 2);
+    }
+
+    #[test]
+    fn larger_tangles_sort_first_and_members_are_sorted() {
+        // One 3-cycle (x<->y<->z) and one 2-cycle (p<->q); the 3-cycle must come first.
+        let g = graph_of(&[
+            ("p.py", "import q\n"),
+            ("q.py", "import p\n"),
+            ("x.py", "import y\n"),
+            ("y.py", "import z\n"),
+            ("z.py", "import x\n"),
+        ]);
+        let report = g.cycles();
+        assert_eq!(
+            report.tangles,
+            vec![
+                vec!["x".to_string(), "y".to_string(), "z".to_string()],
+                vec!["p".to_string(), "q".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn type_checking_only_cycle_is_runtime_benign() {
+        // a imports b normally; b imports a only under TYPE_CHECKING. The cycle exists in the
+        // full graph but vanishes at runtime.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            (
+                "pkg/b.py",
+                "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from pkg import a\n",
+            ),
+        ]);
+        assert_eq!(g.cycles().tangle_count(), 1, "full graph has the cycle");
+        assert_eq!(
+            g.runtime_cycles().tangle_count(),
+            0,
+            "the cycle only closes via a TYPE_CHECKING edge"
+        );
+    }
+
+    #[test]
+    fn function_local_back_edge_still_closes_a_runtime_cycle() {
+        // A function-local import is deferred but does execute, so it keeps the runtime cycle.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            (
+                "pkg/b.py",
+                "def f():\n    from pkg import a\n    return a\n",
+            ),
+        ]);
+        assert_eq!(g.runtime_cycles().tangle_count(), 1);
+        // ...but it's deferred, so it is NOT a load-bearing (load-time) cycle.
+        assert_eq!(
+            g.load_bearing_cycles().tangle_count(),
+            0,
+            "the back-edge is a function-local import, deferred past module load"
+        );
+    }
+
+    #[test]
+    fn load_bearing_cycle_is_a_hard_top_level_cycle() {
+        // Both directions are module-top-level runtime imports → a real load-time cycle.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", "from pkg import a\n"),
+        ]);
+        assert_eq!(g.cycles().tangle_count(), 1);
+        assert_eq!(g.runtime_cycles().tangle_count(), 1);
+        assert_eq!(
+            g.load_bearing_cycles().tangle_count(),
+            1,
+            "both edges run at module load → a hard cycle"
+        );
+    }
+
+    #[test]
+    fn load_bearing_count_is_not_a_subset_of_full_tangles() {
+        // Two hard 2-cycles (a<->b, c<->d) bridged into one big SCC by a top-level b->c and a
+        // function-local-only d->a. The full graph is a single tangle; dropping the deferred bridge
+        // SPLITS it into two hard cycles — so load_bearing_tangles (2) > tangles (1). The count is
+        // not a strict subset; only the participating-module set shrinks.
+        let g = graph_of(&[
+            ("pkg/__init__.py", ""),
+            ("pkg/a.py", "from pkg import b\n"),
+            ("pkg/b.py", "from pkg import a\nfrom pkg import c\n"),
+            ("pkg/c.py", "from pkg import d\n"),
+            (
+                "pkg/d.py",
+                "from pkg import c\ndef f():\n    from pkg import a\n    return a\n",
+            ),
+        ]);
+        assert_eq!(g.cycles().tangle_count(), 1, "one big SCC over all edges");
+        assert_eq!(
+            g.load_bearing_cycles().tangle_count(),
+            2,
+            "dropping the deferred d->a splits it into two hard cycles"
+        );
+    }
 }
