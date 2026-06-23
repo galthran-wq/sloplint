@@ -1032,6 +1032,7 @@ dependencies = [
  "globset",
  "insta",
  "serde",
+ "sloplint_clone",
  "sloplint_diagnostics",
  "sloplint_macros",
  "sloplint_metrics",

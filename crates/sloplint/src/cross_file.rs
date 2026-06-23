@@ -5,13 +5,13 @@
 use std::collections::HashMap;
 use std::env;
 
-use sloplint_clone::{find_clones, CloneConfig, FunctionUnit};
+use sloplint_clone::{CloneConfig, FunctionUnit};
 use sloplint_diagnostics::{Diagnostic, Severity};
 use sloplint_linter::config::Selector;
-use sloplint_linter::{fanout, imports, stdlib};
+use sloplint_linter::{clones, fanout, imports, stdlib};
 use sloplint_python::TextRange;
 
-use crate::{first_party_under, line_of, FileResult};
+use crate::{first_party_under, FileResult};
 use sloplint_linter::ghost;
 
 /// Run cross-file clone detection and push exactly one `SLP020` diagnostic onto each
@@ -26,46 +26,21 @@ pub(crate) fn attribute_clones(
     clone_config: &CloneConfig,
     results: &mut [FileResult],
 ) {
-    // For each clone-involved function, keep its lowest-index partner (deterministic).
-    let mut partner: HashMap<usize, (usize, f64)> = HashMap::new();
-    let mut record = |from: usize, to: usize, similarity: f64| {
-        partner
-            .entry(from)
-            .and_modify(|best| {
-                if to < best.0 {
-                    *best = (to, similarity);
-                }
-            })
-            .or_insert((to, similarity));
+    // SLP020's logic lives in the linter (`clones`); here we feed it each file's source (for the
+    // partner-line render) and attach each finding. Units are collected only for SLP020-enabled
+    // files (in `scan_files`), so no per-path gating is needed here.
+    let found = {
+        let sources: Vec<&str> = results
+            .iter()
+            .map(|result| result.source.as_str())
+            .collect();
+        clones::findings(units, unit_result, &sources, clone_config)
     };
-    for pair in find_clones(units, clone_config) {
-        record(pair.a, pair.b, pair.similarity);
-        record(pair.b, pair.a, pair.similarity);
-    }
-
-    let mut involved: Vec<usize> = partner.keys().copied().collect();
-    involved.sort_unstable();
-    for unit_index in involved {
-        let (partner_index, similarity) = partner[&unit_index];
-        let unit = &units[unit_index];
-        let partner_unit = &units[partner_index];
-        let result_index = unit_result[unit_index];
-        let partner_result = unit_result[partner_index];
-        let percent = (similarity * 100.0).round() as u32;
-
-        let partner_line = line_of(
-            &results[partner_result].source,
-            partner_unit.range.start().into(),
-        );
-        let partner_path = results[partner_result].path.clone();
-
-        results[result_index].diagnostics.push(Diagnostic::new(
+    for finding in found {
+        results[finding.file].diagnostics.push(Diagnostic::new(
             "SLP020",
-            format!(
-                "duplicate of {partner_path}:{partner_line} (function `{}`, {percent}% similar)",
-                partner_unit.name
-            ),
-            unit.range,
+            finding.message,
+            finding.range,
             Severity::Warning,
         ));
     }
