@@ -10,6 +10,7 @@ use sloplint_python::ast::ModModule;
 use sloplint_python::parser::Parsed;
 
 use crate::config::Limits;
+use sloplint_python::{Ranged, TextRange, TokenKind};
 
 /// Everything a rule needs about a single file under analysis.
 pub struct FileContext<'a> {
@@ -41,16 +42,45 @@ pub trait Rule: sloplint_diagnostics::ViolationMetadata {
     /// Stable code, e.g. `"SLP001"`. Used in output, config, and suppressions.
     fn code(&self) -> &'static str;
 
-    /// Inspect `ctx` and append any findings to `diagnostics`.
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>);
+    /// Legacy whole-file entry point: inspect `ctx` and append findings. Rules that have moved to
+    /// single-pass node hooks (e.g. [`Rule::check_comment`]) leave this as the default no-op — a
+    /// rule runs either here or via its node hooks, never both.
+    fn check(&self, _ctx: &FileContext, _diagnostics: &mut Vec<Diagnostic>) {}
+
+    /// Single-pass hook called once per comment token (in source order) during [`check_file`]'s
+    /// token pass, so comment rules don't each re-walk the token stream. `range` is the comment
+    /// token's range. Default: no-op.
+    fn check_comment(
+        &self,
+        _ctx: &FileContext,
+        _range: TextRange,
+        _diagnostics: &mut Vec<Diagnostic>,
+    ) {
+    }
 }
 
 /// Run the given rules over an already-parsed file, collecting all findings.
+/// Run `rules` over one parsed file in a single pass: one walk of the token stream dispatches each
+/// comment to [`Rule::check_comment`], then any rule still on the legacy [`Rule::check`] runs. The
+/// rendered output is range-sorted (see `sloplint_diagnostics::render`), so the emission order here
+/// is not observable.
 pub fn check_file(ctx: &FileContext, rules: &[&dyn Rule]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+
+    // One token pass, shared by every comment rule (instead of one walk per rule).
+    for token in ctx.parsed.tokens().iter() {
+        if token.kind() == TokenKind::Comment {
+            for rule in rules {
+                rule.check_comment(ctx, token.range(), &mut diagnostics);
+            }
+        }
+    }
+
+    // Legacy whole-file pass for rules not yet migrated to node hooks.
     for rule in rules {
         rule.check(ctx, &mut diagnostics);
     }
+
     diagnostics
 }
 

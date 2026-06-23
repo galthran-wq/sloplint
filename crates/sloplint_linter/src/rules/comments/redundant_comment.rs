@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_python::{Ranged, TextRange, TokenKind};
+use sloplint_python::TextRange;
 
 use crate::lint::{FileContext, Rule};
 use crate::rules::comments::comment_policy::{comment_body, is_directive, is_ticketed_todo};
@@ -31,28 +31,28 @@ impl Rule for RedundantComment {
         "SLP001"
     }
 
-    fn check(&self, ctx: &FileContext, diagnostics: &mut Vec<Diagnostic>) {
-        for token in ctx.parsed.tokens().iter() {
-            if token.kind() != TokenKind::Comment {
-                continue;
-            }
-            let body = comment_body(&ctx.source[token.range()]);
-            if is_directive(body) || is_ticketed_todo(body) {
-                continue;
-            }
-            let comment_words = content_words(body);
-            if comment_words.is_empty() || comment_words.len() > MAX_COMMENT_WORDS {
-                continue;
-            }
-            let code_words = associated_code_words(ctx.source, token.range());
-            if overlap_ratio(&comment_words, &code_words) >= OVERLAP_THRESHOLD {
-                diagnostics.push(Diagnostic::new(
-                    self.code(),
-                    "comment restates the code (redundant 'what' comment)",
-                    token.range(),
-                    Severity::Warning,
-                ));
-            }
+    fn check_comment(
+        &self,
+        ctx: &FileContext,
+        range: TextRange,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let body = comment_body(&ctx.source[range]);
+        if is_directive(body) || is_ticketed_todo(body) {
+            return;
+        }
+        let comment_words = content_words(body);
+        if comment_words.is_empty() || comment_words.len() > MAX_COMMENT_WORDS {
+            return;
+        }
+        let code_words = associated_code_words(ctx.source, range);
+        if overlap_ratio(&comment_words, &code_words) >= OVERLAP_THRESHOLD {
+            diagnostics.push(Diagnostic::new(
+                self.code(),
+                "comment restates the code (redundant 'what' comment)",
+                range,
+                Severity::Warning,
+            ));
         }
     }
 }
