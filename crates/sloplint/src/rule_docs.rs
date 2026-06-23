@@ -8,16 +8,51 @@
 use std::fmt::Write;
 
 use anyhow::anyhow;
-use sloplint_linter::registry::{Registry, RuleGroup};
+use sloplint_linter::registry::{RegisteredRule, Registry, RuleGroup};
 
-/// Print one rule's docs (`code` given) or the full rule list (`code` is `None`).
-pub fn run_rule(code: Option<&str>) -> anyhow::Result<()> {
+/// Print one rule's docs (`code` given) or the full rule list (`code` is `None`), as human text
+/// or JSON (`as_json`). The JSON form mirrors `ruff rule --output-format json` — machine-readable
+/// rule metadata for tooling / docs generation.
+pub fn run_rule(code: Option<&str>, as_json: bool) -> anyhow::Result<()> {
     let registry = Registry::shipped();
-    match code {
-        None => print!("{}", rule_list(&registry)),
-        Some(code) => println!("{}", rule_detail(&registry, code)?),
+    match (code, as_json) {
+        (None, false) => print!("{}", rule_list(&registry)),
+        (Some(code), false) => println!("{}", rule_detail(&registry, code)?),
+        (None, true) => println!("{}", rule_list_json(&registry)),
+        (Some(code), true) => println!("{}", rule_detail_json(&registry, code)?),
     }
     Ok(())
+}
+
+/// One rule's machine-readable metadata: code, kebab name, preview flag, and the rendered
+/// `## What it does` explanation (or null).
+fn rule_json(rule: &RegisteredRule) -> serde_json::Value {
+    let built = rule.build();
+    serde_json::json!({
+        "code": rule.code,
+        "name": to_kebab(built.rule_name()),
+        "preview": rule.group == RuleGroup::Preview,
+        "explanation": built.explanation(),
+    })
+}
+
+/// Every rule as a JSON array, sorted by code.
+fn rule_list_json(registry: &Registry) -> String {
+    let mut rules: Vec<&RegisteredRule> = registry.rules().iter().collect();
+    rules.sort_by_key(|rule| rule.code);
+    let array: Vec<serde_json::Value> = rules.iter().map(|rule| rule_json(rule)).collect();
+    serde_json::to_string_pretty(&array).expect("rule metadata serializes")
+}
+
+/// One rule as a JSON object; errors on an unknown code.
+fn rule_detail_json(registry: &Registry, code: &str) -> anyhow::Result<String> {
+    let want = code.to_ascii_uppercase();
+    let rule = registry
+        .rules()
+        .iter()
+        .find(|rule| rule.code == want)
+        .ok_or_else(|| anyhow!("unknown rule `{code}` (run `sloplint rule` to list all rules)"))?;
+    Ok(serde_json::to_string_pretty(&rule_json(rule)).expect("rule metadata serializes"))
 }
 
 /// One line per registered rule — `CODE  kebab-name  (stability)` — sorted by code.
@@ -128,6 +163,36 @@ mod tests {
     #[test]
     fn detail_is_case_insensitive() {
         assert!(rule_detail(&Registry::shipped(), "slp030").is_ok());
+    }
+
+    #[test]
+    fn json_list_is_valid_and_includes_a_known_rule() {
+        let out = rule_list_json(&Registry::shipped());
+        let value: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let arr = value.as_array().expect("array");
+        assert!(arr.iter().any(|r| r["code"] == "SLP030"
+            && r["name"] == "defensive-except"
+            && r["preview"] == false
+            && r["explanation"]
+                .as_str()
+                .is_some_and(|e| e.contains("## What it does"))));
+    }
+
+    #[test]
+    fn json_detail_is_a_single_object() {
+        let out = rule_detail_json(&Registry::shipped(), "slp030").unwrap();
+        let value: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        assert_eq!(value["code"], "SLP030");
+        assert_eq!(value["preview"], false);
+        assert!(value["explanation"]
+            .as_str()
+            .unwrap()
+            .contains("## Why is this bad?"));
+    }
+
+    #[test]
+    fn json_detail_errors_on_unknown_code() {
+        assert!(rule_detail_json(&Registry::shipped(), "SLP999").is_err());
     }
 
     #[test]

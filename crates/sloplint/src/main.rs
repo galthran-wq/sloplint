@@ -75,6 +75,9 @@ enum Command {
     Rule {
         /// Rule code to explain, e.g. `SLP030`. Omit to list every rule.
         rule: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = RuleFormat::Text)]
+        format: RuleFormat,
     },
     /// Check Python files for slop, honoring `sloplint.toml`.
     Check {
@@ -189,6 +192,15 @@ impl InitTool {
     }
 }
 
+/// Output format for `rule`.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum RuleFormat {
+    /// Human-readable text (default).
+    Text,
+    /// JSON — machine-readable rule metadata (mirrors `ruff rule --output-format json`).
+    Json,
+}
+
 /// Output format for `metrics`.
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum MetricsFormat {
@@ -252,10 +264,12 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => tool_error(err),
         },
-        Command::Rule { rule } => match rule_docs::run_rule(rule.as_deref()) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => tool_error(err),
-        },
+        Command::Rule { rule, format } => {
+            match rule_docs::run_rule(rule.as_deref(), matches!(format, RuleFormat::Json)) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => tool_error(err),
+            }
+        }
         Command::Check {
             paths,
             config,
