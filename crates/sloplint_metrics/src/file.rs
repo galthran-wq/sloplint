@@ -6,7 +6,6 @@ use sloplint_python::ast::{Expr, ModModule, Stmt, StmtClassDef, StmtFunctionDef}
 use sloplint_python::parser::Parsed;
 use sloplint_python::{LineIndex, Ranged, TextRange, TextSize, TokenKind};
 
-use crate::collect::{collect_classes, collect_functions};
 use crate::complexity::{cognitive, cyclomatic, max_nesting};
 use crate::exception::exception_stats;
 use crate::inheritance::{class_is_abstract, coupling_candidates};
@@ -14,6 +13,7 @@ use crate::model::{ClassMetrics, FileMetrics, FunctionMetrics};
 use crate::size::{caller_arity, exit_count, line_span, ncss, param_count};
 use crate::types::type_hint_coverage;
 use crate::{cohesion, expr_trailing_name};
+use sloplint_python::{collect_classes, collect_functions};
 
 /// Compute metrics for one parsed file.
 pub fn file_metrics(source: &str, parsed: &Parsed<ModModule>) -> FileMetrics {

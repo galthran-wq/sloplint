@@ -8,7 +8,6 @@
 mod aggregate;
 pub mod badge;
 pub mod cohesion;
-mod collect;
 mod complexity;
 mod exception;
 mod file;
