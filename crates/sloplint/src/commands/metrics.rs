@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
+use anyhow::Context;
 use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
 use sloplint_linter::config::Selector;
 use sloplint_linter::detect;
@@ -156,9 +157,7 @@ pub(crate) fn run_metrics(
     // rule config. Load best-effort: an explicit --config is strict, discovery falls back to the
     // built-in profiles so a malformed ancestor toml can't break `metrics`.
     let config = load_config(config_path, false, false)?;
-    let selector = config
-        .prepare()
-        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
+    let selector = config.prepare().context("invalid glob in config")?;
     let scope = resolve_scope(scope.as_deref(), &selector)?;
     let profile_names: Vec<String> = selector
         .profile_names()

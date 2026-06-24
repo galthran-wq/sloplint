@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::anyhow;
+use anyhow::Context;
 use sloplint_linter::config::BadgeSettings;
 use sloplint_metrics::badge::{Badge, Color};
 use sloplint_metrics::RepoMetrics;
@@ -74,7 +74,7 @@ pub(crate) fn write_badges(
     repo: &RepoMetrics,
     settings: &BadgeSettings,
 ) -> anyhow::Result<()> {
-    fs::create_dir_all(dir).map_err(|e| anyhow!("creating {dir}: {e}"))?;
+    fs::create_dir_all(dir).with_context(|| format!("creating {dir}"))?;
     let all = metric_badges(repo);
 
     let mut written = 0usize;
@@ -105,10 +105,9 @@ pub(crate) fn write_badges(
 fn write_badge_files(dir: &str, slug: &str, badge: &Badge) -> anyhow::Result<()> {
     let svg_path = Path::new(dir).join(format!("{slug}.svg"));
     let json_path = Path::new(dir).join(format!("{slug}.json"));
-    fs::write(&svg_path, badge.svg())
-        .map_err(|e| anyhow!("writing {}: {e}", svg_path.display()))?;
+    fs::write(&svg_path, badge.svg()).with_context(|| format!("writing {}", svg_path.display()))?;
     fs::write(&json_path, badge.endpoint_json())
-        .map_err(|e| anyhow!("writing {}: {e}", json_path.display()))?;
+        .with_context(|| format!("writing {}", json_path.display()))?;
     Ok(())
 }
 

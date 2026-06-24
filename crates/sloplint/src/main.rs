@@ -33,6 +33,7 @@ use std::process::ExitCode;
 use std::{env, fs};
 
 use anyhow::anyhow;
+use anyhow::Context;
 use clap::Parser;
 use ignore::WalkBuilder;
 use sloplint_linter::config::Config;
@@ -138,7 +139,10 @@ fn tool_error(err: anyhow::Error) -> ExitCode {
 }
 
 fn run_parse(path: &str) -> anyhow::Result<()> {
-    let source = fs::read_to_string(path).map_err(|e| anyhow!("reading {path}: {e}"))?;
+    let source = fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+    // NB: keep the inline `: {e}` here (not `.context`) — `PythonError` is `#[error(transparent)]`
+    // over `ParseError`, so it carries a `source()`; `.context` + `{err:#}` would walk that chain
+    // and print the parse message twice. The one-level Display is the intended output.
     let parsed = parse(&source).map_err(|e| anyhow!("parsing {path}: {e}"))?;
 
     println!("=== AST ===");
@@ -166,12 +170,11 @@ pub(crate) fn load_config(
     let mut config = match config_path {
         Some(path) => {
             let text =
-                fs::read_to_string(path).map_err(|e| anyhow!("reading config {path}: {e}"))?;
-            Config::from_toml_str(&text).map_err(|e| anyhow!("parsing config {path}: {e}"))?
+                fs::read_to_string(path).with_context(|| format!("reading config {path}"))?;
+            Config::from_toml_str(&text).with_context(|| format!("parsing config {path}"))?
         }
         None => {
-            let cwd =
-                env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
+            let cwd = env::current_dir().context("resolving working directory")?;
             match Config::discover(&cwd) {
                 Ok(config) => config,
                 Err(err) if strict_discovery => return Err(err.into()),
@@ -207,7 +210,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
     let mut stdin_payload = String::new();
     io::stdin()
         .read_to_string(&mut stdin_payload)
-        .map_err(|e| anyhow!("reading hook payload from stdin: {e}"))?;
+        .context("reading hook payload from stdin")?;
     let path = match hook::extract_hook_path(&stdin_payload) {
         Some(p) => PathBuf::from(p),
         None => return Ok(HookOutcome::Clean), // no edited path in the payload
@@ -217,9 +220,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
     }
 
     let config = load_config(config_path, preview, true)?;
-    let selector = config
-        .prepare()
-        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
+    let selector = config.prepare().context("invalid glob in config")?;
     let registry = Registry::shipped();
 
     let display = path.to_string_lossy().to_string();
@@ -258,7 +259,7 @@ fn run_hook(config_path: Option<&str>, preview: bool) -> anyhow::Result<HookOutc
 
 /// `sloplint init` — wire detected (or `--tool`-forced) AI tools to run sloplint on each edit.
 fn run_init(tools: &[InitTool], dry_run: bool) -> anyhow::Result<()> {
-    let root = env::current_dir().map_err(|e| anyhow!("resolving working directory: {e}"))?;
+    let root = env::current_dir().context("resolving working directory")?;
 
     let targets: Vec<init::Tool> = if tools.is_empty() {
         let detected = init::detect_tools(&root);
@@ -290,7 +291,7 @@ fn run_init(tools: &[InitTool], dry_run: bool) -> anyhow::Result<()> {
         };
         let action = tool
             .plan(existing.as_deref())
-            .map_err(|e| anyhow!("{}: {e}", tool.display_name()))?;
+            .with_context(|| tool.display_name().to_string())?;
         let rel = path.strip_prefix(&root).unwrap_or(&path).display();
         match action {
             init::Action::AlreadyConfigured => {
@@ -309,9 +310,9 @@ fn run_init(tools: &[InitTool], dry_run: bool) -> anyhow::Result<()> {
             init::Action::Write(contents) => {
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent)
-                        .map_err(|e| anyhow!("creating {}: {e}", parent.display()))?;
+                        .with_context(|| format!("creating {}", parent.display()))?;
                 }
-                fs::write(&path, contents).map_err(|e| anyhow!("writing {rel}: {e}"))?;
+                fs::write(&path, contents).with_context(|| format!("writing {rel}"))?;
                 println!("{}: wired ({rel})", tool.display_name());
             }
         }
