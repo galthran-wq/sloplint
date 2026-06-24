@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::anyhow;
+use anyhow::Context;
 use sloplint_clone::{extract_functions, CloneConfig, FunctionUnit};
 use sloplint_diagnostics::fix;
 use sloplint_diagnostics::render::render_diagnostics;
@@ -172,9 +172,7 @@ pub(crate) fn run_check(
     fix_mode: FixMode,
 ) -> anyhow::Result<bool> {
     let config = load_config(config_path, preview, true)?;
-    let selector = config
-        .prepare()
-        .map_err(|e| anyhow!("invalid glob in config: {e}"))?;
+    let selector = config.prepare().context("invalid glob in config")?;
     let registry = Registry::shipped();
     let clone_config = CloneConfig {
         min_statements: config.clone.min_statements,
