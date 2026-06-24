@@ -1,11 +1,15 @@
 //! AST collectors: gather every function (methods + nested) and every class reachable in a
-//! body, so each unit is measured independently. Both recurse through compound statements and
-//! treat a nested def/class as a collected unit *and* descend into it.
+//! body, so each unit can be analyzed independently. Both recurse through compound statements
+//! and treat a nested def/class as a collected unit *and* descend into it.
+//!
+//! These live in the parser seam because more than one downstream crate needs the exact same
+//! whole-tree walk (the clone detector and the metrics engine), and the recursion must stay
+//! byte-for-byte identical between them.
 
-use sloplint_python::ast::{ExceptHandler, Stmt, StmtClassDef, StmtFunctionDef};
+use ruff_python_ast::{ExceptHandler, Stmt, StmtClassDef, StmtFunctionDef};
 
-/// Collect functions (methods + nested) so each is measured independently.
-pub(crate) fn collect_functions<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtFunctionDef>) {
+/// Collect functions (methods + nested) so each is analyzed independently.
+pub fn collect_functions<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtFunctionDef>) {
     for stmt in body {
         match stmt {
             Stmt::FunctionDef(function) => {
@@ -49,7 +53,7 @@ pub(crate) fn collect_functions<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtFunc
 
 /// Recursively collect every class definition (top-level, nested in functions, classes, or
 /// compound statements), mirroring [`collect_functions`].
-pub(crate) fn collect_classes<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtClassDef>) {
+pub fn collect_classes<'a>(body: &'a [Stmt], out: &mut Vec<&'a StmtClassDef>) {
     for stmt in body {
         match stmt {
             Stmt::ClassDef(node) => {

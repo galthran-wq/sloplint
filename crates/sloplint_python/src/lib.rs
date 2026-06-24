@@ -11,6 +11,9 @@ pub use ruff_python_parser as parser;
 pub use ruff_source_file::{LineIndex, OneIndexed};
 pub use ruff_text_size::{Ranged, TextRange, TextSize};
 
+mod collect;
+pub use collect::{collect_classes, collect_functions};
+
 use ruff_python_ast::ModModule;
 use ruff_python_parser::{parse_module, ParseError, Parsed};
 
