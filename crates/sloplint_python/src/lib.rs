@@ -14,6 +14,9 @@ pub use ruff_text_size::{Ranged, TextRange, TextSize};
 mod collect;
 pub use collect::{collect_classes, collect_functions};
 
+mod docstring;
+pub use docstring::{docstring_range, docstring_text, is_docstring_stmt};
+
 use ruff_python_ast::ModModule;
 use ruff_python_parser::{parse_module, ParseError, Parsed};
 

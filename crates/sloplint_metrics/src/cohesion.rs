@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::is_staticmethod;
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, Parameters, Stmt, StmtClassDef, StmtFunctionDef};
 
@@ -153,23 +154,6 @@ fn receiver_name(method: &StmtFunctionDef) -> Option<&str> {
         .first()
         .or_else(|| method.parameters.args.first())
         .map(|param| param.parameter.name.as_str())
-}
-
-fn is_staticmethod(method: &StmtFunctionDef) -> bool {
-    method
-        .decorator_list
-        .iter()
-        .any(|decorator| decorator_name(&decorator.expression) == Some("staticmethod"))
-}
-
-/// The trailing identifier of a decorator expression (`staticmethod` from
-/// `@builtins.staticmethod`), or `None`.
-fn decorator_name(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Name(name) => Some(name.id.as_str()),
-        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
-        _ => None,
-    }
 }
 
 /// Whether `parameters` binds `name` — used to detect a nested scope that re-binds the
