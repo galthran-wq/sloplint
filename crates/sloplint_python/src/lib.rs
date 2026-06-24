@@ -14,6 +14,12 @@ pub use ruff_text_size::{Ranged, TextRange, TextSize};
 use ruff_python_ast::ModModule;
 use ruff_python_parser::{parse_module, ParseError, Parsed};
 
+/// A Python syntax error. Wraps Ruff's [`ParseError`] so the seam — not the underlying
+/// `ruff_*` crate — owns the public error type of [`parse`]; `Display` is forwarded unchanged.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct PythonError(#[from] ParseError);
+
 /// Parse Python source into a [`Parsed`] tree: AST (`syntax()`) and token stream
 /// (`tokens()`).
 ///
@@ -21,8 +27,8 @@ use ruff_python_parser::{parse_module, ParseError, Parsed};
 /// best-effort tree internally and is error-resilient; `parse_module` surfaces that as a
 /// hard error if any problems were found, which is the behavior a linter wants — don't
 /// lint code that doesn't parse.)
-pub fn parse(source: &str) -> Result<Parsed<ModModule>, ParseError> {
-    parse_module(source)
+pub fn parse(source: &str) -> Result<Parsed<ModModule>, PythonError> {
+    Ok(parse_module(source)?)
 }
 
 #[cfg(test)]
