@@ -6,6 +6,8 @@ use sloplint_python::ast::{Expr, ModModule, Stmt, StmtClassDef, StmtFunctionDef}
 use sloplint_python::parser::Parsed;
 use sloplint_python::{LineIndex, Ranged, TextRange, TextSize, TokenKind};
 
+use sloplint_python::{docstring_range, is_docstring_stmt};
+
 use crate::complexity::{cognitive, cyclomatic, max_nesting};
 use crate::exception::exception_stats;
 use crate::inheritance::{class_is_abstract, coupling_candidates};
@@ -109,11 +111,6 @@ fn function_logic(body: &[Stmt]) -> usize {
     collector.total
 }
 
-/// Whether `stmt` is a bare string-literal expression statement (a docstring).
-fn is_docstring_stmt(stmt: &Stmt) -> bool {
-    matches!(stmt, Stmt::Expr(expr) if matches!(expr.value.as_ref(), Expr::StringLiteral(_)))
-}
-
 /// Whether `stmt` is an `if __name__ == "__main__":` guard (either operand order).
 fn is_main_guard(stmt: &Stmt) -> bool {
     let Stmt::If(if_stmt) = stmt else {
@@ -212,20 +209,6 @@ fn function_metrics(
         has_return_annotation,
         has_docstring: docstring_range(&function.body).is_some(),
         docstring_lines: docstring_lines(source, &function.body),
-    }
-}
-
-/// Range of a body's docstring — the first statement, when it is a bare string-literal
-/// expression (PEP 257). `None` for any other leading statement. Used for both functions and
-/// classes; a docstring is a `StringLiteral`, never a `Comment`, so it is invisible to
-/// `comment_density` and this metric is purely additive.
-fn docstring_range(body: &[Stmt]) -> Option<TextRange> {
-    match body.first() {
-        Some(Stmt::Expr(expr)) => match expr.value.as_ref() {
-            Expr::StringLiteral(literal) => Some(literal.range()),
-            _ => None,
-        },
-        _ => None,
     }
 }
 

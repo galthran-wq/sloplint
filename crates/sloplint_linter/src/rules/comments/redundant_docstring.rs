@@ -1,7 +1,8 @@
 //! SLP002: redundant docstring.
 
 use sloplint_diagnostics::{Diagnostic, Severity};
-use sloplint_python::ast::{Expr, Stmt, StmtFunctionDef};
+use sloplint_python::ast::{Stmt, StmtFunctionDef};
+use sloplint_python::docstring_range;
 use sloplint_python::{Ranged, TextRange};
 
 use crate::lint::{FileContext, Rule};
@@ -39,22 +40,9 @@ impl Rule for RedundantDocstring {
         let Stmt::FunctionDef(function) = stmt else {
             return;
         };
-        if let Some(doc_range) = docstring_range(function) {
+        if let Some(doc_range) = docstring_range(&function.body) {
             check_docstring(self.code(), ctx.source, function, doc_range, diagnostics);
         }
-    }
-}
-
-/// The range of a function's docstring (its first statement, if a string literal).
-fn docstring_range(function: &StmtFunctionDef) -> Option<TextRange> {
-    let Stmt::Expr(expr) = function.body.first()? else {
-        return None;
-    };
-    // Works whether `value` is `Expr` or `Box<Expr>` (deref coercion at the binding).
-    let value: &Expr = &expr.value;
-    match value {
-        Expr::StringLiteral(string) => Some(string.range()),
-        _ => None,
     }
 }
 

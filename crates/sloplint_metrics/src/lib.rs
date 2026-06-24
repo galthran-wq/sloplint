@@ -41,7 +41,7 @@ pub(crate) use aggregate::percentile;
 
 // The only sloplint_python type this module names directly is `Expr` (in `expr_trailing_name`);
 // the per-file/aggregate extraction that used the rest now lives in `file`/`aggregate`.
-use sloplint_python::ast::Expr;
+use sloplint_python::ast::{Expr, StmtFunctionDef};
 
 /// Aggregated metrics across many files — what the badges and PR summary report.
 #[derive(Debug, Clone, Default)]
@@ -207,6 +207,17 @@ pub(crate) fn expr_trailing_name(expr: &Expr) -> Option<&str> {
         Expr::Subscript(subscript) => expr_trailing_name(&subscript.value),
         _ => None,
     }
+}
+
+/// Whether a function carries `@staticmethod` — so its first parameter is a genuine argument,
+/// not a `self`/`cls` receiver. Matches the decorator by its trailing name, so both
+/// `@staticmethod` and `@builtins.staticmethod` count.
+pub(crate) fn is_staticmethod(function: &StmtFunctionDef) -> bool {
+    function
+        .decorator_list
+        .iter()
+        .filter_map(|decorator| expr_trailing_name(&decorator.expression))
+        .any(|name| name == "staticmethod")
 }
 
 #[cfg(test)]

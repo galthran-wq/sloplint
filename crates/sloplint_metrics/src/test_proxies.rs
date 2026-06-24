@@ -44,6 +44,7 @@
 
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, ModModule, Stmt, StmtFunctionDef};
+use sloplint_python::docstring_text;
 use sloplint_python::parser::Parsed;
 
 /// Classify a file as a test file purely from its path: a `test_*.py` or `*_test.py` filename,
@@ -370,18 +371,6 @@ fn walk_doctests(body: &[Stmt], counts: &mut DoctestCounts) {
             }
             _ => {}
         }
-    }
-}
-
-/// The text of a body's docstring — its first statement, when that is a string-literal
-/// expression — or `None`.
-fn docstring_text(body: &[Stmt]) -> Option<&str> {
-    match body.first() {
-        Some(Stmt::Expr(expr)) => match expr.value.as_ref() {
-            Expr::StringLiteral(string) => Some(string.value.to_str()),
-            _ => None,
-        },
-        _ => None,
     }
 }
 

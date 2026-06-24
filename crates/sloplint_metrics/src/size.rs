@@ -3,7 +3,7 @@
 //! `self`/`cls` receiver excluded). All are own-body measures — they do not descend into
 //! nested function/class bodies, which are measured on their own.
 
-use crate::expr_trailing_name;
+use crate::is_staticmethod;
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, Parameters, Stmt, StmtFunctionDef};
 use sloplint_python::TextRange;
@@ -110,14 +110,4 @@ pub(crate) fn receiver_count(function: &StmtFunctionDef) -> usize {
 /// receiver. The input to the Long-Parameter-List bands.
 pub(crate) fn caller_arity(function: &StmtFunctionDef) -> usize {
     param_count(&function.parameters) - receiver_count(function)
-}
-
-/// Whether a function carries `@staticmethod` — so its first parameter is a genuine argument, not
-/// a `self`/`cls` receiver.
-fn is_staticmethod(function: &StmtFunctionDef) -> bool {
-    function
-        .decorator_list
-        .iter()
-        .filter_map(|decorator| expr_trailing_name(&decorator.expression))
-        .any(|name| name == "staticmethod")
 }
