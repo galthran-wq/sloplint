@@ -1033,6 +1033,7 @@ dependencies = [
  "sloplint_macros",
  "sloplint_metrics",
  "sloplint_python",
+ "thiserror",
  "toml",
 ]
 

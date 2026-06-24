@@ -13,6 +13,7 @@ sloplint_metrics.workspace = true
 sloplint_clone.workspace = true
 serde.workspace = true
 toml.workspace = true
+thiserror.workspace = true
 globset = "0.4"
 
 [dev-dependencies]
