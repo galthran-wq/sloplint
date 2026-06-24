@@ -209,19 +209,10 @@ impl Default for CloneSettings {
 }
 
 /// Errors from discovering/parsing a config file.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    #[error("reading {}: {}", .0.display(), .1)]
     Read(PathBuf, std::io::Error),
+    #[error("parsing {}: {}", .0.display(), .1)]
     Parse(PathBuf, Box<toml::de::Error>),
 }
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConfigError::Read(path, err) => write!(f, "reading {}: {err}", path.display()),
-            ConfigError::Parse(path, err) => write!(f, "parsing {}: {err}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for ConfigError {}
