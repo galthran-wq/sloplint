@@ -18,6 +18,7 @@ mod gates;
 mod hook;
 mod init;
 mod output;
+mod results;
 mod rule_docs;
 pub(crate) use args::Scope;
 use args::{Cli, Command, Format, InitTool, MetricsFormat, RuleFormat};
@@ -33,6 +34,7 @@ use output::{
     metrics_json, metrics_markdown, print_class_rows, print_clone_density, print_concentration,
     print_function_rows, print_metrics_panel, print_package_rows, print_test_proxies_table,
 };
+pub(crate) use results::{CloneStats, FileResult, MeasuredFile};
 
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -45,7 +47,6 @@ use ignore::WalkBuilder;
 use sloplint_clone::{extract_functions, find_clones, CloneConfig, FunctionUnit};
 use sloplint_diagnostics::fix;
 use sloplint_diagnostics::render::render_diagnostics;
-use sloplint_diagnostics::Diagnostic;
 use sloplint_linter::clones;
 use sloplint_linter::config::{Config, Selector};
 use sloplint_linter::detect;
@@ -647,16 +648,6 @@ fn apply_fixes(results: &mut [FileResult], allow_unsafe: bool) -> (usize, bool) 
     (total, write_failed)
 }
 
-/// One file's parsed source and accumulated diagnostics.
-pub(crate) struct FileResult {
-    path: String,
-    source: String,
-    diagnostics: Vec<Diagnostic>,
-    /// Inline `# sloplint: allow` directives for this file. Parsed up front while the tree
-    /// is in scope, then applied once at the end so it filters whole-tree findings (SLP020) too.
-    suppressions: Suppressions,
-}
-
 /// First-party (project-local) top-level module names found by walking the project `root`.
 ///
 /// Honors `.gitignore` (so `.venv/` etc. are skipped) via the same `ignore` walker used for
@@ -936,46 +927,6 @@ fn run_metrics(
     let over_cyclomatic = gate(&per_file, max_cyclomatic, "cyclomatic", |f| f.cyclomatic);
     let over_cognitive = gate(&per_file, max_cognitive, "cognitive", |f| f.cognitive);
     Ok(!over_cyclomatic && !over_cognitive)
-}
-
-/// Load the config for `metrics` (profiles + `[badges]`). An explicit `--config` is strict (a
-/// parse error fails the run), but *discovery* is best-effort: an unrelated or malformed ancestor
-/// `sloplint.toml` must not break `metrics`, so we fall back to the built-in defaults with a
-/// warning.
-/// A measured file: its display path, source, per-function metrics, and the names of the profiles
-/// its path belongs to (used to place it into one or more metric panels).
-pub(crate) struct MeasuredFile {
-    path: String,
-    source: String,
-    metrics: FileMetrics,
-    profiles: Vec<String>,
-}
-
-/// Production duplication aggregate: SLP020 clone density for one profile's functions —
-/// surfacing the existing clone engine as a descriptive cohort metric, not new detection.
-pub(crate) struct CloneStats {
-    /// Confirmed SLP020 clone pairs whose *both* functions are in the profile.
-    pairs: usize,
-    /// Distinct functions appearing in at least one such pair.
-    functions_in_clones: usize,
-    /// Functions the clone engine considered for the profile — the ratio denominator.
-    total_functions: usize,
-    /// Functions in the largest connected clone cluster (a helper duplicated across N functions);
-    /// 0 when there are no clones.
-    largest_cluster: usize,
-}
-
-impl CloneStats {
-    /// Fraction of the profile's functions that participate in at least one clone pair (0.0 when
-    /// there are none). The headline duplication ratio — high for copy-paste codebases, ≈0 for
-    /// clean ones.
-    fn ratio(&self) -> f64 {
-        if self.total_functions == 0 {
-            0.0
-        } else {
-            self.functions_in_clones as f64 / self.total_functions as f64
-        }
-    }
 }
 
 #[cfg(test)]
