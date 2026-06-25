@@ -1,0 +1,5 @@
+# Datasets are point-in-time snapshots of live GitHub — large and not byte-reproducible.
+# Regenerate with the scripts (see FINDINGS.md). Reports + scripts are the committed deliverables.
+*.jsonl
+*.gz
+checkouts/

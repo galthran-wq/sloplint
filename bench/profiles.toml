@@ -1,0 +1,43 @@
+# Shared sloplint profile config for the benchmark / case studies.
+#
+# Declaring any [[profiles]] replaces the built-in tests+production pair, so we redeclare `tests`
+# (the built-in globs) and add a `noise` profile that carves examples / docs / benchmarks / build
+# glue out of the `production` catch-all. With this, `sloplint metrics <repo-root> --config
+# bench/profiles.toml --scope production` measures the importable package in ONE pass — no pointing
+# at the package dir, no rsync-excluding nested tests, no second whole-repo run.
+#
+# All globs are `**/`-prefixed so they match whether paths are passed absolute or relative.
+# This is the manual stand-in for sloplint#100 (built-in examples/docs profiles); when that lands,
+# most of `noise` becomes unnecessary.
+
+[[profiles]]
+name = "tests"
+match = [
+  "**/test_*.py", "**/*_test.py", "**/conftest.py",
+  "**/tests/**", "**/test/**",
+]
+# Carve back production code that lives under a `test/` segment but is shipped API, not a test
+# suite: django's `django.test` testing framework. (Path-scoped, harmless to other repos.)
+# NB: we do NOT carve out torch/testing — its `*_test.py` files (e.g. the WMC-1073 distributed
+# test harness) are genuinely test-support and belong in the `tests` panel; the `*_test.py`
+# matcher places them there correctly.
+exclude = [
+  "**/django/test/**",
+]
+
+[[profiles]]
+name = "noise"          # not production, not tests: examples, docs, build/release tooling
+# Only distinctive, low-collision names. NOT bare `tools`/`scripts`/`bench` — those are real
+# production packages in some repos (e.g. `langchain_core.tools`), and misfiling them as noise
+# silently shrinks the production panel.
+match = [
+  "**/examples/**",
+  "**/docs/**", "**/doc/**", "**/docs_src/**",
+  "**/benchmarks/**", "**/asv_benchmarks/**",
+  "**/build_tools/**", "**/maint_tools/**",
+  "**/setup.py", "**/noxfile.py", "**/conf.py",
+]
+
+[[profiles]]
+name = "production"
+default = true          # the catch-all: the importable package
