@@ -7,10 +7,56 @@ judgments Ruff intentionally won't ship, and **never re-checks anything Ruff alr
 
 Written in Rust, reusing Ruff's own parser crates for a full-fidelity AST + token stream.
 
-## Features
+sloplint has two halves:
 
-Rules that flag slop patterns no mainstream linter covers today. **Stable** rules run by
-default; **preview** rules are heuristic — enable them with `--preview`.
+- **[Software-quality metrics](#software-quality-metrics)** — a deterministic, research-backed
+  measurement layer over your code (complexity, cohesion, coupling, architecture, duplication,
+  test substance). This is the foundation: the rules are increasingly built on top of it.
+- **[Lint rules](#rules)** — strict `SLP*` rules that flag slop patterns no mainstream linter covers.
+
+## Software-quality metrics
+
+`sloplint metrics` reports a deterministic, reproducible measurement layer over your code — **no
+LLM, no randomness**. These are **measured, not linted**, so they never duplicate Ruff, and they're
+the foundation the lint rules increasingly build on. The guiding principle: **no single metric
+orders code by quality** — you read the whole panel (function → class → module → package), in
+context, mostly as risk-tier histograms (`low`/`moderate`/`high`/`very_high`) rather than a
+pass/fail score.
+
+```bash
+sloplint metrics src                       # metrics table (production code)
+sloplint metrics src --format json         # full rollup; --format functions/classes/packages for per-unit feeds
+sloplint metrics src --max-cyclomatic 10   # CI gate: exit 1 over McCabe's ceiling (also --max-cognitive)
+sloplint metrics src --badges badges/      # emit SVG + shields-endpoint badges (see Badges below)
+```
+
+**[Full metric reference → wiki](https://github.com/galthran-wq/sloplint/wiki/Metrics)** — what each
+metric measures, how it's computed, how to read its bands, plus the per-profile panels:
+
+| Metric | Level | What it measures |
+| --- | --- | --- |
+| [Cyclomatic & cognitive complexity](https://github.com/galthran-wq/sloplint/wiki/Metrics#cyclomatic--cognitive-complexity) | function | McCabe branch count + SonarSource readability-weighted complexity, with risk tiers |
+| [Function length](https://github.com/galthran-wq/sloplint/wiki/Metrics#function-length) | function | physical LoC + longest *logic* function |
+| [Parameter count / arity](https://github.com/galthran-wq/sloplint/wiki/Metrics#parameter-count) | function | Long-Parameter-List smell (caller-facing arity) |
+| [Type-hint coverage](https://github.com/galthran-wq/sloplint/wiki/Metrics#type-hint-coverage) | function | under-annotation as a quality concern |
+| [WMC / DIT / NOC / CBO / LCOM4](https://github.com/galthran-wq/sloplint/wiki/Metrics#class-metrics) | class | CK class metrics + cohesion |
+| [Module size (NLOC)](https://github.com/galthran-wq/sloplint/wiki/Metrics#module-size) | module | god-module detection |
+| [Top-level / undecomposed code](https://github.com/galthran-wq/sloplint/wiki/Metrics#top-level--undecomposed-code) | module | logic dumped at module scope vs. in functions |
+| [Package & module architecture](https://github.com/galthran-wq/sloplint/wiki/Metrics#package--module-architecture) | project | coupling, cycles, propagation cost, modularity, concentration |
+| [Duplication density](https://github.com/galthran-wq/sloplint/wiki/Metrics#duplication-density) | project | clone ratio (the SLP020 engine as a cohort aggregate) |
+| [Comment & docstring density](https://github.com/galthran-wq/sloplint/wiki/Metrics#comment--docstring-coverage) | project | comment density, docstring coverage, docstring/code ratio |
+| [Exception-handling hygiene](https://github.com/galthran-wq/sloplint/wiki/Metrics#exception-handling-hygiene) | project | broad / swallowed exception rates |
+| [Static test proxies](https://github.com/galthran-wq/sloplint/wiki/Metrics#static-test-proxies-not-coverage) | project | test:code, assertion density, assertion-free rate, doctest coverage |
+| [God-unit tail](https://github.com/galthran-wq/sloplint/wiki/Metrics#god-unit-tail) | cross-cutting | how many units land in the worst band of each distribution |
+
+See the [**case studies**](https://github.com/galthran-wq/sloplint/wiki/cases) for these metrics run
+on 140 real projects — clean libraries, large frameworks, god-class codebases, and vibe-coded repos.
+
+## Rules
+
+Rules that flag slop patterns no mainstream linter covers today. **Stable** rules run by default;
+**preview** rules are heuristic — enable them with `--preview`. Explain any rule with
+`sloplint rule SLP030` (or `sloplint rule` to list all).
 
 | Rule | Stability | What it flags |
 | --- | --- | --- |
@@ -18,28 +64,27 @@ default; **preview** rules are heuristic — enable them with `--preview`.
 | `SLP020` | stable | Cross-file duplicate / near-duplicate functions — copy-paste *and* "same logic, slightly different" |
 | `SLP030` | stable | Overly defensive `try`/`except` |
 | `SLP050` | stable | Non-ASCII source (e.g. emoji) |
-| `SLP080` | stable | Oversized files (default: > 400 lines, configurable via `file_max_lines`) |
+| `SLP080` | stable | Oversized files (default: > 400 lines, via `file_max_lines`) |
 | `SLP082` | stable | Deep control-flow nesting inside a function (default: > 4 levels, via `nesting_max_depth`) |
 | `SLP090` | stable | Flat-directory fanout — too many `.py` modules in one directory (default: > 15, via `dir_max_modules`) |
 | `SLP001` | preview | Redundant "what" comments that just restate the code |
 | `SLP002` | preview | Redundant docstrings that just restate the code |
-| `SLP004` | preview | AI-narration comment tells — deferral/incompleteness (`for now`, `in production this would`; **error**), hedging (`should work`, `probably`), and structural noise (step narration, ASCII dividers, narrator comments) |
+| `SLP004` | preview | AI-narration comment tells — deferral/incompleteness (`for now`, `in production this would`; **error**), hedging (`should work`, `probably`), and structural noise (step narration, ASCII dividers) |
 | `SLP040` | preview | Redundant type hints |
 | `SLP060` | preview | Verbose, mechanical identifier naming |
 | `SLP084` | preview | Deeply nested data-structure literals (a dict-of-lists-of-dicts blob past a depth — model it with a named type) |
 | `SLP120` | preview | Low-cohesion "god classes" via LCOM4 (methods that split into unrelated groups) |
-| `SLP130` | preview | Literal-dispatch & isinstance ladders — a long `if`/`elif` chain testing the same value against literals (`x == "a"` …) or types (`isinstance(x, A)` …) past a branch count (default: > 3, via `dispatch_max_branches`); use a lookup table, `match`, or polymorphism |
-| `SLP180` | preview | Undeclared third-party imports — a module imported but missing from the project's `pyproject.toml`/`requirements*.txt` (broken on a clean install) |
-| `SLP210` | preview | Phantom security guards — a call to / decorator of a known security-guard name (`validate_token`, `@requires_auth`, …) that is never defined or imported in the module (fake security control — CWE-693) |
-| `SLP220` | preview | Corrupted / truncated AI output — a leftover ```` ``` ```` fence, merge-conflict marker or `<file …>` tag in code, a file that fails to parse, or a prose-heavy paste (an unparseable `.py` becomes a finding instead of being silently skipped) |
-| `SLP230` | preview | Mock / placeholder data in production code — `@example.com` emails, fake phone numbers, low-entropy/nil UUIDs, weak credentials (`changeme`, `your_api_key`), and dummy returns (`return {"foo": "bar"}` / `"placeholder"`); excludes test paths |
-| `SLP240` | preview | Ghost scaffolding — a top-level class/function defined but **never referenced anywhere** in the project (dangling abstraction), or a `settings.ENABLE_X` config flag read but defined nowhere (whole-project; allowlists exports/base-types/entry-points) |
-| `SLP250` | preview | Cross-language pollution — wrong-language idioms in Python: camelCase methods (`.toString()`, `.charAt()`, `.forEach()`), foreign attributes (`.length`, `.prototype`), `console.log`, and foreign builtins (`array_push`, `println`). Narrow + allow-listed (`.push`/`.size`/`re.sub` not flagged) |
+| `SLP130` | preview | Literal-dispatch & isinstance ladders — a long `if`/`elif` chain testing the same value against literals or types past a branch count (default: > 3, via `dispatch_max_branches`) |
+| `SLP180` | preview | Undeclared third-party imports — a module imported but missing from `pyproject.toml`/`requirements*.txt` (broken on a clean install) |
+| `SLP210` | preview | Phantom security guards — a call to / decorator of a known security-guard name (`validate_token`, `@requires_auth`, …) that is never defined or imported (fake security control — CWE-693) |
+| `SLP220` | preview | Corrupted / truncated AI output — a leftover ```` ``` ```` fence, merge-conflict marker or `<file …>` tag in code, a file that fails to parse, or a prose-heavy paste |
+| `SLP230` | preview | Mock / placeholder data in production code — `@example.com` emails, fake phone numbers, low-entropy/nil UUIDs, weak credentials (`changeme`), dummy returns; excludes test paths |
+| `SLP240` | preview | Ghost scaffolding — a top-level class/function defined but **never referenced anywhere** in the project, or a `settings.ENABLE_X` flag read but defined nowhere |
+| `SLP250` | preview | Cross-language pollution — wrong-language idioms in Python: camelCase methods (`.toString()`), foreign attributes (`.length`), `console.log`, foreign builtins (`array_push`). Narrow + allow-listed |
 
-Plus software-quality **metrics** (cyclomatic + cognitive complexity, LCOM4 cohesion) with
-McCabe risk tiers, shields **badges**, and a per-PR summary — and **package/module architecture
-metrics** over the import graph (dependency cycles, coupling/instability, propagation cost,
-modularity) — via the `metrics` command and the GitHub Action.
+Several rules have a mechanical **[autofix](https://github.com/galthran-wq/sloplint/wiki/Autofix)**
+(`check --fix`); single intentional cases are acknowledged in-line with Ruff-style
+**[`# noqa`](https://github.com/galthran-wq/sloplint/wiki/Inline-suppression)**.
 
 ## Installation
 
@@ -57,89 +102,39 @@ uvx --from sloplintpy sloplint metrics  # Report software-quality metrics.
 Or install `sloplintpy` with uv (recommended), pip, or pipx — then run `sloplint`:
 
 ```bash
-# With uv.
-uv tool install sloplintpy@latest   # Install the `sloplint` command globally.
-uv add --dev sloplintpy             # Or add it to your project.
-
-# With pip.
-pip install sloplintpy
-
-# With pipx.
-pipx install sloplintpy
+uv tool install sloplintpy@latest   # uv: install the `sloplint` command globally
+uv add --dev sloplintpy             # uv: or add it to your project
+pip install sloplintpy              # pip
+pipx install sloplintpy              # pipx
 ```
+
+From a clone, run it through cargo instead (`cargo run -p sloplint -- check path/to/code`), or
+build a wheel locally with [maturin](https://www.maturin.rs/) (`maturin build --release`).
 
 ## Usage
 
-Once installed, `sloplint` is a native binary on your `PATH`:
-
 ```bash
 sloplint check path/to/code              # lint (exit 1 on findings)
-sloplint check src --fix                 # auto-fix findings that have a safe fix (e.g. delete banned comments)
-sloplint check src --format sarif        # SARIF / json / github / text
+sloplint check src --fix                 # auto-fix findings that have a safe fix
+sloplint check src --format sarif        # SARIF / json / github / text / agent
 sloplint metrics src                     # software-quality metrics table (production code)
 sloplint metrics src --scope all         # a panel for every profile (default: production only)
 sloplint metrics src --format github     # PR-summary markdown (CC risk tiers)
 sloplint metrics src --format packages   # per-package feed: coupling, cycles, abstractness (JSONL)
 sloplint metrics src --max-cyclomatic 10 # CI gate: exit 1 over McCabe's ceiling
 sloplint metrics src --badges badges/    # emit SVG + shields-endpoint badges
-sloplint init                            # wire sloplint into your AI coding tool (see below)
-sloplint rule SLP030                     # explain a rule (or `sloplint rule` to list all) — like `ruff rule`
-sloplint rule --format json              # machine-readable rule metadata (like `ruff rule --output-format json`)
+sloplint init                            # wire sloplint into your AI coding tool
+sloplint rule SLP030                     # explain a rule (or `sloplint rule` to list all)
+sloplint rule --format json              # machine-readable rule metadata
 sloplint parse file.py                   # dump AST + tokens (debug aid)
 ```
 
-From a clone, run it through cargo instead (`cargo run -p sloplint -- check path/to/code`), or
-build a wheel locally with [maturin](https://www.maturin.rs/) (`maturin build --release`).
-
 Comments are banned by default; relax per-path (see [Configuration](#configuration)). Preview
-rules need `--preview`.
-
-### Autofix
-
-Like Ruff, `sloplint check --fix` automatically resolves findings that have a mechanical fix,
-rewriting files in place. Not every rule is fixable — near-duplicate functions (SLP020) or a
-low-cohesion god class (SLP120) need human judgment — but several are. The flagship example is
-**SLP010**: where comments are banned, `--fix` simply deletes them (own-line comments take their
-whole line; inline `code  # …` comments lose just the trailing comment).
-
-```bash
-sloplint check src --fix            # apply safe fixes, rewrite files, report what remains
-sloplint check src --fix --unsafe-fixes   # also apply fixes that might change behavior/intent
-```
-
-Fixes run **after** per-path rule selection and inline `# noqa` suppression, so a path that opts
-back into comments (a profile that ignores `SLP010`) and any `# noqa`-suppressed finding are never
-touched. Only `Safe` fixes apply by default; `--unsafe-fixes` opts into the rest. Findings without
-a fix are still reported.
-
-## Agent-loop integration
-
-sloplint is fast, deterministic and reproducible — so instead of only catching slop in CI,
-after the code has landed, you can run it *inside* your AI coding tool's edit loop. The tool
-fires a hook after every file edit, sloplint checks the just-edited file, and any findings go
-straight back to the agent so it self-corrects in the same turn — a guardrail, not just a gate.
-
-```bash
-sloplint init                 # detect the tools in this repo and wire them up
-sloplint init --tool claude   # or target one: claude | cursor | aider | all
-sloplint init --dry-run       # preview the config changes without writing
-```
-
-`init` writes (merging into any existing config, never clobbering it):
-
-| Tool | Config | Mechanism |
-| --- | --- | --- |
-| Claude Code | `.claude/settings.json` | `PostToolUse` hook → `sloplint check --hook --format agent` |
-| Cursor | `.cursor/hooks.json` | `afterFileEdit` hook → `sloplint check --hook --format agent` |
-| Aider | `.aider.conf.yml` | `lint-cmd: "python: sloplint check --format agent"` |
-
-The Claude Code and Cursor hooks pass the edited path as JSON on stdin; `check --hook` reads it
-(no `jq` needed), lints just that file with the fast per-file rules, prints any findings to
-stderr in the terse `path:line:col: CODE message` agent format, and exits 2 so the agent sees
-them. A clean edit exits 0 silently. Whole-project rules (clone detection, dir fanout,
-undeclared imports) still belong in the CI run — they need the whole tree, not one edit.
-
-You can use the agent format anywhere, not just in hooks: `sloplint check src --format agent`.
+rules need `--preview`. More on the [wiki](https://github.com/galthran-wq/sloplint/wiki):
+[Autofix](https://github.com/galthran-wq/sloplint/wiki/Autofix),
+[agent-loop integration](https://github.com/galthran-wq/sloplint/wiki/Agent-loop-integration) (run
+sloplint inside your AI coding tool's edit loop), and the
+[GitHub Action](https://github.com/galthran-wq/sloplint/wiki/GitHub-Action).
 
 ## Configuration
 
@@ -180,16 +175,15 @@ extra = []                    # extra hedging/deferral comment phrases beyond th
 [crosslang]                   # SLP250 cross-language pollution
 allow = []                    # extra names to treat as legitimate Python (suppress false positives)
 
-[badges]                      # which `metrics --badges` files to emit (see Metrics & badges)
+[badges]                      # which `metrics --badges` files to emit
 # include = ["cyclomatic-risk"]   # per-metric badges; omit = all, [] = none
 summary = []                  # metrics to fold into one combined `sloplint` badge
 
-# Profiles (#96): named, path-matched slices of the tree. Each carries its own rule deltas over
-# the global config AND defines a metrics panel. Omit the section entirely to get the built-in
-# `tests` / `generated` / `production` trio (generated code is content-detected, #115). The
-# `[limits]` above are the global defaults a profile inherits; a
-# profile's `limits` overrides only the per-file thresholds it sets (the cross-file SLP020/SLP090
-# thresholds and `[clone]` stay global). The name `all` is reserved (it's the every-profile scope).
+# Profiles: named, path-matched slices of the tree. Each carries its own rule deltas over the
+# global config AND defines a metrics panel. Omit the section entirely to get the built-in
+# `tests` / `generated` / `production` trio (generated code is content-detected). A profile's
+# `limits` overrides only the per-file thresholds it sets (the cross-file SLP020/SLP090 thresholds
+# and `[clone]` stay global). The name `all` is reserved (it's the every-profile scope).
 [[profiles]]
 name = "tests"                # matched first; a file belongs to every profile whose globs hit it
 match = ["tests/**", "test_*.py", "*_test.py", "conftest.py"]
@@ -203,464 +197,43 @@ name = "production"
 default = true                # the catch-all: claims every file no other profile matched
 ```
 
-Profiles replace the old `[[overrides]]`. For a file in more than one profile, rule `ignore`s
-accumulate and threshold overrides resolve in declaration order (last writer wins). `metrics`
-reports a panel per profile (see below); `check` lints each file with its profile's effective
-config. Cross-file/directory rules (SLP020 clones, SLP090 fanout) use the global thresholds, since
-their unit of analysis spans profiles. Keep a `default` profile unless you mean it — a file that
-matches no profile is linted with the global config but is omitted from every metrics panel.
+For a file in more than one profile, rule `ignore`s accumulate and threshold overrides resolve in
+declaration order (last writer wins). `metrics` reports a panel per profile; `check` lints each
+file with its profile's effective config. Cross-file/directory rules (SLP020 clones, SLP090
+fanout) use the global thresholds, since their unit of analysis spans profiles. Keep a `default`
+profile unless you mean it — a file that matches no profile is linted with the global config but is
+omitted from every metrics panel.
 
-### Inline suppression (`# noqa`)
+For single intentional findings, acknowledge them at the site with Ruff-style
+**[`# noqa`](https://github.com/galthran-wq/sloplint/wiki/Inline-suppression)** — `# noqa: SLP020`
+suppresses one code on the line, a bare `# noqa` suppresses every sloplint rule on it.
 
-A profile's `ignore` mutes a rule across a whole path slice; for a single intentional case,
-acknowledge it **at the site** with Ruff's familiar `# noqa` — sloplint reads it exactly as Ruff
-does:
+## Badges
 
-```python
-def request(self, ...):   # noqa: SLP020  (sync/async mirror of AsyncClient.request)
-    ...
-```
-
-- `# noqa: SLP020` suppresses that code on the line; list several with `# noqa: SLP020, SLP082`.
-- A bare `# noqa` suppresses every sloplint rule on that line.
-- The trailing free-text reason is just a normal comment — encouraged ("I understand, and here's
-  why"), never itself reported.
-
-A `# noqa` is scoped to its line — the finding's reported line (the `line:col` shown in output), so
-for a whole-function finding it goes on the `def` line. This is line-level only, like Ruff;
-broad/file/directory suppression stays in config (global `ignore` and per-profile `ignore`).
-Duplication is the motivating case: SLP020 is on by default ("no un-acknowledged duplication"), and
-a clone is reported at *each* end — so silencing a whole pair takes a `# noqa` at each end, each
-documenting why that twin is intentional.
-
-**Running alongside Ruff:** Ruff reads the same `# noqa` comments, and since `SLP*` aren't Ruff
-codes, its RUF100 (unused-noqa) would otherwise flag `# noqa: SLP020` as unnecessary. Tell Ruff to
-preserve them:
-
-```toml
-# ruff.toml / pyproject.toml [tool.ruff.lint]
-external = ["SLP"]
-```
-
-Symmetrically, sloplint only ever acts on its own `SLP*` codes and never reports on Ruff directives
-like `# noqa: E501`.
-
-## Metrics & badges
-
-Beyond the lint rules, `sloplint metrics` reports software-quality metrics — cyclomatic and
-cognitive complexity (each with mean / p95 / max and risk-tier histograms; cognitive's bands are
-anchored on SonarSource's 15/function guidance and are the better *readability* signal), average
-function length (with `max_logic_function_loc` — the longest function that's actually *logic*, not a
-straight-line data/config-init blob), max nesting, comment density, type-hint coverage, and
-**docstring coverage**.
-These are **measured, not linted**, so
-they never duplicate Ruff. Gate them in CI by exit code (each names the offending functions and
-exits 1):
-
-```bash
-sloplint metrics src --max-cyclomatic 10   # fail if any function's cyclomatic complexity > 10
-sloplint metrics src --max-cognitive 15    # ditto for SonarSource cognitive complexity
-```
-
-### Per-profile metric panels
-
-Different parts of a codebase have different healthy norms — test code is legitimately longer,
-more repetitive, and less type-annotated; generated code and examples differ again — so collapsing
-them into one set of aggregates misleads in either direction (a heavy test-support class can
-dominate the "worst class", a thin test suite can drag down the averages). `sloplint metrics`
-reports a panel **per profile** (see [Configuration](#configuration)), in **one run** (#96). With
-zero config that's the built-in `tests` / `generated` / `production` split.
-
-**Machine-generated code** (#115) is detected and segregated automatically into a built-in
-`generated` profile, kept out of the `production` aggregates by default — exactly as tests are. A
-generated `models/` dump or a 34k-line OpenAPI client manufactures "god-classes", "god-modules",
-concentration, and sync/async clones that are codegen artifacts, not maintainability signal, and
-its 90%-plus generated docstrings would otherwise flatter the production numbers. This is **not**
-"generated code is slop" (provenance isn't badness): the files are regenerated, never hand-edited,
-so their numbers are *noise* in a human-code signal. Detection is a cheap, high-precision header
-scan for the explicit markers generators emit (`@generated`, `DO NOT EDIT`, `openapi-generator`,
-`swagger-codegen`) plus the protobuf `*_pb2.py` / `*_pb2_grpc.py` filename convention. The panel is
-still *reported* (a repo that's 95% generated is worth knowing about, and a file that was *supposed*
-to be generated but got hand-edited is exactly what to surface) — just not folded into production.
-Declaring a custom `generated`-named profile, or setting `generated = true` on any profile, extends
-the same content detection.
-
-- **`--scope <profile>`** (default: the `default` profile, `production` out of the box) selects
-  which profile the text view and the per-unit feeds (`--format functions`/`classes`/`packages`)
-  report; `--scope all` prints a panel for every profile. The **packages graph is built from the
-  scoped profile's modules only**, so a file in one profile importing another can't manufacture
-  cycles or coupling in the first profile's architecture metrics.
-- **`--format json`** ignores `--scope` and is always comprehensive: a panel for every profile
-  under **`profiles`** (keyed by name), plus the project-wide **`test_proxies`** split (always
-  over all files, bound to the `tests` profile). One invocation yields every view — no more
-  pointing at the package dir, `rsync --exclude tests`, and a second whole-repo pass just to
-  recover the test figures.
-
-**Docstring coverage** is tracked separately from comment density, because the two measure
-different things: comment density counts `#`-comments, while many codebases document almost
-entirely via docstrings (a `StringLiteral`, not a `Comment`). The `--format json` rollup reports
-`docstring_coverage` (public defs/classes with a docstring ÷ all public defs/classes — "public" =
-not `_`-prefixed) and `docstring_code_ratio` (function docstring lines ÷ function NCSS). Low
-coverage flags an under-documented public API; a high ratio flags AI **over-documentation** — a
-verbose docstring stacked onto a one-line body. The `--format functions` / `--format classes` feeds carry
-`has_docstring` + `docstring_lines` per unit.
-
-`--badges badges/` writes an SVG + a shields.io [endpoint](https://shields.io/endpoint) JSON for
-each metric (`cyclomatic-risk`, `max-cognitive`, `cognitive-risk`, `avg-function-loc`,
-`max-nesting`, `comment-density`, `docstring-coverage`, …) — for example:
+`metrics --badges badges/` writes an SVG + a shields.io [endpoint](https://shields.io/endpoint) JSON
+for each metric (`cyclomatic-risk`, `max-cognitive`, `cognitive-risk`, `avg-function-loc`,
+`max-nesting`, `comment-density`, `docstring-coverage`, …):
 
 ![cyclomatic-risk](https://img.shields.io/badge/cyclomatic--risk-moderate-yellow)
 ![max cognitive](https://img.shields.io/badge/max%20cognitive-14-yellow)
 ![avg function loc](https://img.shields.io/badge/avg%20function%20loc-22-brightgreen)
 
-Choose which badges via `[badges]` in `sloplint.toml`: `include` picks the per-metric badges
-(omit the key for all, `[]` for none), and `summary` folds a list of metrics into one combined
-`sloplint` badge colored by the worst tier — e.g. `include = []` + `summary = [...]` emits *only*:
+Choose which via `[badges]` in `sloplint.toml`: `include` picks the per-metric badges (omit the key
+for all, `[]` for none), and `summary` folds a list of metrics into one combined `sloplint` badge
+colored by the worst tier:
 
 ![sloplint](https://img.shields.io/badge/sloplint-CC%208%20·%20CoCo%2014%20·%20density%2018%25-yellow)
 
-Commit the SVGs, or host the `*.json` and point a shields URL at it for a badge that updates
-itself. The GitHub Action writes them when you set its `badges-dir` input.
+Commit the SVGs, or host the `*.json` and point a shields URL at it for a self-updating badge. The
+[GitHub Action](https://github.com/galthran-wq/sloplint/wiki/GitHub-Action) writes them when you set
+its `badges-dir` input.
 
-### Type-hint coverage
+## More
 
-`--format functions` rows carry per-function annotation counts (`typed_params`,
-`annotatable_params`, `has_return_annotation`), and `--format json` rolls them up into
-`param_annotation_coverage` (annotated ÷ annotatable params) and `fully_annotated_function_rate`
-(functions with every param **and** the return type annotated). Annotatable params exclude the
-`self`/`cls` receiver and `*args`/`**kwargs`. This measures **under**-annotation as a quality
-concern (missing types are harder to read and refactor, and weaken tooling) — the bad direction is
-*low* coverage only. Fully-typed code is neutral-to-good and is never itself a slop signal.
-
-### Parameter count
-
-The **Long Parameter List** smell (Fowler) — too many arguments, a sign of a missing abstraction
-or data clump (#108). `--format json` emits, per profile:
-
-```jsonc
-"params": { "avg": 3.1, "max": 26, "p95": 8 },
-"param_count_risk": { "low": 7423, "moderate": 492, "high": 285, "very_high": 142 }
-// bands by arity:  low ≤4   moderate 5–6   high 7–10   very_high >10
-```
-
-Counts **caller-facing arity**: the `self`/`cls` receiver is excluded, and `*args`/`**kwargs` count
-once each (a `**kwargs` sink is the *opposite* of a long parameter list, so matplotlib-style APIs
-don't false-positive). The per-function `--format functions` feed carries `arity` alongside the raw
-`params`. It's distinct from complexity — a CC-3 wrapper threading 25 options is invisible to every
-other metric. As with the other tiers, arity has no canonical hard threshold (Fowler/Martin suggest
-≤3–4), so the bands are **descriptive, never a gate** — high `high`/`very_high` counts flag
-functions to *read* (numeric solvers genuinely take many knobs), not defects.
-
-### Class metrics
-
-`--format classes` emits one JSONL row per class — the class-level discovery feed: `loc`,
-`methods`, `attributes`, **`lcom4`** cohesion (SLP120), `is_abstract`, and the CK class metrics
-([Chidamber & Kemerer 1994][ck]):
-
-- **`wmc`** — Weighted Methods per Class: the sum of the cyclomatic complexity of the class's
-  direct methods. A class-*weight* measure that separates 40 trivial accessors from 40 branchy
-  ones, where a raw method count can't.
-- **`dit`** — Depth of Inheritance Tree: the longest path up to a root through **first-party**
-  bases. Bases that resolve to `object`, the stdlib, or a third party are invisible and end the
-  chain, so `dit` is a deliberate, conservative under-count of the true Python MRO depth.
-- **`noc`** — Number of Children: how many **direct** first-party subclasses the class has — the
-  inheritance *breadth* that pairs with `dit` depth (#113). It's the in-degree of the same class
-  graph. A high-NOC base is a change-amplifier (fragile-base-class risk): every change ripples to
-  its children. Often that's good design (a well-used abstraction — yt-dlp's `InfoExtractor` is
-  subclassed by ~965 extractors), so it flags bases to *review carefully before changing*, not
-  defects.
-- **`cbo`** — Coupling Between Objects: the number of **distinct first-party classes** the class is
-  coupled to — the class-level coupling counterpart to package `ce`/`ca` (#116). Counts coupling via
-  base classes, instantiations (`ClassName(...)`), `isinstance`/`issubclass` checks, and type
-  annotations, resolved against the project's first-party class set. A small class wired to dozens of
-  collaborators is a fragile hub WMC/DIT/NOC don't see. **Caveat:** Python has no static types, so
-  `cbo` is an **approximation, biased low** — duck-typed coupling (`self.axes.foo()` with no
-  annotation) and string forward-refs are *not* counted (an undercount), while name resolution is
-  scope-unaware, so a local/parameter shadowing a class name can occasionally overcount. It's most
-  reliable on well-typed codebases. Flags hubs to *review before changing*, never defects.
-
-`--format json` adds the matching aggregates next to the complexity figures: `classes`,
-`max_wmc`, `avg_wmc`, `p95_wmc`, `max_dit`, `avg_dit`, `max_noc`, `avg_noc`, `p95_noc`,
-`max_cbo`, `avg_cbo`, `p95_cbo`, and the band histograms **`wmc_risk`**, **`noc_risk`**, and
-**`cbo_risk`**, mirroring the function `cyclomatic_risk` tiers:
-
-```jsonc
-"wmc_risk": { "low": 451, "moderate": 23, "high": 15, "very_high": 5 },
-// bands by WMC:  low ≤20   moderate 21–50   high 51–200   very_high >200
-"noc_risk": { "low": 480, "moderate": 9, "high": 4, "very_high": 1 },
-// bands by NOC:  low ≤1   moderate 2–5   high 6–20   very_high >20
-"cbo_risk": { "low": 470, "moderate": 18, "high": 5, "very_high": 1 }
-// bands by CBO:  low ≤4   moderate 5–9   high 10–20   very_high >20  (lower bound — see caveat)
-```
-
-This is the point of the histogram (#104): `avg`/`max` collapse the distribution, so the same
-`max_wmc` could be **one** justified hub (e.g. a wide-API dataframe class) or **fifty** god-classes
-— very different maintainability stories that `wmc_risk` tells apart. WMC has no McCabe-equivalent
-canonical threshold, so the bands are **descriptive, calibrated against the cohort, never a gate** —
-high `high`/`very_high` counts flag *candidates to read*, not defects. Like the rest, these are
-descriptive distributions for tracking a repo over time.
-
-[ck]: https://doi.org/10.1109/32.295895
-
-### Module size
-
-The third leg of the size triad (#107): oversized **functions** (cyclomatic tiers) and **classes**
-(`wmc_risk`) have reporting; oversized **modules** are the file-level counterpart. `--format json`
-emits, per profile:
-
-```jsonc
-"module_nloc": { "avg": 88.4, "max": 6531, "p95": 412 },
-"module_size_risk": { "low": 980, "moderate": 47, "high": 19, "very_high": 11 }
-// bands by NLOC:  low ≤250   moderate 251–500   high 501–1000   very_high >1000
-```
-
-`nloc` is **non-comment, non-blank** lines (string-literal/docstring content counts; blank and
-comment-only lines don't). A **god-module** — a single multi-thousand-line file — is otherwise
-invisible: its lines vanish into `total_loc` and the average. The histogram tells "47 files over
-1000 NLOC" apart from "one big generated file", which `max`/`avg` collapse. As with the function
-and class tiers, NLOC has no canonical hard threshold (SonarQube's ~750–1000-line guidance is the
-starting point), so the bands are **descriptive, never a gate** — high `high`/`very_high` counts
-flag files to *read*, not defects.
-
-### Top-level / undecomposed code (#141)
-
-Complexity (cyclomatic/cognitive/NCSS) is measured **per function**, so a procedural script with no
-functions — a Streamlit/Dash dashboard, a notebook export, a "write me a script" one-shot — scores
-near-pristine while being untestable, unreusable, and unrefactorable. The **top-level-code ratio**
-catches it: the fraction of a module's executable logic at module scope vs. inside functions.
-
-```jsonc
-"top_level_code": { "avg_ratio": 0.18, "max_ratio": 0.95, "undecomposed_modules": 2 }
-```
-
-`avg_ratio` is over modules that contain logic; `undecomposed_modules` counts non-trivial modules
-(≥ 15 logic statements) whose ratio ≥ 0.6 — the script-dumps. The numerator excludes imports, the
-module docstring, the `if __name__ == "__main__":` guard, class-body declarations, and pure constant
-assignments, so config/`__main__`/library modules don't false-fire. Orthogonal to complexity (the
-code is linear) and module-size (it's often only moderate). Descriptive, never a gate.
-
-### God-unit tail (#152)
-
-Per-unit **averages** wash out the worst outliers: a repo can hold a dozen god-modules and a
-cognitive-172 god-function yet show a clean `avg_cognitive`, because they're diluted across thousands
-of units. The **god-unit tail** counts how many units land in the worst (`very_high`) band of each
-distribution, so the outliers stay visible:
-
-```jsonc
-"god_units": {
-  "very_high_cognitive_functions": 1, "very_high_cyclomatic_functions": 1,
-  "very_high_wmc_classes": 0, "very_high_size_modules": 12, "total": 14
-}
-```
-
-> [!NOTE]
-> **Over-engineering is a documented limitation.** Detecting that a codebase is *disproportionate to
-> its purpose* (a 100K-LOC 4D-tetris) needs the problem's intrinsic complexity — semantic, not
-> statically computable, the same ceiling as AI-slop detection generally. sloplint does **not** ship
-> an "over-engineering score." The god-unit tail is the part that *is* measurable — it surfaces the
-> extreme outliers averages hide — but a clean tail is not proof a codebase is right-sized.
-
-### Package & module architecture metrics
-
-`sloplint metrics` also analyzes the project's **first-party import graph** — the metrics the
-literature ties most directly to architectural decay, and the ones AI-generated codebases tend to
-do worst (circular imports, god-modules, flat dumping-grounds, hidden coupling). All deterministic
-and reproducible — no LLM, no randomness. Two feeds:
-
-- **`--format packages`** — one JSONL row per package (directory): `modules`, `loc`, efferent /
-  afferent coupling (`ce` / `ca`) and Martin **`instability`**, **`abstractness`** + **`distance`**
-  from the main sequence, whether it sits in a dependency cycle (`in_cycle`), and the first-party
-  packages it `imports` / is `imported_by`. The per-package discovery feed, mirroring
-  `--format functions` / `--format classes`.
-- **`--format json`** — a per-project `packages` rollup alongside the complexity figures:
-
-  ```jsonc
-  "packages": {
-    "modules": 412, "packages": 37, "module_edges": 689, "package_edges": 81,
-    "cycles": {            // cyclic dependency tangles (Tarjan SCC) — 2–11× defect density
-      "tangles": 3, "largest_tangle": 9, "modules_in_cycles": 21,
-      "pct_modules_in_cycles": 0.051,
-      "runtime_tangles": 2,   // dropping `if TYPE_CHECKING:`-only edges (benign at runtime)
-      "load_bearing_tangles": 1, // also dropping function-local/deferred imports — hard load-time
-                                 // cycles only (0 ⇒ every cycle was deferred on purpose; not a
-                                 // strict subset of `tangles` — dropping edges can split an SCC)
-      "members": [["pkg.a", "pkg.b", "pkg.c"]]
-    },
-    "propagation_cost": 0.18, // how far a change ripples (DSM transitive-closure density)
-    "modularity": {           // Newman–Girvan Q: declared packages vs. detected communities
-      "q_declared": 0.41, "communities_declared": 37,
-      "q_detected": 0.55, "communities_detected": 29,
-      "gap": 0.14             // large positive gap ⇒ "packages in name only"
-    },
-    "concentration": {        // node distribution: god-package / flat dumping-ground (not edges)
-      "total_modules": 412, "packages": 37,
-      "max_package_share": 0.21,  // biggest package's share of all modules
-      "module_count_gini": 0.38,  // inequality of modules-per-package (0 = even, →1 = one pile)
-      "largest_package": { "package": "pkg.io", "modules": 86 }
-    }
-  }
-  ```
-
-  The `concentration` block is the one architecture metric over **nodes** rather than **edges**: a
-  flat directory accreting hundreds of independent files (the classic god-package) has near-zero
-  coupling, so propagation cost / cycles / modularity all read it as healthy — only the module-count
-  distribution exposes it. The `text` view prints `max package share` / `module-count gini` under
-  each profile's panel and names the offending package.
-
-These are research-backed structural signals (Martin's package metrics; MacCormack's propagation
-cost; Newman–Girvan modularity; Melton & Tempero on cyclic dependencies) — descriptive measures
-for tracking a repo over time or comparing across codebases, not pass/fail gates. (Published
-clean-vs-slop reference distributions are the job of the benchmark harness, [#55][bench].)
-
-[bench]: https://github.com/galthran-wq/sloplint/issues/55
-
-### Duplication density
-
-`--format json` surfaces the SLP020 clone engine as a cohort aggregate (#123) — duplication is
-**disallowed-by-default** and one of the clearest vibe-slop tells ("write a scraper per site" →
-copy-paste), but it was previously only a per-finding lint, invisible in the metrics panel. Per
-profile:
-
-```jsonc
-"duplication": {
-  "clone_ratio": 0.41,          // fraction of the profile's functions in ≥1 clone pair
-  "functions_in_clones": 38, "functions": 92,
-  "clone_pairs": 40,            // confirmed SLP020 pairs internal to the profile
-  "largest_clone_cluster": 9    // a helper duplicated across N functions
-}
-```
-
-`clone_ratio` is near 0 for clean libraries and high for copy-paste codebases. It also explains a
-subtlety the panel otherwise hides: **low propagation cost / zero cycles can be a *symptom* of
-copy-paste** — self-contained duplicated modules don't import each other, so a high clone ratio
-shows the low coupling is duplication, not modularity. Pairs are scoped per profile (production
-duplication is counted over production functions). It reuses the existing detector — descriptive
-cohort signal, never a per-repo gate.
-
-### Exception-handling hygiene
-
-Over-broad and silently-swallowed exception handling — `except Exception` / `except: pass` to make
-the error disappear — is a reliable "make-it-work" smell, and one of the sharpest cohort
-discriminators (#117). Ruff flags individual sites (`E722`/`BLE001`/`S110`); this is the *rate*
-those per-site lints can't express (and which survives blanket `# noqa`/`# pylint: disable`).
-`--format json` emits, per profile:
-
-```jsonc
-"exception_handling": {
-  "handlers": 412, "bare": 1, "broad": 18, "swallow": 9,
-  "broad_rate": 0.044,   // broad / handlers   (Exception / BaseException, incl. in a tuple)
-  "swallow_rate": 0.022  // swallow / handlers (body is exactly pass / continue / ...)
-}
-```
-
-Measured by AST over every `except` handler (module level or nested). Clean libraries cluster low;
-low-discipline apps run 15–40× higher. The **`swallow_rate`** is the strongest sub-signal —
-silently discarding errors is rarely justified — while broad except is *sometimes* correct
-(top-level daemon loops, plugin boundaries), so like the rest it's read as a rate in context, never
-a gate. Per-1k-LOC rates are derivable from the counts and the panel's `total_loc`.
-
-### Static test proxies (NOT coverage)
-
-`--format json` also reports a `test_proxies` block — *static* signals of how (un)tested a
-codebase is, computed without running anything:
-
-```jsonc
-"test_proxies": {
-  "_note": "Static proxies, NOT coverage. Descriptive cohort statistics only — never a pass/fail gate. ...",
-  "test_files": 12, "production_files": 48,
-  "test_loc": 1840, "production_loc": 5210,
-  "test_code_ratio": 0.353,    // test LoC / production LoC
-  "test_functions": 96, "assertions": 311,
-  "assertion_density": 3.24,   // assertions per test function (asserts + self.assertX +
-                               // pytest.raises + self.fail), null when there are no test fns
-  "assertion_free_tests": 9,
-  "assertion_free_rate": 0.09, // fraction of test fns whose body asserts nothing ("test
-                               // theater"); null when there are no test fns
-  "production_functions": 540, "functions_with_doctest": 318,
-  "doctest_examples": 1204,    // `>>>` example lines across production docstrings
-  "doctest_coverage": 0.589    // functions_with_doctest / production_functions; null when none
-}
-```
-
-The **assertion-free-test rate** is a *test-substance* counterweight: `test:code` and
-`assertion_density` both reward volume, so a suite can read as "well-tested" while individual tests
-verify nothing. It is the fraction of test functions whose body contains **no assertion at all** —
-the shape "test theater" actually takes (print-spam "tests" that exercise code but check nothing,
-assertion-free stubs). A rate near 1.0 next to a high test:code ratio flags a suite that *looks*
-tested but isn't. (The complementary *empty test scaffolding* form — `tests/` dirs holding only
-empty `__init__.py` — is already caught by `test_code_ratio` = 0.0.)
-
-**Doctest coverage** captures a testing style the path-based `test_code_ratio` is blind to:
-doctests live in the docstrings of *production* files, so a codebase tested primarily via doctests
-(common in scientific and educational libraries — e.g. TheAlgorithms/Python doctests 76% of its
-files) otherwise reads as essentially untested. `doctest_coverage` is the fraction of production
-functions whose docstring carries a `>>>` example, reported alongside `test_code_ratio` (not folded
-into it). Detection is a deterministic `>>>` scan — no execution — so it stays a descriptive proxy,
-not coverage.
-
-> Earlier releases keyed this on *cognitive complexity* (a "trivial-test rate"), which was
-> backwards — a disciplined arrange-act-assert test is deliberately branch-free, so good tests
-> scored as trivial while assertion-free loops scored as substantive. Fixed in
-> [#127](https://github.com/galthran-wq/sloplint/issues/127): the quality signal is whether a test
-> **asserts**, not whether it **branches**.
-
-Test files are identified by path (`test_*.py`, `*_test.py`, a `tests/` segment, `conftest.py`);
-the figures also appear in the text table and the `--format github` PR summary.
-
-> [!IMPORTANT]
-> **This is not test coverage.** Real coverage requires *executing* the tests, which a static
-> linter cannot do. These are *proxies*: a low test:code ratio + low assertion density *suggest*
-> under-testing, and a high assertion-free rate *suggests* test theater — but they cannot tell a
-> shallow test from a thorough one — a test can carry many asserts and verify nothing, or assert
-> through a helper and look assertion-free. So they are reported as descriptive
-> cohort statistics and are **never** a pass/fail gate. Their value is across a *cohort* (slop
-> tends to ship far less test code with shallower assertions), not as a per-repo verdict. They
-> are the cohort-level counterpart to the per-file `SLP070` (assertion-free tests) and `SLP160`
-> (test mirroring) *rules*.
-
-## GitHub Action
-
-Run sloplint on every PR — it uploads SARIF (inline annotations), posts a findings
-summary comment, and can emit metric badges:
-
-```yaml
-permissions:
-  contents: read
-  security-events: write
-  pull-requests: write
-jobs:
-  sloplint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: galthran-wq/sloplint@main
-        with:
-          paths: src
-          badges-dir: .sloplint-badges   # optional
-```
-
-Intended to run **after** Ruff in the same job. See [`action.yml`](action.yml) for all inputs.
-
-Required permissions: `security-events: write` (SARIF upload) and `pull-requests: write`
-(PR comment) — both shown above. Without them the action degrades gracefully (it warns
-rather than failing).
-
-By default the action downloads a **prebuilt binary** for the runner (set `version:` to a
-release tag like `v0.2.0`, or `latest`); if none is available it builds from source. Cut a
-release to publish binaries:
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0   # triggers .github/workflows/release.yml
-```
-
-## Layout
-
-| Crate | Role |
-| --- | --- |
-| `sloplint` | CLI binary |
-| `sloplint_linter` | all rules + core run logic (cf. `ruff_linter`) |
-| `sloplint_python` | parser seam over the pinned `ruff_*` crates |
-| `sloplint_diagnostics` | rule-independent diagnostic model |
-| `sloplint_clone` | near-duplicate function detection |
-| `sloplint_metrics` | quality metrics, import-graph architecture metrics, badges |
-| `sloplint_report` | output formatters (text/JSON/SARIF/markdown) |
+- **[Full metric reference](https://github.com/galthran-wq/sloplint/wiki/Metrics)** — every metric, how it's computed, how to read its bands.
+- **[Autofix](https://github.com/galthran-wq/sloplint/wiki/Autofix)** — `check --fix` mechanics, safe vs. unsafe fixes.
+- **[Agent-loop integration](https://github.com/galthran-wq/sloplint/wiki/Agent-loop-integration)** — `sloplint init`; run sloplint inside Claude Code / Cursor / Aider's edit loop.
+- **[Inline suppression (`# noqa`)](https://github.com/galthran-wq/sloplint/wiki/Inline-suppression)** — per-site suppression, and running alongside Ruff.
+- **[GitHub Action](https://github.com/galthran-wq/sloplint/wiki/GitHub-Action)** — SARIF annotations, PR summary, metric badges.
+- **[Architecture / layout](https://github.com/galthran-wq/sloplint/wiki/Architecture)** — the crate map.
+- **[Case studies](https://github.com/galthran-wq/sloplint/wiki/cases)** — metrics on 140 real projects.
