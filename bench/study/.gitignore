@@ -5,3 +5,7 @@
 checkouts/
 # keep the generated figures committed (they ARE the deliverable here)
 !viz_*.png
+
+# per-repo badge demo outputs (regenerate via badge.py)
+badge_*.png
+badge_*.svg
