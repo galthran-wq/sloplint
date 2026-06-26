@@ -62,12 +62,27 @@ the same bucket), the pattern holds across all 7 buckets:
 | **god_units** | 5 / 1 | 7 / 2 | 14 / 4 | AI more god-units |
 | avg_cognitive | 3.71 / 3.55 | 3.90 / 3.51 | 4.60 / 3.56 | AI mildly more complex on average |
 
-Partial vs ai_share | LOC: **+tests (+0.27), +types (+0.19), +docstrings (+0.17), −duplication
-(−0.09)**, but **+avg complexity (+0.06…+0.09) and a ~2× max-complexity / god-unit tail.** AI writes
-the surface discipline LLMs are good at (tests, type hints, docstrings) while producing more monster
-functions — the project's **"clean surface, slop logic"** thesis, now empirical at N=10.5k. This is
-a *signature*, not a verdict: slop is badness, not provenance — the panel measures construction, and
-AI construction differs.
+Partial vs ai_share | LOC (bootstrap 95% CI, all robust): **+tests +0.27 [.25,.29], +types +0.19
+[.17,.20], +docstrings +0.17 [.15,.18], −duplication −0.09 [−.10,−.07], +avg complexity +0.06…+0.09.**
+AI writes the surface discipline LLMs are good at (tests, type hints, docstrings) while producing
+more monster functions — the project's **"clean surface, slop logic"** thesis, empirical at N=10.5k.
+
+**The complexity tail is the sharpest part — and rank correlation hides it.** The Spearman partial of
+max_cognitive vs ai_share is only +0.02 (it's rank-based on a long-tailed count), but the percentile /
+threshold view (size-matched, ai_heavy ≥0.5 vs non_ai, mid-buckets; `ai_signature.py`) is stark:
+
+| tail metric | ai_heavy p50 / p90 / %over | non_ai p50 / p90 / %over |
+| --- | --- | --- |
+| max_cognitive (>50) | 115 / 379 / **83%** | 50 / 211 / **49%** |
+| god_units (>0) | 16 / 78 / **88%** | 2 / 29 / **62%** |
+| max_cyclomatic (>40) | 61 / 181 / **72%** | 29 / 97 / **35%** |
+
+Median max_cognitive 115 vs 50 (2.3×); 83% of AI-heavy repos carry a cog>50 function vs 49%. Concrete
+exemplars (Section E): `safishamsi/graphify` (71.8k★, max_cog 1442, test_code 0.78), `isair/jarvis`
+(1.3k★, max_cog 611, test_code 1.07), `igerber/diff-diff` (max_cog 856, test_code 1.29) — heavily
+tested *and* monstrous. This is a *signature*, not a verdict: slop is badness, not provenance — the
+panel measures construction, and AI construction differs. **Methodological note:** both averages and
+rank correlations dilute this tail; a `max`/threshold-based god-unit term (cf. #142) is what surfaces it.
 
 ## Finding 4 — a supervised "engineered" model is weak and size-dominated
 
@@ -81,8 +96,12 @@ the AI-signature above — not a single popularity/quality oracle.
 ## Caveats
 
 - `ai_share` from last-100 commit trailers undercounts AI repos → a lower-bound contrast.
-- `test_code_ratio` reads ~0 for some mega-repos with separate test layouts (glob mismatch),
-  inflating the AI/discipline contrast in the top buckets; the clean mid-buckets show the same pattern.
+- `test_code_ratio` reads near-0 for many mega non-AI repos — but this is **genuine, not a glob
+  miss** (verified: the profile correctly matches their test files; e.g. larksuite/oapi-sdk-python
+  73 test files among 12,753, icefall 139 under `test/`). Those repos are generated-SDK / ML-recipe
+  code with a huge production base and proportionally tiny tests, so the low ratio is real. It does
+  mean the AI/non-AI test contrast in the top buckets is partly a *composition* effect (non-AI top
+  buckets over-represent generated/recipe monsters); the clean mid-buckets show the same pattern.
 - Within-cell sampling used `sort=updated` (mild recency bias); 300 MB size cap drops the largest
   repos (~8% measurement drop, skews slightly away from huge popular repos).
 - All correlational; AI repos also differ in domain/age.
