@@ -3,3 +3,5 @@
 *.jsonl
 *.gz
 checkouts/
+# keep the generated figures committed (they ARE the deliverable here)
+!viz_*.png

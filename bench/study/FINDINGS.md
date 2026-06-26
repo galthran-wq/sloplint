@@ -77,12 +77,18 @@ threshold view (size-matched, ai_heavy ≥0.5 vs non_ai, mid-buckets; `ai_signat
 | god_units (>0) | 16 / 78 / **88%** | 2 / 29 / **62%** |
 | max_cyclomatic (>40) | 61 / 181 / **72%** | 29 / 97 / **35%** |
 
-Median max_cognitive 115 vs 50 (2.3×); 83% of AI-heavy repos carry a cog>50 function vs 49%. Concrete
-exemplars (Section E): `safishamsi/graphify` (71.8k★, max_cog 1442, test_code 0.78), `isair/jarvis`
-(1.3k★, max_cog 611, test_code 1.07), `igerber/diff-diff` (max_cog 856, test_code 1.29) — heavily
-tested *and* monstrous. This is a *signature*, not a verdict: slop is badness, not provenance — the
-panel measures construction, and AI construction differs. **Methodological note:** both averages and
-rank correlations dilute this tail; a `max`/threshold-based god-unit term (cf. #142) is what surfaces it.
+**Correction — most of that tail is size, not provenance (factor analysis, `axes.py`/`make_viz.py`).**
+The percentile table above size-matches by *star bucket*, which does NOT control LOC: AI-heavy repos
+have **median LOC 23,707 vs 3,059 for non-AI — ~8× larger** — and max-based metrics scale with repo
+size (more functions → higher max by extreme-value statistics). When each metric is residualized on
+log(LOC) directly, the AI/non-AI gap in max_cognitive collapses (Δ +0.06 SD) and god_units inverts
+(−0.02). What **survives** strict size control as the genuine AI signature (Δ in SD, AI-heavy − non-AI):
+**avg complexity +0.38, type_cov +0.31, docstrings +0.49, duplication −0.20, assertion_free −0.34.**
+So the honest statement is: size-controlled, AI repos are **mildly higher on *average* complexity and
+notably more typed/documented with less duplication** — not dramatically heavier-tailed. The raw heavy
+tail is real but mostly because AI repos are bigger. Exemplars remain illustrative of the bigger-and-
+sometimes-monstrous pattern (`safishamsi/graphify` 71.8k★ max_cog 1442 test 0.78; `isair/jarvis` max_cog
+611 test 1.07). A *signature*, not a verdict — slop is badness, not provenance.
 
 ## Finding 4 — a supervised "engineered" model is weak and size-dominated
 
@@ -92,6 +98,28 @@ Real but modest, and carried by `loc_log` (+0.48); the quality metrics have corr
 weights. The constructive deliverable is therefore **descriptive, not predictive**: the size-matched
 percentile reference distribution over 10k real repos (to calibrate the slop_index z-scores) plus
 the AI-signature above — not a single popularity/quality oracle.
+
+## Finding 5 — the panel has ~7 independent axes; one scalar index is lossy
+
+Factor analysis (PCA on the size-residualized panel, varimax-rotated; `axes.py`, figures
+`viz_scree.png` / `viz_loadings.png`): the 18-metric panel resolves to **~7 independent axes**
+(Kaiser), and **no component dominates** (PC1 = 17% of variance). So mixing the metrics into a single
+score is **lossy** — it blends orthogonal axes and hides *which* one is bad. The axes (loadings):
+
+| axis | top metrics |
+| --- | --- |
+| F1 average complexity | avg_cog .93, avg_cyc .91, max_nest .70 |
+| F2 complexity tail | max_cog .90, max_cyc .91, god_units .39 |
+| F3 architecture | cycles .79, god_units .64, clone −.43 |
+| F4 test substance | assert_density .79, assert_free −.72 |
+| F5 docs / typing | docstring .79, type_cov .71 |
+| F6 module structure | modularity_gap .70, propagation −.69 |
+| F7 comments / top-level | comments .65, toplevel .61 |
+
+Two consequences: (a) **average complexity (F1) and the complexity tail (F2) are *separate* axes** —
+empirical support for #142's tail term being a distinct signal, not a duplicate of the avg axes;
+(b) the right badge is a **per-axis profile (~5 axes)**, with data-driven weights from the loadings,
+not a single number — a scalar is at best an explicit rollup of the profile.
 
 ## Caveats
 
