@@ -331,6 +331,12 @@ pub(crate) fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> s
         // CBO: distinct first-party classes this one couples to — a lower bound in
         // dynamically-typed code (duck-typed coupling not counted).
         "cbo": class.cbo,
+        // Class fan-in/out + bidirectional CBO over the same first-party coupling edges: fan_out
+        // (== cbo, the out-direction), fan_in (classes referencing this one), and cbo_modified
+        // (|fan_out ∪ fan_in|). Same lower-bound caveat as cbo.
+        "fan_out": class.fan_out,
+        "fan_in": class.fan_in,
+        "cbo_modified": class.cbo_modified,
         // RFC: response-set size — own methods plus the distinct methods they invoke (by
         // trailing callee name). A lower bound in dynamically-typed code.
         "rfc": class.rfc,

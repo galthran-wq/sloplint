@@ -177,18 +177,50 @@ pub fn resolve_inheritance(files: &mut [&mut FileMetrics]) {
     let class_names: std::collections::HashSet<String> =
         bases_of.keys().map(|k| k.to_string()).collect();
 
+    // Reverse coupling edges for FAN-IN: for each first-party class name, the set of *other*
+    // first-party class names that reference it (the `coupled` edges, read backwards). Owned so it
+    // outlives the `bases_of` borrow of `files` and doesn't conflict with the write-back loop; kept
+    // name-level (like NOC), so every definition of a name shares its fan-in. Self-edges dropped.
+    let mut referencers: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for file in files.iter() {
+        for class in &file.classes {
+            let src = class.name.as_str();
+            for target in &class.coupled {
+                let t = target.as_str();
+                if t != src && class_names.contains(t) {
+                    referencers
+                        .entry(t.to_string())
+                        .or_default()
+                        .insert(src.to_string());
+                }
+            }
+        }
+    }
+
     for file in files.iter_mut() {
         for class in &mut file.classes {
             class.dit = depths.get(&class.name).copied().unwrap_or(0);
             class.noc = noc.get(&class.name).copied().unwrap_or(0);
-            // CBO: distinct first-party classes this one couples to, excluding itself. The
-            // candidates are pre-deduped, so a plain count of those in the class-name set is the CBO.
-            let cbo = class
+            // CBO / FAN-OUT: the distinct first-party classes this one references, excluding
+            // itself. The candidates are pre-deduped, so this is the out-degree.
+            let out_names: std::collections::HashSet<&str> = class
                 .coupled
                 .iter()
                 .filter(|name| name.as_str() != class.name && class_names.contains(name.as_str()))
-                .count();
-            class.cbo = cbo;
+                .map(|name| name.as_str())
+                .collect();
+            // FAN-IN: distinct first-party classes referencing this one (self already excluded when
+            // `referencers` was built).
+            let in_names = referencers.get(class.name.as_str());
+            // CBO-Modified: distinct classes coupled in either direction — the union of the two.
+            let mut union = out_names.clone();
+            if let Some(ins) = in_names {
+                union.extend(ins.iter().map(String::as_str));
+            }
+            class.cbo = out_names.len();
+            class.fan_out = out_names.len();
+            class.fan_in = in_names.map_or(0, std::collections::HashSet::len);
+            class.cbo_modified = union.len();
         }
     }
 }
@@ -468,5 +500,73 @@ class Outer:
         let cbo = |name: &str| file.classes.iter().find(|c| c.name == name).unwrap().cbo;
         assert_eq!(cbo("Outer"), 1, "Other only — Target belongs to Inner");
         assert_eq!(cbo("Inner"), 1, "Target");
+    }
+
+    #[test]
+    fn fan_in_out_split_the_coupling_edges_by_direction() {
+        // Hub references A (base) and B (annotation): fan_out 2. A and B are each referenced by
+        // Hub only: fan_in 1, fan_out 0. Nobody references Hub: fan_in 0. fan_out mirrors cbo.
+        let mut file = metrics(
+            "\
+class A:
+    pass
+
+class B:
+    pass
+
+class Hub(A):
+    def f(self, b: B) -> None:
+        return None
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let by = |name: &str| {
+            let c = file.classes.iter().find(|c| c.name == name).unwrap();
+            (c.fan_out, c.fan_in, c.cbo_modified, c.cbo)
+        };
+        assert_eq!(by("Hub"), (2, 0, 2, 2), "out A,B; in none; fan_out == cbo");
+        assert_eq!(by("A"), (0, 1, 1, 0), "referenced by Hub (base)");
+        assert_eq!(by("B"), (0, 1, 1, 0), "referenced by Hub (annotation)");
+    }
+
+    #[test]
+    fn cbo_modified_dedups_bidirectional_coupling() {
+        // A instantiates B and B instantiates A — each couples to the other in both directions.
+        // fan_out 1 and fan_in 1 for both, but cbo_modified is the *union* = 1, not 1 + 1.
+        let mut file = metrics(
+            "\
+class A:
+    def make(self):
+        return B()
+
+class B:
+    def make(self):
+        return A()
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        for name in ["A", "B"] {
+            let c = file.classes.iter().find(|c| c.name == name).unwrap();
+            assert_eq!(c.fan_out, 1, "{name} references the other");
+            assert_eq!(c.fan_in, 1, "{name} is referenced by the other");
+            assert_eq!(
+                c.cbo_modified, 1,
+                "{name}: union of in/out is one class, not two"
+            );
+        }
+    }
+
+    #[test]
+    fn fan_in_resolves_across_files() {
+        // A widely-referenced class: Core is used by two classes in a different file. Fan-in must
+        // see across the project (like NOC/CBO), so Core.fan_in = 2.
+        let mut core = metrics("class Core:\n    pass\n");
+        let mut users = metrics(
+            "from core import Core\n\nclass One(Core):\n    pass\n\nclass Two:\n    def f(self) -> Core:\n        return Core()\n",
+        );
+        resolve_inheritance(&mut [&mut core, &mut users]);
+        let core_class = core.classes.iter().find(|c| c.name == "Core").unwrap();
+        assert_eq!(core_class.fan_in, 2, "One (base) + Two (annotation/call)");
+        assert_eq!(core_class.fan_out, 0, "Core references nothing first-party");
     }
 }

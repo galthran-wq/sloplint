@@ -76,6 +76,20 @@ fn classes_feed_reports_wmc_and_first_party_dit() {
     assert_eq!(rows["Unit"]["cbo"], 1, "base Circle");
     assert_eq!(rows["Panel"]["cbo"], 0, "Widget is third-party");
 
+    // Fan-in/out over the same first-party coupling edges. Shape is the base of Circle (Circle's
+    // only first-party ref), so Shape.fan_in = 1, fan_out = 0. Circle: fan_out 1 (Shape), and it's
+    // the base of Unit, so fan_in 1. Unit: fan_out 1 (Circle base), fan_in 0. Panel: Widget is
+    // third-party, so both 0. fan_out mirrors cbo; cbo_modified is the in∪out union.
+    assert_eq!(rows["Shape"]["fan_in"], 1, "Circle extends Shape");
+    assert_eq!(rows["Shape"]["fan_out"], 0);
+    assert_eq!(rows["Shape"]["cbo_modified"], 1, "in: Circle");
+    assert_eq!(rows["Circle"]["fan_out"], 1, "base Shape");
+    assert_eq!(rows["Circle"]["fan_in"], 1, "Unit extends Circle");
+    assert_eq!(rows["Circle"]["cbo_modified"], 2, "in Unit + out Shape");
+    assert_eq!(rows["Unit"]["fan_in"], 0, "nothing extends Unit");
+    assert_eq!(rows["Panel"]["fan_in"], 0, "Widget is third-party");
+    assert_eq!(rows["Panel"]["cbo_modified"], 0);
+
     // RFC = |own methods ∪ distinct invoked callees|. Own-method calls (Shape.describe ->
     // self.area()) fold back into the method set; free/builtin calls (Unit.area -> range) count.
     assert_eq!(
