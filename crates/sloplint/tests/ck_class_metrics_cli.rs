@@ -90,6 +90,11 @@ fn classes_feed_reports_wmc_and_first_party_dit() {
     assert_eq!(rows["Panel"]["fan_in"], 0, "Widget is third-party");
     assert_eq!(rows["Panel"]["cbo_modified"], 0);
 
+    // NOSI: none of the fixture classes make class-qualified static calls (`Unit.area` calls the
+    // builtin `range`, a bare name, not `Class.method`), so every row is 0 — but the field is wired.
+    assert_eq!(rows["Unit"]["nosi"], 0);
+    assert_eq!(rows["Shape"]["nosi"], 0);
+
     // RFC = |own methods ∪ distinct invoked callees|. Own-method calls (Shape.describe ->
     // self.area()) fold back into the method set; free/builtin calls (Unit.area -> range) count.
     assert_eq!(

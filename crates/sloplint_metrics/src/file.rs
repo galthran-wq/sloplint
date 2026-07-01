@@ -10,7 +10,7 @@ use sloplint_python::{docstring_range, is_docstring_stmt};
 
 use crate::complexity::{cognitive, cyclomatic, max_nesting};
 use crate::exception::exception_stats;
-use crate::inheritance::{class_is_abstract, coupling_candidates};
+use crate::inheritance::{class_is_abstract, coupling_candidates, static_call_candidates};
 use crate::model::{ClassMetrics, FileMetrics, FunctionMetrics};
 use crate::size::{caller_arity, exit_count, line_span, ncss, param_count};
 use crate::types::type_hint_coverage;
@@ -249,9 +249,11 @@ fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef)
             .collect(),
         cbo: 0,
         coupled: coupling_candidates(class),
+        static_call_candidates: static_call_candidates(class),
         fan_out: 0,
         fan_in: 0,
         cbo_modified: 0,
+        nosi: 0,
         rfc: response::class_rfc(class),
         is_abstract: class_is_abstract(class),
         has_docstring: docstring_range(&class.body).is_some(),

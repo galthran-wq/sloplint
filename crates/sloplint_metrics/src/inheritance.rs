@@ -25,6 +25,48 @@ pub(crate) fn coupling_candidates(class: &StmtClassDef) -> Vec<String> {
     names.into_iter().collect()
 }
 
+/// Raw qualifier names of the *class-qualified* call sites (`Name.method(...)`) in `class`'s body,
+/// one entry per call site (multiplicity preserved — NOSI counts invocations, not distinct
+/// targets). The `Name` is unresolved here; [`resolve_inheritance`] keeps only those that name a
+/// first-party class — the reliable syntactic form of a static/class-method invocation. Skips
+/// nested classes (their own unit), matching [`coupling_candidates`].
+pub(crate) fn static_call_candidates(class: &StmtClassDef) -> Vec<String> {
+    let mut qualifiers = Vec::new();
+    let mut collector = StaticCallCollector {
+        qualifiers: &mut qualifiers,
+    };
+    for stmt in &class.body {
+        collector.visit_stmt(stmt);
+    }
+    qualifiers
+}
+
+/// Collects the bare-name qualifiers of `Name.attr(...)` calls (`self.x()`, `os.getpid()`,
+/// `Config.get()` — all recorded; resolution filters to first-party class names).
+struct StaticCallCollector<'a> {
+    qualifiers: &'a mut Vec<String>,
+}
+
+impl Visitor<'_> for StaticCallCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if matches!(stmt, Stmt::ClassDef(_)) {
+            return; // nested class — its own unit; its static calls belong to it.
+        }
+        visitor::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) {
+        if let Expr::Call(call) = expr {
+            if let Expr::Attribute(attr) = call.func.as_ref() {
+                if let Expr::Name(name) = attr.value.as_ref() {
+                    self.qualifiers.push(name.id.to_string());
+                }
+            }
+        }
+        visitor::walk_expr(self, expr);
+    }
+}
+
 /// Every name in a type-annotation expression is a type reference, so collect them all — recursing
 /// through subscripts (`list[T]`), unions (`A | B`), and tuples (`tuple[A, B]` / `isinstance` arg
 /// tuples). String forward-refs (`"Foo"`) are skipped — part of the documented lower bound.
@@ -221,6 +263,13 @@ pub fn resolve_inheritance(files: &mut [&mut FileMetrics]) {
             class.fan_out = out_names.len();
             class.fan_in = in_names.map_or(0, std::collections::HashSet::len);
             class.cbo_modified = union.len();
+            // NOSI: class-qualified call sites (`SomeClass.method(...)`) whose qualifier is a
+            // first-party class — counted with multiplicity.
+            class.nosi = class
+                .static_call_candidates
+                .iter()
+                .filter(|q| class_names.contains(q.as_str()))
+                .count();
         }
     }
 }
@@ -554,6 +603,82 @@ class B:
                 "{name}: union of in/out is one class, not two"
             );
         }
+    }
+
+    #[test]
+    fn nosi_counts_class_qualified_static_invocations() {
+        // Service makes two class-qualified calls to the first-party Config (counted with
+        // multiplicity = 2). `self.helper(...)` (self is not a class) and `os.getpid()` (os is not
+        // first-party) are not counted. Config itself makes no calls -> 0.
+        let mut file = metrics(
+            "\
+import os
+
+class Config:
+    @staticmethod
+    def get():
+        return 1
+
+class Service:
+    def a(self):
+        return Config.get()
+
+    def b(self):
+        x = Config.get()
+        return self.helper(x)
+
+    def helper(self, x):
+        return os.getpid() + x
+",
+        );
+        resolve_inheritance(&mut [&mut file]);
+        let nosi = |name: &str| file.classes.iter().find(|c| c.name == name).unwrap().nosi;
+        assert_eq!(
+            nosi("Service"),
+            2,
+            "two Config.get() calls; self/os excluded"
+        );
+        assert_eq!(nosi("Config"), 0, "Config makes no calls");
+    }
+
+    #[test]
+    fn nosi_counts_own_class_static_self_call_and_resolves_across_files() {
+        // A call through the class's *own* name (Registry.make()) is class-qualified, so it counts.
+        // And the first-party set is project-wide: Helper lives in another file but Registry.make's
+        // `Store.put()` resolves against it.
+        let mut a = metrics(
+            "\
+class Registry:
+    @staticmethod
+    def make():
+        return 1
+
+    def build(self):
+        Store.put()
+        return Registry.make()
+",
+        );
+        let mut b = metrics("class Store:\n    @staticmethod\n    def put():\n        return 0\n");
+        resolve_inheritance(&mut [&mut a, &mut b]);
+        let registry = a.classes.iter().find(|c| c.name == "Registry").unwrap();
+        assert_eq!(
+            registry.nosi, 2,
+            "Store.put() (cross-file) + Registry.make() (own class)"
+        );
+    }
+
+    #[test]
+    fn nosi_is_zero_before_resolution() {
+        // Like CBO/fan-in, NOSI needs the project-wide pass; a bare file_metrics leaves it 0 even
+        // though the raw candidates are already collected.
+        let file = metrics("class C:\n    def f(self):\n        return Config.get()\n");
+        let c = &file.classes[0];
+        assert_eq!(c.nosi, 0, "unresolved");
+        assert_eq!(
+            c.static_call_candidates,
+            vec!["Config".to_string()],
+            "raw candidate collected"
+        );
     }
 
     #[test]
