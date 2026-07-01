@@ -13,6 +13,7 @@ use crate::exception::exception_stats;
 use crate::inheritance::{class_is_abstract, coupling_candidates, static_call_candidates};
 use crate::model::{ClassMetrics, FileMetrics, FunctionMetrics};
 use crate::size::{caller_arity, exit_count, line_span, ncss, param_count};
+use crate::syntactic::syntactic_counts;
 use crate::types::type_hint_coverage;
 use crate::{cohesion, expr_trailing_name, response};
 use sloplint_python::{collect_classes, collect_functions};
@@ -192,6 +193,7 @@ fn function_metrics(
     nested: &[TextRange],
 ) -> FunctionMetrics {
     let (typed_params, annotatable_params, has_return_annotation) = type_hint_coverage(function);
+    let syntactic = syntactic_counts(&function.body);
     FunctionMetrics {
         name: function.name.to_string(),
         range: function.range(),
@@ -209,6 +211,13 @@ fn function_metrics(
         has_return_annotation,
         has_docstring: docstring_range(&function.body).is_some(),
         docstring_lines: docstring_lines(source, &function.body),
+        loop_qty: syntactic.loops,
+        comparisons_qty: syntactic.comparisons,
+        numbers_qty: syntactic.numbers,
+        string_literals_qty: syntactic.strings,
+        math_ops_qty: syntactic.math_ops,
+        variables_qty: syntactic.variables,
+        unique_words_qty: syntactic.unique_words,
     }
 }
 

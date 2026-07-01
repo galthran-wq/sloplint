@@ -19,6 +19,7 @@ mod report;
 mod response;
 mod risk;
 mod size;
+mod syntactic;
 pub mod test_proxies;
 mod types;
 
@@ -293,6 +294,33 @@ mod tests {
             .unwrap();
         }
         insta::assert_snapshot!(out);
+    }
+
+    #[test]
+    fn syntactic_qty_counters_wired_through_file_metrics() {
+        // The *Qty counters ride the FunctionMetrics walk. A nested helper's loop must NOT leak
+        // into the outer function (own-body), and the comprehension counts as a loop.
+        let f = &metrics(
+            "\
+def outer(xs):
+    def helper():
+        while True:
+            pass
+    return [x == 1 for x in xs]
+",
+        )
+        .functions
+        .iter()
+        .find(|f| f.name == "outer")
+        .unwrap()
+        .clone();
+        assert_eq!(
+            f.loop_qty, 1,
+            "the comprehension only; helper's while is its own row"
+        );
+        assert_eq!(f.comparisons_qty, 1, "x == 1");
+        assert_eq!(f.numbers_qty, 1);
+        assert_eq!(f.variables_qty, 1, "the comprehension target x");
     }
 
     #[test]

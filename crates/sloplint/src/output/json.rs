@@ -400,6 +400,16 @@ pub(crate) fn function_row(
         "has_return_annotation": function.has_return_annotation,
         "has_docstring": function.has_docstring,
         "docstring_lines": function.docstring_lines,
+        // CK *Qty syntactic counters (own-body): loops (for/while/comprehension generators),
+        // comparison operators, numeric + string-literal occurrences, binary math/bit operators,
+        // distinct bound variables, and the distinct-identifier vocabulary.
+        "loop_qty": function.loop_qty,
+        "comparisons_qty": function.comparisons_qty,
+        "numbers_qty": function.numbers_qty,
+        "string_literals_qty": function.string_literals_qty,
+        "math_ops_qty": function.math_ops_qty,
+        "variables_qty": function.variables_qty,
+        "unique_words_qty": function.unique_words_qty,
         "file_loc": file.loc,
         "file_comment_density": comment_density,
     })
