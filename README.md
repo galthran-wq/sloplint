@@ -39,6 +39,7 @@ metric measures, how it's computed, how to read its bands, plus the per-profile 
 | [Function length](https://github.com/galthran-wq/sloplint/wiki/Metrics#function-length) | function | physical LoC + longest *logic* function |
 | [Parameter count / arity](https://github.com/galthran-wq/sloplint/wiki/Metrics#parameter-count) | function | Long-Parameter-List smell (caller-facing arity) |
 | [Type-hint coverage](https://github.com/galthran-wq/sloplint/wiki/Metrics#type-hint-coverage) | function | under-annotation as a quality concern |
+| [Syntactic size counters](https://github.com/galthran-wq/sloplint/wiki/Metrics#syntactic-counters) | function | CK `*Qty` family — loops, comparisons, literals, math ops, variables, vocabulary |
 | [WMC / DIT / NOC / CBO / fan-in/out / RFC / NOSI / LCOM4 / LCOM\* / TCC / LCC](https://github.com/galthran-wq/sloplint/wiki/Metrics#class-metrics) | class | CK class metrics + cohesion |
 | [Module size (NLOC)](https://github.com/galthran-wq/sloplint/wiki/Metrics#module-size) | module | god-module detection |
 | [Top-level / undecomposed code](https://github.com/galthran-wq/sloplint/wiki/Metrics#top-level--undecomposed-code) | module | logic dumped at module scope vs. in functions |

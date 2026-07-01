@@ -1,0 +1,10 @@
+---
+source: crates/sloplint_metrics/src/syntactic.rs
+expression: "syntactic_report(&fixture_source(\"complexity/syntactic.py\"))"
+---
+loops: loops=4 comparisons=0 numbers=1 strings=0 math_ops=0 variables=3 unique_words=4
+comparisons: loops=0 comparisons=4 numbers=1 strings=0 math_ops=0 variables=0 unique_words=2
+literals: loops=0 comparisons=0 numbers=3 strings=2 math_ops=1 variables=3 unique_words=3
+math_ops: loops=0 comparisons=0 numbers=2 strings=0 math_ops=5 variables=0 unique_words=2
+variables: loops=0 comparisons=0 numbers=4 strings=0 math_ops=2 variables=3 unique_words=3
+words: loops=0 comparisons=0 numbers=0 strings=0 math_ops=0 variables=1 unique_words=4

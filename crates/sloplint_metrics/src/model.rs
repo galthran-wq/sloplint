@@ -57,6 +57,22 @@ pub struct FunctionMetrics {
     /// trivial (low-`ncss`) function is the AI **over-documentation** signal that a bare
     /// `has_docstring` boolean can't capture.
     pub docstring_lines: usize,
+    /// `loopQty` — `for`/`while` statements plus comprehension `for` clauses, in the own body.
+    /// One of the CK `*Qty` syntactic counters; see [`crate::syntactic`].
+    pub loop_qty: usize,
+    /// `comparisonsQty` — comparison operators in the own body (each op of a chain counts).
+    pub comparisons_qty: usize,
+    /// `numbersQty` — numeric-literal occurrences in the own body (not deduplicated).
+    pub numbers_qty: usize,
+    /// `stringLiteralsQty` — string/f-string literal occurrences in the own body (bytes excluded).
+    pub string_literals_qty: usize,
+    /// `mathOpsQty` — binary arithmetic + bitwise operator occurrences in the own body.
+    pub math_ops_qty: usize,
+    /// `variablesQty` — distinct local names bound as a target in the own body (parameters excluded).
+    pub variables_qty: usize,
+    /// `uniqueWordsQty` — distinct identifiers referenced in the own body (the vocabulary; Python
+    /// keywords are syntax, so they are excluded).
+    pub unique_words_qty: usize,
 }
 
 /// Metrics for a single class.
