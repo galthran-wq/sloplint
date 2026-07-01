@@ -128,6 +128,22 @@ pub struct ClassMetrics {
     /// deduped. The raw input to [`Self::cbo`], resolved against the first-party class set
     /// project-wide (a candidate that no first-party class claims, e.g. `int`/`list`, is dropped).
     pub coupled: Vec<String>,
+    /// FAN-OUT — the number of distinct first-party classes this class **references** (efferent
+    /// coupling, the *out* direction). Resolved project-wide by [`resolve_inheritance`] (0 until it
+    /// runs). Same edge set and same lower-bound caveats as [`Self::cbo`], so `fan_out == cbo`; it
+    /// is surfaced under the CK fan-in/fan-out name to pair with [`Self::fan_in`].
+    pub fan_out: usize,
+    /// FAN-IN — the number of distinct first-party classes that **reference** this class (afferent
+    /// coupling, the *in* direction) — the reverse of [`Self::fan_out`]. A high fan-in marks a
+    /// widely-depended-on class (a change amplifier). Resolved by [`resolve_inheritance`] over the
+    /// same coupling edges, read backwards; assigned by name (every definition of a name shares its
+    /// fan-in, as with NOC). 0 until the pass runs.
+    pub fan_in: usize,
+    /// CBO-Modified — distinct first-party classes coupled to this one in **either** direction:
+    /// `|fan_out ∪ fan_in|`. The bidirectional coupling the classic CK CBO refers to (sloplint's
+    /// [`Self::cbo`] counts only the *out* direction), so `cbo_modified >= max(fan_in, fan_out)` and
+    /// `<= fan_in + fan_out`. Resolved by [`resolve_inheritance`]; 0 until it runs.
+    pub cbo_modified: usize,
     /// RFC — Response For a Class (Chidamber & Kemerer 1994): the size of the class's **response
     /// set** `|M ∪ R|` — its own methods `M` unioned with the distinct methods `R` those methods
     /// invoke. How much behavior one message to the class can trigger; the classic CK definition
