@@ -162,6 +162,19 @@ fn panel_json(
             "high": repo.cbo_risk.high,
             "very_high": repo.cbo_risk.very_high,
         },
+        // RFC: response-set size — own methods plus the distinct methods they invoke. The
+        // behavior one message to a class can trigger; complements CBO (collaborators) and WMC
+        // (own weight). A LOWER BOUND in dynamically-typed code. Descriptive bands (≤20 / 21–50 /
+        // 51–100 / >100), never a gate.
+        "max_rfc": repo.max_rfc,
+        "avg_rfc": repo.avg_rfc,
+        "p95_rfc": repo.p95_rfc,
+        "rfc_risk": {
+            "low": repo.rfc_risk.low,
+            "moderate": repo.rfc_risk.moderate,
+            "high": repo.rfc_risk.high,
+            "very_high": repo.rfc_risk.very_high,
+        },
         // Documentation coverage — distinct from comment_density (docstrings, not
         // `#`-comments). Low coverage = under-documented public API; a high docstring/code ratio
         // = AI over-documentation of trivia.
@@ -312,6 +325,9 @@ pub(crate) fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> s
         // CBO: distinct first-party classes this one couples to — a lower bound in
         // dynamically-typed code (duck-typed coupling not counted).
         "cbo": class.cbo,
+        // RFC: response-set size — own methods plus the distinct methods they invoke (by
+        // trailing callee name). A lower bound in dynamically-typed code.
+        "rfc": class.rfc,
         "is_abstract": class.is_abstract,
         "has_docstring": class.has_docstring,
         "docstring_lines": class.docstring_lines,

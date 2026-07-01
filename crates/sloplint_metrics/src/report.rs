@@ -175,6 +175,28 @@ impl RepoMetrics {
         )
     }
 
+    /// The response-set counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max RFC plus the
+    /// broad-responder histogram. Descriptive bands ([`RfcTier`]) — high `high`/`very high` counts
+    /// flag *broad responders to review before changing*, never defects. A **lower bound** in
+    /// dynamically-typed code (see [`Self::cbo_markdown`]), so the caption says so.
+    pub fn rfc_markdown(&self) -> String {
+        let risk = self.rfc_risk;
+        format!(
+            "**Response for a class (RFC)** — mean {:.1}, p95 {}, max {} _(approximate — \
+             lower bound in dynamic code)_.\n\n\
+             | RFC band | Classes |\n| --- | ---: |\n\
+             | low (≤20) | {} |\n| moderate (21–50) | {} |\n\
+             | high (51–100) | {} |\n| very high (>100) | {} |\n",
+            self.avg_rfc,
+            self.p95_rfc,
+            self.max_rfc,
+            risk.low,
+            risk.moderate,
+            risk.high,
+            risk.very_high,
+        )
+    }
+
     /// The module-size counterpart to [`Self::cyclomatic_markdown`]: mean/p95/max NLOC plus
     /// the god-module-prevalence histogram. Descriptive NLOC bands ([`ModuleSizeTier`]) — high
     /// `high`/`very high` counts flag *files to read*, never defects.

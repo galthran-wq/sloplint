@@ -75,6 +75,16 @@ fn classes_feed_reports_wmc_and_first_party_dit() {
     assert_eq!(rows["Circle"]["cbo"], 1, "base Shape");
     assert_eq!(rows["Unit"]["cbo"], 1, "base Circle");
     assert_eq!(rows["Panel"]["cbo"], 0, "Widget is third-party");
+
+    // RFC = |own methods ∪ distinct invoked callees|. Own-method calls (Shape.describe ->
+    // self.area()) fold back into the method set; free/builtin calls (Unit.area -> range) count.
+    assert_eq!(
+        rows["Shape"]["rfc"], 2,
+        "{{area, describe}}; self.area() folds in"
+    );
+    assert_eq!(rows["Circle"]["rfc"], 2, "{{__init__, area}}; no calls");
+    assert_eq!(rows["Unit"]["rfc"], 2, "{{area, range}}");
+    assert_eq!(rows["Panel"]["rfc"], 1, "{{render}}; no calls");
 }
 
 #[test]
@@ -100,4 +110,10 @@ fn json_reports_wmc_and_dit_aggregates() {
     let avg_cbo = prod["avg_cbo"].as_f64().unwrap();
     assert!((avg_cbo - 0.5).abs() < 1e-9, "avg_cbo = {avg_cbo}"); // (0+1+1+0)/4
     assert_eq!(prod["cbo_risk"]["low"], 4, "all four classes are ≤4 (low)");
+
+    // RFC: Shape/Circle/Unit each respond to 2, Panel to 1. max 2; mean (2+2+2+1)/4 = 1.75.
+    assert_eq!(prod["max_rfc"], 2);
+    let avg_rfc = prod["avg_rfc"].as_f64().unwrap();
+    assert!((avg_rfc - 1.75).abs() < 1e-9, "avg_rfc = {avg_rfc}");
+    assert_eq!(prod["rfc_risk"]["low"], 4, "all four classes are ≤20 (low)");
 }

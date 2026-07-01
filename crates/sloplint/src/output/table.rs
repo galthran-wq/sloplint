@@ -99,6 +99,16 @@ pub(crate) fn print_metrics_panel(label: &str, repo: &RepoMetrics) {
         "  CBO bands           low {} / moderate {} / high {} / very high {}",
         cbo.low, cbo.moderate, cbo.high, cbo.very_high
     );
+    // Response for a class (RFC) distribution: broad-responder prevalence (lower bound in dynamic code).
+    println!(
+        "  avg/p95/max RFC     {:.1} / {} / {}",
+        repo.avg_rfc, repo.p95_rfc, repo.max_rfc
+    );
+    let rfc = repo.rfc_risk;
+    println!(
+        "  RFC bands           low {} / moderate {} / high {} / very high {}",
+        rfc.low, rfc.moderate, rfc.high, rfc.very_high
+    );
     // Module size (NLOC) distribution: god-module prevalence — the third size leg.
     println!(
         "  avg/p95/max module  {:.1} / {} / {}  NLOC",
