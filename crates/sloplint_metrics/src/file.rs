@@ -227,6 +227,7 @@ fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef)
         .iter()
         .filter(|stmt| matches!(stmt, Stmt::FunctionDef(_)))
         .count();
+    let cohesion = cohesion::class_cohesion(class);
     ClassMetrics {
         name: class.name.to_string(),
         range: class.range(),
@@ -234,7 +235,10 @@ fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef)
         loc: line_span(source, class.range()),
         methods,
         attributes: cohesion::class_attribute_count(class),
-        lcom4: cohesion::class_cohesion(class).components,
+        lcom4: cohesion.components,
+        tcc: cohesion.tcc,
+        lcc: cohesion.lcc,
+        lcom_star: cohesion.lcom_star,
         wmc: class_wmc(parsed, class),
         dit: 0,
         noc: 0,

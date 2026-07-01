@@ -718,6 +718,22 @@ def f():
     }
 
     #[test]
+    fn cohesion_variants_populated_through_file_metrics() {
+        // The TCC/LCC/LCOM* variants ride the same access graph as LCOM4 and are wired onto
+        // ClassMetrics by file_metrics. Cohesive: both methods share self.x -> tcc/lcc 1.0, lcom* 0.
+        let cohesive = &metrics("class C:\n    def a(self):\n        return self.x\n\n    def b(self):\n        return self.x\n").classes[0];
+        assert_eq!(cohesive.tcc, 1.0);
+        assert_eq!(cohesive.lcc, 1.0);
+        assert_eq!(cohesive.lcom_star, 0.0);
+
+        // Incohesive: disjoint fields -> tcc/lcc 0.0, lcom* (2 - 1)/(2 - 1) = 1.0.
+        let incohesive = &metrics("class D:\n    def a(self):\n        return self.x\n\n    def b(self):\n        return self.y\n").classes[0];
+        assert_eq!(incohesive.tcc, 0.0);
+        assert_eq!(incohesive.lcc, 0.0);
+        assert_eq!(incohesive.lcom_star, 1.0);
+    }
+
+    #[test]
     fn aggregate_reports_wmc_distribution_not_just_max() {
         // Three classes WMC 0 (low), 21 (moderate — 21 trivial methods), and 51 (high — 51
         // trivial methods). The histogram must show the spread; max alone would hide the two
