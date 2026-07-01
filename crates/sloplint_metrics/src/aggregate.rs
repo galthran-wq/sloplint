@@ -26,6 +26,8 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
     let mut noc_values: Vec<usize> = Vec::new();
     let mut cbo_sum = 0usize;
     let mut cbo_values: Vec<usize> = Vec::new();
+    let mut rfc_sum = 0usize;
+    let mut rfc_values: Vec<usize> = Vec::new();
     let mut module_nloc_sum = 0usize;
     let mut module_nloc_values: Vec<usize> = Vec::new();
     // Top-level-code ratio: averaged only over modules that contain executable logic.
@@ -113,10 +115,14 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
             cbo_sum += class.cbo;
             cbo_values.push(class.cbo);
             repo.cbo_risk.record_cbo(class.cbo);
+            rfc_sum += class.rfc;
+            rfc_values.push(class.rfc);
+            repo.rfc_risk.record_rfc(class.rfc);
             repo.max_wmc = repo.max_wmc.max(class.wmc);
             repo.max_dit = repo.max_dit.max(class.dit);
             repo.max_noc = repo.max_noc.max(class.noc);
             repo.max_cbo = repo.max_cbo.max(class.cbo);
+            repo.max_rfc = repo.max_rfc.max(class.rfc);
             if is_public(&class.name) {
                 public_units += 1;
                 public_documented += usize::from(class.has_docstring);
@@ -196,6 +202,12 @@ pub fn aggregate(files: &[FileMetrics]) -> RepoMetrics {
         cbo_sum as f64 / repo.classes as f64
     };
     repo.p95_cbo = percentile(&mut cbo_values, 0.95);
+    repo.avg_rfc = if repo.classes == 0 {
+        0.0
+    } else {
+        rfc_sum as f64 / repo.classes as f64
+    };
+    repo.p95_rfc = percentile(&mut rfc_values, 0.95);
     repo.docstring_coverage = if public_units == 0 {
         0.0
     } else {

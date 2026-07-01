@@ -203,6 +203,43 @@ impl CboTier {
     }
 }
 
+/// RFC (Response For a Class) bands for response-set size — own methods plus the distinct
+/// methods they invoke. No canonical CK threshold, but the OO-metrics literature widely cites
+/// **~50 as high** and **~100 as very high**, so these **descriptive** bands (calibrated against
+/// the cohort, never a pass/fail standard) follow that rule of thumb. Boundaries (inclusive):
+/// **≤20 low** (focused), **21–50 moderate**, **51–100 high** (a broad responder to review),
+/// **>100 very high** (a class one message pulls dozens of collaborators into). A **lower bound**
+/// in dynamically-typed Python (see [`ClassMetrics::rfc`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RfcTier {
+    Low,
+    Moderate,
+    High,
+    VeryHigh,
+}
+
+impl RfcTier {
+    /// Classify a class's RFC into its response-set band.
+    pub fn from_rfc(rfc: usize) -> Self {
+        match rfc {
+            0..=20 => RfcTier::Low,
+            21..=50 => RfcTier::Moderate,
+            51..=100 => RfcTier::High,
+            _ => RfcTier::VeryHigh,
+        }
+    }
+
+    /// Short, stable label used in tables and JSON.
+    pub fn label(self) -> &'static str {
+        match self {
+            RfcTier::Low => "low",
+            RfcTier::Moderate => "moderate",
+            RfcTier::High => "high",
+            RfcTier::VeryHigh => "very high",
+        }
+    }
+}
+
 /// Module (file) NLOC size bands for god-module prevalence. Like [`WmcTier`], file size has
 /// **no** canonical hard threshold, so these are **descriptive** bands calibrated against the
 /// cohort (SonarQube's ~750–1000-line guidance is the starting point), never a pass/fail standard.
@@ -338,6 +375,16 @@ impl RiskHistogram {
         }
     }
 
+    /// Record a class by its RFC band — response-set size (broad-responder risk).
+    pub(crate) fn record_rfc(&mut self, rfc: usize) {
+        match RfcTier::from_rfc(rfc) {
+            RfcTier::Low => self.low += 1,
+            RfcTier::Moderate => self.moderate += 1,
+            RfcTier::High => self.high += 1,
+            RfcTier::VeryHigh => self.very_high += 1,
+        }
+    }
+
     /// Record a module by its NLOC band — the file-side counterpart to [`Self::record`].
     pub(crate) fn record_module_size(&mut self, nloc: usize) {
         match ModuleSizeTier::from_nloc(nloc) {
@@ -439,6 +486,12 @@ mod tests {
             "CboTier::from_cbo",
             &[0, 4, 5, 9, 10, 20, 21],
             |v| CboTier::from_cbo(v).label(),
+        ));
+        // RFC: ≤20 low, 21–50 moderate, 51–100 high, >100 very high.
+        report.push_str(&bands(
+            "RfcTier::from_rfc",
+            &[0, 20, 21, 50, 51, 100, 101],
+            |v| RfcTier::from_rfc(v).label(),
         ));
         // Module NLOC: ≤250 low, 251–500 moderate, 501–1000 high, >1000 very high.
         report.push_str(&bands(

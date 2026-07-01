@@ -14,7 +14,7 @@ use crate::inheritance::{class_is_abstract, coupling_candidates};
 use crate::model::{ClassMetrics, FileMetrics, FunctionMetrics};
 use crate::size::{caller_arity, exit_count, line_span, ncss, param_count};
 use crate::types::type_hint_coverage;
-use crate::{cohesion, expr_trailing_name};
+use crate::{cohesion, expr_trailing_name, response};
 use sloplint_python::{collect_classes, collect_functions};
 
 /// Compute metrics for one parsed file.
@@ -217,9 +217,10 @@ fn docstring_lines(source: &str, body: &[Stmt]) -> usize {
     docstring_range(body).map_or(0, |range| line_span(source, range))
 }
 
-/// Per-class metrics: size (methods, distinct instance attributes), LCOM4 cohesion, and WMC.
-/// `dit`/`noc` are left at 0 here — inheritance depth and breadth are project-wide properties
-/// filled in later by [`resolve_inheritance`], once every file's classes are known.
+/// Per-class metrics: size (methods, distinct instance attributes), LCOM4 cohesion, WMC, and RFC
+/// (all single-file). `dit`/`noc`/`cbo` are left at 0 here — inheritance depth/breadth and coupling
+/// are project-wide properties filled in later by [`resolve_inheritance`], once every file's
+/// classes are known.
 fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef) -> ClassMetrics {
     let methods = class
         .body
@@ -244,6 +245,7 @@ fn class_metrics(source: &str, parsed: &Parsed<ModModule>, class: &StmtClassDef)
             .collect(),
         cbo: 0,
         coupled: coupling_candidates(class),
+        rfc: response::class_rfc(class),
         is_abstract: class_is_abstract(class),
         has_docstring: docstring_range(&class.body).is_some(),
         docstring_lines: docstring_lines(source, &class.body),

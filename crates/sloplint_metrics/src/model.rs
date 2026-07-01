@@ -116,6 +116,18 @@ pub struct ClassMetrics {
     /// deduped. The raw input to [`Self::cbo`], resolved against the first-party class set
     /// project-wide (a candidate that no first-party class claims, e.g. `int`/`list`, is dropped).
     pub coupled: Vec<String>,
+    /// RFC — Response For a Class (Chidamber & Kemerer 1994): the size of the class's **response
+    /// set** `|M ∪ R|` — its own methods `M` unioned with the distinct methods `R` those methods
+    /// invoke. How much behavior one message to the class can trigger; the classic CK definition
+    /// the empirical-threshold literature uses.
+    ///
+    /// A single-file property (no project resolution needed, unlike [`Self::cbo`]), but an
+    /// **approximation** for the same dynamic-typing reason: the response set is keyed by each
+    /// callee's trailing name (`self.f()`/`obj.f()`/`pkg.f()` all count as `f`), so two distinct
+    /// `f`s collapse to one entry, and — Python drawing no method/function line — plain function
+    /// and builtin calls are counted as invocations. Own-method calls fold back into `M`. See
+    /// [`class_rfc`].
+    pub rfc: usize,
     /// Whether this class counts as "abstract" for Martin's package abstractness ratio.
     /// A documented heuristic ([`class_is_abstract`]), since Python has no interface keyword.
     pub is_abstract: bool,

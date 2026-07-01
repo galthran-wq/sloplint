@@ -1,0 +1,10 @@
+---
+source: crates/sloplint_metrics/src/response.rs
+expression: "rfc_report(&fixture_source(\"cohesion/rfc.py\"))"
+---
+Shape: rfc=2
+Facade: rfc=4
+Loop: rfc=3
+Nested: rfc=2
+Endpoint: rfc=2
+Empty: rfc=0

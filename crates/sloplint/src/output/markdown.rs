@@ -18,13 +18,14 @@ pub(crate) fn metrics_markdown(
     let mut out = String::from("### sloplint metrics\n\n");
     for (name, repo, clone) in panels {
         out.push_str(&format!(
-            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
+            "#### {name}\n\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
             repo.cyclomatic_markdown(),
             repo.cognitive_markdown(),
             repo.params_markdown(),
             repo.wmc_markdown(),
             repo.noc_markdown(),
             repo.cbo_markdown(),
+            repo.rfc_markdown(),
             repo.module_size_markdown(),
             repo.exception_markdown(),
             clone_markdown(clone),

@@ -16,6 +16,7 @@ mod inheritance;
 mod model;
 pub mod modularity;
 mod report;
+mod response;
 mod risk;
 mod size;
 pub mod test_proxies;
@@ -27,8 +28,8 @@ mod testing;
 pub use inheritance::resolve_inheritance;
 pub use model::{ClassMetrics, ExceptionStats, FileMetrics, FunctionMetrics};
 pub use risk::{
-    CboTier, CognitiveTier, ModuleSizeTier, NocTier, ParamCountTier, RiskHistogram, RiskTier,
-    WmcTier,
+    CboTier, CognitiveTier, ModuleSizeTier, NocTier, ParamCountTier, RfcTier, RiskHistogram,
+    RiskTier, WmcTier,
 };
 
 pub use aggregate::{
@@ -155,6 +156,18 @@ pub struct RepoMetrics {
     /// Count of classes in each CBO coupling band — hub-class *prevalence*. Descriptive
     /// bands ([`CboTier`]), never a gate; a lower bound on dynamically-typed code.
     pub cbo_risk: RiskHistogram,
+    /// Largest response set of any class (RFC) — the class one message pulls the most behavior
+    /// out of. A single-file property (no [`resolve_inheritance`] needed); a lower bound in
+    /// dynamically-typed code.
+    pub max_rfc: usize,
+    /// Mean RFC across all classes.
+    pub avg_rfc: f64,
+    /// 95th-percentile class RFC (nearest-rank) — the response tail; most classes respond to
+    /// little, so p95 surfaces the broad responders the mean buries.
+    pub p95_rfc: usize,
+    /// Count of classes in each RFC response-set band — broad-responder *prevalence*.
+    /// Descriptive bands ([`RfcTier`]), never a gate; a lower bound on dynamically-typed code.
+    pub rfc_risk: RiskHistogram,
     /// Docstring coverage: public defs/classes carrying a docstring, as a fraction of all public
     /// defs/classes (0.0–1.0). "Public" = a name not `_`-prefixed. Distinct from
     /// `comment_density` (which counts `#`-comments, not docstrings) — low coverage flags an
@@ -696,8 +709,8 @@ def f():
         for c in &metrics(&source).classes {
             writeln!(
                 out,
-                "{}: methods={} attributes={} lcom4={} wmc={} loc={}",
-                c.name, c.methods, c.attributes, c.lcom4, c.wmc, c.loc
+                "{}: methods={} attributes={} lcom4={} wmc={} rfc={} loc={}",
+                c.name, c.methods, c.attributes, c.lcom4, c.wmc, c.rfc, c.loc
             )
             .unwrap();
         }
@@ -771,6 +784,48 @@ class Hub:
         let file =
             metrics("class A:\n    pass\n\nclass B:\n    def f(self) -> A:\n        return A()\n");
         assert_eq!(file.classes.iter().find(|c| c.name == "B").unwrap().cbo, 0);
+    }
+
+    #[test]
+    fn aggregate_reports_rfc_distribution() {
+        // Facade responds to its 2 own methods plus the 2 distinct remote calls (run, go) = RFC 4;
+        // the two leaves respond only to their own single method = RFC 1. RFC is single-file, so no
+        // resolve_inheritance is needed. max 4, mean (1+1+4)/3, all in the low band.
+        let file = metrics(
+            "\
+class A:
+    def f(self):
+        return 1
+
+class B:
+    def g(self):
+        return 2
+
+class Facade:
+    def parse(self, t):
+        return self.parser.run(t)
+
+    def render(self, n):
+        return self.formatter.go(n)
+",
+        );
+        let repo = aggregate(&[file]);
+        assert_eq!(repo.classes, 3);
+        assert_eq!(repo.max_rfc, 4, "Facade: parse, render, run, go");
+        assert!((repo.avg_rfc - 6.0 / 3.0).abs() < 1e-9, "mean of [1, 1, 4]");
+        assert_eq!(repo.p95_rfc, 4);
+        assert_eq!(repo.rfc_risk.low, 3, "all three are ≤20");
+    }
+
+    #[test]
+    fn rfc_is_single_file_no_resolution_needed() {
+        // Unlike CBO/DIT/NOC, RFC is computed locally in file_metrics — a bare metrics() call
+        // already has it populated (own methods + distinct invoked callees).
+        let file = metrics(
+            "class C:\n    def m(self, xs):\n        return len(xs)\n\n    def n(self):\n        return self.m([])\n",
+        );
+        // M = {m, n}; R adds len (self.m folds back into M). RFC = 3.
+        assert_eq!(file.classes[0].rfc, 3);
     }
 
     #[test]
