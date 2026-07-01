@@ -76,6 +76,18 @@ pub struct ClassMetrics {
     /// LCOM4 cohesion: connected components among non-constructor methods. >1 = low cohesion
     /// ("god class" that should be split). See [`cohesion`].
     pub lcom4: usize,
+    /// TCC — Tight Class Cohesion (Bieman & Kang 1995), in `[0, 1]`: the fraction of
+    /// non-constructor method pairs that directly share ≥1 instance attribute. Higher = more
+    /// cohesive; 0.0 when there are <2 methods. A different aggregation of the same access graph as
+    /// [`Self::lcom4`] — see [`cohesion`].
+    pub tcc: f64,
+    /// LCC — Loose Class Cohesion (Bieman & Kang 1995), in `[0, 1]`: like [`Self::tcc`] but also
+    /// counting method pairs connected transitively through shared attributes, so `lcc >= tcc`.
+    pub lcc: f64,
+    /// LCOM\* — Henderson-Sellers (1996) normalized *lack* of cohesion, in `[0, 1]`: 0.0 when
+    /// every method touches every field, 1.0 when each field has a single accessor. The normalized
+    /// counterpart to the count-based [`Self::lcom4`].
+    pub lcom_star: f64,
     /// WMC — Weighted Methods per Class (Chidamber & Kemerer 1994): the sum of the cyclomatic
     /// complexity of the class's **direct** methods. A class-weight measure — "how heavy is this
     /// class" — that distinguishes 40 trivial accessors from 40 branchy ones, unlike a raw

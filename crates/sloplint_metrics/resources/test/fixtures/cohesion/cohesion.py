@@ -126,3 +126,17 @@ class NestedAccess:
 
     def b(self):
         return sum(self.value)
+
+
+# Transitive bridge: `link` shares self.a with m1 and self.b with m3, but m1 and m3 share nothing
+# directly. Direct pairs {m1-link, link-m3} = 2 -> tcc 2/3; all one component -> lcc 3/3 = 1.0, so
+# lcc > tcc. LCOM*: m=3, fields {a, b} each with 2 accessors -> mean 2 -> (3-2)/(3-1) = 0.5.
+class Bridge:
+    def m1(self):
+        return self.a
+
+    def link(self):
+        return self.a + self.b
+
+    def m3(self):
+        return self.b

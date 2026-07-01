@@ -225,8 +225,9 @@ pub(crate) fn print_function_rows(per_file: &[MeasuredFile], scope: &Scope) {
     }
 }
 
-/// Emit one JSONL row per class: size (methods, attributes) + LCOM4 cohesion. The class-level
-/// discovery feed, mirroring `print_function_rows`.
+/// Emit one JSONL row per class: size (methods, attributes) + the cohesion suite
+/// (LCOM4 / TCC / LCC / LCOM\*) + the CK metrics. The class-level discovery feed, mirroring
+/// `print_function_rows`.
 pub(crate) fn print_class_rows(per_file: &[MeasuredFile], scope: &Scope) {
     let stdout = io::stdout();
     let mut out = stdout.lock();

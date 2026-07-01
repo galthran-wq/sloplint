@@ -2,13 +2,14 @@
 source: crates/sloplint_metrics/src/cohesion.rs
 expression: "cohesion_report(&fixture_source(\"cohesion/cohesion.py\"))"
 ---
-Counter: methods=2 components=1 attributes=1
-Utils: methods=4 components=2 attributes=2
-MethodCalls: methods=2 components=1 attributes=0
-ConstructorExcluded: methods=2 components=2 attributes=2
-Statics: methods=2 components=2 attributes=0
-Single: methods=1 components=1 attributes=0
-ShadowedReceiver: methods=3 components=2 attributes=1
-ClassmethodReceiver: methods=3 components=1 attributes=1
-ResetViaInit: methods=2 components=2 attributes=2
-NestedAccess: methods=2 components=1 attributes=1
+Counter: methods=2 components=1 attributes=1 tcc=1.000 lcc=1.000 lcom*=0.000
+Utils: methods=4 components=2 attributes=2 tcc=0.333 lcc=0.333 lcom*=0.667
+MethodCalls: methods=2 components=1 attributes=0 tcc=0.000 lcc=0.000 lcom*=0.000
+ConstructorExcluded: methods=2 components=2 attributes=2 tcc=0.000 lcc=0.000 lcom*=1.000
+Statics: methods=2 components=2 attributes=0 tcc=0.000 lcc=0.000 lcom*=0.000
+Single: methods=1 components=1 attributes=0 tcc=0.000 lcc=0.000 lcom*=0.000
+ShadowedReceiver: methods=3 components=2 attributes=1 tcc=0.333 lcc=0.333 lcom*=0.500
+ClassmethodReceiver: methods=3 components=1 attributes=1 tcc=1.000 lcc=1.000 lcom*=0.000
+ResetViaInit: methods=2 components=2 attributes=2 tcc=0.000 lcc=0.000 lcom*=1.000
+NestedAccess: methods=2 components=1 attributes=1 tcc=1.000 lcc=1.000 lcom*=0.000
+Bridge: methods=3 components=1 attributes=2 tcc=0.667 lcc=1.000 lcom*=0.500

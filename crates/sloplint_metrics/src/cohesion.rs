@@ -1,14 +1,28 @@
-//! Class cohesion via **LCOM4** (Hitz & Montazeri, 1995): the number of connected components
-//! in a class's method graph.
+//! Class cohesion over one method×attribute access graph, aggregated four ways: **LCOM4**
+//! (Hitz & Montazeri, 1995) plus the CK alternatives **TCC**/**LCC** (Bieman & Kang, 1995) and
+//! **LCOM\*** (Henderson-Sellers, 1996). All read the same underlying data — which methods touch
+//! which instance attributes — so they're different views of one cheap AST walk.
 //!
-//! Nodes are the class's methods; two methods are linked when they touch a common instance
-//! attribute (`self.x`) or one calls the other (`self.other()`). A class whose graph splits
-//! into ≥2 components is really N unrelated classes glued together — a low-cohesion "god"
+//! For **LCOM4**, nodes are the class's methods; two methods are linked when they touch a common
+//! instance attribute (`self.x`) or one calls the other (`self.other()`). A class whose graph
+//! splits into ≥2 components is really N unrelated classes glued together — a low-cohesion "god"
 //! class (catch-all `Utils`/`Manager`/`Service`) that should have been split.
 //!
-//! Constructors (`__init__`/`__new__`/`__post_init__`) are **excluded** from the graph: they
+//! **TCC** and **LCC** are ratios in `[0, 1]` over the **shared-attribute** graph only (a method
+//! *call* is not attribute sharing, so unlike LCOM4 it does not create a TCC/LCC edge): TCC is the
+//! fraction of method pairs that share ≥1 attribute directly; LCC also counts pairs connected
+//! transitively (same component), so `lcc >= tcc`. Higher = more cohesive. Following the standard
+//! (Bieman-Kang) formulation, this counts direct attribute sharing and does **not** propagate a
+//! field access through invocation trees — a documented lower bound on connectivity, in the spirit
+//! of the crate's other dynamic-Python approximations.
+//!
+//! **LCOM\*** is Henderson-Sellers' normalized *lack* of cohesion in `[0, 1]`:
+//! `(m − mean_methods_per_field) / (m − 1)` — 0.0 when every method touches every field, 1.0 when
+//! each field is touched by a single method.
+//!
+//! Constructors (`__init__`/`__new__`/`__post_init__`) are **excluded** from all four (they
 //! initialize every attribute and would spuriously connect otherwise-unrelated method groups,
-//! defeating the metric. This is the standard LCOM4 treatment. (A known consequence is that a
+//! defeating the metrics). This is the standard LCOM treatment. (A known consequence is that a
 //! getter-heavy data holder can score as low-cohesion; that is why callers allowlist data
 //! classes.)
 
@@ -18,37 +32,51 @@ use crate::is_staticmethod;
 use sloplint_python::ast::visitor::{self, Visitor};
 use sloplint_python::ast::{Expr, Parameters, Stmt, StmtClassDef, StmtFunctionDef};
 
-/// LCOM4 result for one class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The four cohesion views of one class, all over the same method×attribute access graph.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClassCohesion {
     /// Methods considered (every method except constructors).
     pub methods: usize,
-    /// LCOM4: connected components among those methods. 0 for no methods, 1 for a cohesive
-    /// class, ≥2 for a class that splits into unrelated method groups.
+    /// LCOM4: connected components among those methods (attribute-sharing **and** method-call
+    /// edges). 0 for no methods, 1 for a cohesive class, ≥2 for a class that splits into unrelated
+    /// method groups.
     pub components: usize,
+    /// TCC — Tight Class Cohesion (Bieman & Kang 1995): the fraction of method pairs that are
+    /// **directly** connected (share ≥1 instance attribute), out of all `methods·(methods−1)/2`
+    /// pairs. `[0, 1]`, higher = more cohesive. 0.0 when there are <2 methods or no sharing.
+    pub tcc: f64,
+    /// LCC — Loose Class Cohesion (Bieman & Kang 1995): like [`Self::tcc`] but counting method
+    /// pairs connected **directly or transitively** (same component of the shared-attribute
+    /// graph), so `lcc >= tcc`. `[0, 1]`. 0.0 when there are <2 methods.
+    pub lcc: f64,
+    /// LCOM\* — Henderson-Sellers (1996) normalized *lack* of cohesion: `(m − mean) / (m − 1)`,
+    /// where `m` is the method count and `mean` is the average number of methods accessing each
+    /// field. `[0, 1]`: 0.0 = maximally cohesive (every method touches every field), 1.0 =
+    /// maximally incohesive. 0.0 in the degenerate cases (`m ≤ 1` or no fields accessed).
+    pub lcom_star: f64,
 }
 
-/// Compute [`ClassCohesion`] (LCOM4) for `class`.
+/// Compute the four [`ClassCohesion`] views for `class` in a single AST walk.
 pub fn class_cohesion(class: &StmtClassDef) -> ClassCohesion {
-    // Every method directly in the class body, and the subset that are graph nodes.
-    let all_methods: Vec<&StmtFunctionDef> = class
+    let nodes: Vec<&StmtFunctionDef> = class
         .body
         .iter()
         .filter_map(|stmt| match stmt {
             Stmt::FunctionDef(function) => Some(function),
             _ => None,
         })
-        .collect();
-    let nodes: Vec<&StmtFunctionDef> = all_methods
-        .iter()
-        .copied()
         .filter(|method| !is_constructor(method.name.as_str()))
         .collect();
 
-    if nodes.len() <= 1 {
+    let n = nodes.len();
+    if n <= 1 {
+        // <2 methods: no pairs to connect and (m ≤ 1) LCOM* is undefined → all ratios 0.0.
         return ClassCohesion {
-            methods: nodes.len(),
-            components: nodes.len(),
+            methods: n,
+            components: n,
+            tcc: 0.0,
+            lcc: 0.0,
+            lcom_star: 0.0,
         };
     }
 
@@ -58,8 +86,11 @@ pub fn class_cohesion(class: &StmtClassDef) -> ClassCohesion {
         .map(|(i, method)| (method.name.as_str(), i))
         .collect();
 
-    let mut uf = UnionFind::new(nodes.len());
-    // attribute name -> the nodes that access it (to union methods sharing state).
+    // LCOM4 graph (attribute-sharing + method-call edges) and the per-method attribute sets that
+    // the attribute-only TCC/LCC/LCOM* views read.
+    let mut lcom4 = UnionFind::new(n);
+    let mut attrs_per_node: Vec<HashSet<&str>> = vec![HashSet::new(); n];
+    // attribute name -> the nodes that access it (shared-attribute unioning + LCOM* field counts).
     let mut attr_users: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
 
     for (i, method) in nodes.iter().enumerate() {
@@ -79,25 +110,64 @@ pub fn class_cohesion(class: &StmtClassDef) -> ClassCohesion {
                 continue;
             }
             if let Some(&j) = node_index.get(name) {
-                // `self.other()` / `self.other` — a method-to-method link.
-                uf.union(i, j);
+                // `self.other()` / `self.other` — a method-to-method link (LCOM4 only; a call is
+                // not attribute sharing, so it is not a TCC/LCC edge).
+                lcom4.union(i, j);
             } else {
-                // `self.attr` — record for shared-attribute unioning.
+                // `self.attr` — a shared-attribute candidate.
+                attrs_per_node[i].insert(name);
                 attr_users.entry(name).or_default().push(i);
             }
         }
     }
 
-    // Two methods touching the same attribute are linked.
+    // LCOM4: two methods touching the same attribute are also linked.
     for users in attr_users.values() {
         for pair in users.windows(2) {
-            uf.union(pair[0], pair[1]);
+            lcom4.union(pair[0], pair[1]);
         }
     }
+    let components = lcom4.components();
+
+    // TCC/LCC: the shared-attribute graph only. A direct connection is a shared attribute; LCC
+    // additionally counts pairs in the same connected component of that graph.
+    let mut attr_graph = UnionFind::new(n);
+    let mut direct_pairs = 0usize;
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if !attrs_per_node[i].is_disjoint(&attrs_per_node[j]) {
+                direct_pairs += 1;
+                attr_graph.union(i, j);
+            }
+        }
+    }
+    let total_pairs = n * (n - 1) / 2;
+    let mut component_size: HashMap<usize, usize> = HashMap::new();
+    for i in 0..n {
+        *component_size.entry(attr_graph.find(i)).or_insert(0) += 1;
+    }
+    let connected_pairs: usize = component_size.values().map(|&c| c * (c - 1) / 2).sum();
+    let tcc = direct_pairs as f64 / total_pairs as f64;
+    let lcc = connected_pairs as f64 / total_pairs as f64;
+
+    // LCOM*: Henderson-Sellers normalized lack of cohesion over the same method/field data. The
+    // fields are those the (non-constructor) methods actually access; `mean` is their average
+    // accessor count.
+    let fields = attr_users.len();
+    let lcom_star = if fields == 0 {
+        0.0
+    } else {
+        let sum_mf: usize = attr_users.values().map(|users| users.len()).sum();
+        let mean_mf = sum_mf as f64 / fields as f64;
+        (n as f64 - mean_mf) / (n as f64 - 1.0)
+    };
 
     ClassCohesion {
-        methods: nodes.len(),
-        components: uf.components(),
+        methods: n,
+        components,
+        tcc,
+        lcc,
+        lcom_star,
     }
 }
 
@@ -274,8 +344,14 @@ mod tests {
                 let attributes = class_attribute_count(class);
                 writeln!(
                     out,
-                    "{}: methods={} components={} attributes={}",
-                    class.name, cohesion.methods, cohesion.components, attributes
+                    "{}: methods={} components={} attributes={} tcc={:.3} lcc={:.3} lcom*={:.3}",
+                    class.name,
+                    cohesion.methods,
+                    cohesion.components,
+                    attributes,
+                    cohesion.tcc,
+                    cohesion.lcc,
+                    cohesion.lcom_star,
                 )
                 .unwrap();
             }

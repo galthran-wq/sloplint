@@ -318,6 +318,12 @@ pub(crate) fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> s
         "methods": class.methods,
         "attributes": class.attributes,
         "lcom4": class.lcom4,
+        // Cohesion variants over the same access graph as LCOM4: TCC/LCC (0–1, higher = more
+        // cohesive) and LCOM* (0–1, higher = less cohesive). TCC/LCC count direct shared-attribute
+        // connections (a documented lower bound — no invocation-tree propagation).
+        "tcc": class.tcc,
+        "lcc": class.lcc,
+        "lcom_star": class.lcom_star,
         "wmc": class.wmc,
         "dit": class.dit,
         // NOC: direct first-party subclasses — inheritance breadth / fragile-base risk.
