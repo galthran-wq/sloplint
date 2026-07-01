@@ -128,6 +128,11 @@ pub struct ClassMetrics {
     /// deduped. The raw input to [`Self::cbo`], resolved against the first-party class set
     /// project-wide (a candidate that no first-party class claims, e.g. `int`/`list`, is dropped).
     pub coupled: Vec<String>,
+    /// Raw qualifier names of the *class-qualified* call sites (`Name.method(...)`) in this class's
+    /// body — one entry per call site (multiplicity preserved, since [`Self::nosi`] counts
+    /// invocations). Unresolved here; [`resolve_inheritance`] keeps only those naming a first-party
+    /// class. The raw input to NOSI, analogous to [`Self::coupled`] for CBO.
+    pub static_call_candidates: Vec<String>,
     /// FAN-OUT — the number of distinct first-party classes this class **references** (efferent
     /// coupling, the *out* direction). Resolved project-wide by [`resolve_inheritance`] (0 until it
     /// runs). Same edge set and same lower-bound caveats as [`Self::cbo`], so `fan_out == cbo`; it
@@ -144,6 +149,17 @@ pub struct ClassMetrics {
     /// [`Self::cbo`] counts only the *out* direction), so `cbo_modified >= max(fan_in, fan_out)` and
     /// `<= fan_in + fan_out`. Resolved by [`resolve_inheritance`]; 0 until it runs.
     pub cbo_modified: usize,
+    /// NOSI — Number Of Static Invocations: the count of *class-qualified* call sites
+    /// (`SomeClass.method(...)`) in this class's body that resolve to a first-party class — the
+    /// reliable syntactic form of a static/class-method call in Python. Resolved project-wide by
+    /// [`resolve_inheritance`] (0 until it runs). A **lower bound**: a static method invoked through
+    /// an instance or `self` (`self.helper()`) is syntactically indistinguishable from an ordinary
+    /// instance call without type inference, so only the class-qualified form is counted. Invocations
+    /// are counted with multiplicity (two `Config.get()` calls count as 2). Resolution is
+    /// scope-unaware (as with [`Self::cbo`]), so a local or module name shadowing a first-party class
+    /// name can over-count — and, counting with multiplicity, more than CBO's deduped count would;
+    /// the two biases sit on opposite sides of the true value.
+    pub nosi: usize,
     /// RFC — Response For a Class (Chidamber & Kemerer 1994): the size of the class's **response
     /// set** `|M ∪ R|` — its own methods `M` unioned with the distinct methods `R` those methods
     /// invoke. How much behavior one message to the class can trigger; the classic CK definition

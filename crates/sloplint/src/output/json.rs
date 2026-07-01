@@ -337,6 +337,10 @@ pub(crate) fn class_row(path: &str, class: &sloplint_metrics::ClassMetrics) -> s
         "fan_out": class.fan_out,
         "fan_in": class.fan_in,
         "cbo_modified": class.cbo_modified,
+        // NOSI: class-qualified static/class-method invocations (`SomeClass.method(...)`) to a
+        // first-party class, counted with multiplicity. A lower bound (instance-routed static
+        // calls are indistinguishable from ordinary instance calls).
+        "nosi": class.nosi,
         // RFC: response-set size — own methods plus the distinct methods they invoke (by
         // trailing callee name). A lower bound in dynamically-typed code.
         "rfc": class.rfc,
