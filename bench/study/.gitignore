@@ -1,0 +1,11 @@
+# Datasets are point-in-time snapshots of live GitHub — large and not byte-reproducible.
+# Regenerate with the scripts (see FINDINGS.md). Reports + scripts are the committed deliverables.
+*.jsonl
+*.gz
+checkouts/
+# keep the generated figures committed (they ARE the deliverable here)
+!viz_*.png
+
+# per-repo badge demo outputs (regenerate via badge.py)
+badge_*.png
+badge_*.svg

@@ -1,0 +1,11 @@
+# Benchmark rule selection. Run with `--config bench/sloplint.bench.toml`.
+#
+# We DISABLE two rules for the cohort comparison because they measure surface counts, not
+# slop, and would otherwise dominate findings/kLOC in BOTH cohorts (drowning the signal):
+#   - SLP010: blanket comment-ban — fires on every comment (231 of 284 findings on clean
+#             tenacity). It tracks comment density, not code quality.
+#   - SLP050: ASCII-only — fires on any non-ASCII char; noise for a quality comparison.
+# Everything else (clones, redundant comment/docstring, type hints, naming, cohesion,
+# complexity/size/nesting, imports, ...) stays on, including preview rules.
+preview = true
+ignore = ["SLP010", "SLP050"]
